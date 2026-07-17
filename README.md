@@ -2,8 +2,6 @@
   <img src="./assets/banner.png" alt="cRust — language baked better" width="700">
 </p>
 
-# cRust 🍕
-
 An interpreted programming language, written in Go, where every keyword is
 pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
