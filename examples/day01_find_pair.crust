@@ -1,0 +1,22 @@
+// AoC 2020 Day 1, shape only: find the two entries that sum to 2020
+// and report the product. Demonstrates recipe/knead/order/serve/nobox.
+
+recipe findPair(nums, target) {
+    knead (topping i = 0; i < len(nums); i = i + 1) {
+        knead (topping j = i + 1; j < len(nums); j = j + 1) {
+            order (nums[i] + nums[j] == target) {
+                serve [nums[i], nums[j]]
+            }
+        }
+    }
+    serve nobox
+}
+
+topping entries = [1721, 979, 366, 299, 675, 1456]
+topping pair = findPair(entries, 2020)
+
+order (pair == nobox) {
+    deliver("no combo found")
+} special {
+    deliver(pair[0] * pair[1])
+}

@@ -10,14 +10,18 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [ ] `.gitignore`, `LICENSE`
 - [ ] GitHub Actions CI: `go build`, `go vet`, `go test ./...`
 
-## Phase 1 — Language Design
-- [ ] Core types: int, float, string, bool, list, map, nil
-- [ ] Pizza-jargon keyword vocabulary (map every keyword to a pizza term —
+## Phase 1 — Language Design ✅
+- [x] Core types: int, float, string, bool, list, map, nil
+- [x] Pizza-jargon keyword vocabulary (map every keyword to a pizza term —
       e.g. declare/func/if/else/for/while/return/print/true/false)
-- [ ] Syntax style: braces vs. indentation, statement terminators, comments
-- [ ] Write `docs/SPEC.md` with grammar (EBNF) and semantics
-- [ ] Write a "Hello World" and one AoC-shaped sample program by hand, in
+- [x] Syntax style: braces vs. indentation, statement terminators, comments
+- [x] Write `docs/SPEC.md` with grammar (EBNF) and semantics
+- [x] Write a "Hello World" and one AoC-shaped sample program by hand, in
       the target syntax, to sanity-check ergonomics before coding anything
+
+  → See [docs/SPEC.md](./docs/SPEC.md) for the full keyword table, grammar,
+  and truthiness/coercion rules, and [`examples/`](./examples) for the
+  sample programs.
 
 ## Phase 2 — Lexer
 - [ ] Token type definitions

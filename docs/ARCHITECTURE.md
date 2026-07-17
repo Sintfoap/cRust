@@ -65,7 +65,11 @@ standard practice to avoid import cycles in a Go interpreter.
 - Directory scaffolding above is created up front so every later phase has
   a fixed home — avoids churny "where does this file go" decisions mid-build.
 
-### Phase 1 — Language Design
+### Phase 1 — Language Design ✅
+Fully specified in [`docs/SPEC.md`](./SPEC.md) — this section covers the
+*implementation* implications of those decisions, not the decisions
+themselves.
+
 - **Type system**: dynamically typed at runtime, no static type checker.
   AoC rewards fast iteration over safety rails; the interpreter catches
   type errors at eval time and reports them with source position.
@@ -74,15 +78,20 @@ standard practice to avoid import cycles in a Go interpreter.
   `Function`, `Builtin`, `Null`.
 - **Keyword vocabulary**: single source of truth in
   `internal/token/keywords.go` — a `map[string]TokenType` from pizza term
-  to token kind (e.g. whatever term is chosen for "declare a variable"
-  maps to `TOKEN_LET`). Renaming a keyword is a one-line change; nothing
-  else in the lexer/parser references the literal word.
+  to token kind (e.g. `"topping"` maps to `TOKEN_LET`, `"order"` to
+  `TOKEN_IF`; the full mapping is the table in `SPEC.md` §3). Renaming a
+  keyword is a one-line change; nothing else in the lexer/parser
+  references the literal word.
 - **Syntax shape**: brace-delimited blocks (`{ }`), not indentation —
   simpler to Pratt-parse and avoids a Python-style whitespace-sensitivity
   layer. Statement terminators: newline-significant like Go (lexer can
   optionally auto-insert a terminator token at line end after certain
   token kinds), avoiding mandatory semicolons.
-- **Grammar**: written and kept current as EBNF in `docs/SPEC.md`. The
+- **Truthiness/coercion**: pinned down in `SPEC.md` §4 — only `thin` and
+  `nobox` are falsy, `/` always produces a float, `+` on mixed
+  string/number is a type error. The evaluator should never need a
+  per-operator special case beyond what's written there.
+- **Grammar**: written and kept current as EBNF in `docs/SPEC.md` §5. The
   parser's structure should map 1:1 onto that grammar so the two never
   drift apart.
 
