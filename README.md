@@ -15,15 +15,17 @@ grammar, and semantics. Next up: Phase 2, the lexer.
 
 AoC rewards a language you enjoy typing at 6am with a puzzle timer running.
 cRust is that language: a small, tree-walking interpreter with just enough
-features (ints, floats, strings, lists, maps, functions, control flow) to
-comfortably solve AoC-style puzzles, wrapped in a pizzeria-themed syntax.
+features (ints, floats, strings, lists, maps, sets, functions, control
+flow) to comfortably solve AoC-style puzzles, wrapped in a
+pizzeria-themed syntax. No `let`/`const` ceremony — variables just get
+assigned, Python-style.
 
 ## A Taste
 
 ```
 recipe findPair(nums, target) {
-    knead (topping i = 0; i < len(nums); i = i + 1) {
-        knead (topping j = i + 1; j < len(nums); j = j + 1) {
+    knead (i = 0; i < slices(nums); i += 1) {
+        knead (j = i + 1; j < slices(nums); j += 1) {
             order (nums[i] + nums[j] == target) {
                 serve [nums[i], nums[j]]
             }

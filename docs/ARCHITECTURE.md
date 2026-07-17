@@ -75,23 +75,31 @@ themselves.
   type errors at eval time and reports them with source position.
 - **Core runtime types** (previewed here, finalized in `object`):
   `Integer (int64)`, `Float (float64)`, `String`, `Boolean`, `List`, `Map`,
-  `Function`, `Builtin`, `Null`.
+  `Set`, `Function`, `Builtin`, `Null`.
+- **No declaration keyword**: cRust dropped `let`/`const` in favor of
+  bare, Python-style assignment (`x = 1`) — see `SPEC.md` §3 for the
+  scoping rule this implies. There's no `TOKEN_LET`; assignment is
+  recognized structurally (an lvalue followed by `=`/`+=`/...), not by a
+  keyword.
 - **Keyword vocabulary**: single source of truth in
   `internal/token/keywords.go` — a `map[string]TokenType` from pizza term
-  to token kind (e.g. `"topping"` maps to `TOKEN_LET`, `"order"` to
-  `TOKEN_IF`; the full mapping is the table in `SPEC.md` §3). Renaming a
-  keyword is a one-line change; nothing else in the lexer/parser
-  references the literal word.
+  to token kind (e.g. `"order"` maps to `TOKEN_IF`, `"toppings"` to
+  `TOKEN_SET_LIT`; the full mapping is the table in `SPEC.md` §4).
+  Renaming a keyword is a one-line change; nothing else in the
+  lexer/parser references the literal word.
 - **Syntax shape**: brace-delimited blocks (`{ }`), not indentation —
   simpler to Pratt-parse and avoids a Python-style whitespace-sensitivity
   layer. Statement terminators: newline-significant like Go (lexer can
   optionally auto-insert a terminator token at line end after certain
   token kinds), avoiding mandatory semicolons.
-- **Truthiness/coercion**: pinned down in `SPEC.md` §4 — only `thin` and
+- **Operators**: full list (arithmetic, comparison, logical, assignment,
+  indexing) is `SPEC.md` §5. Set union/intersection/difference are
+  builtins, not operators — see Phase 5 below.
+- **Truthiness/coercion**: pinned down in `SPEC.md` §6 — only `thin` and
   `nobox` are falsy, `/` always produces a float, `+` on mixed
   string/number is a type error. The evaluator should never need a
   per-operator special case beyond what's written there.
-- **Grammar**: written and kept current as EBNF in `docs/SPEC.md` §5. The
+- **Grammar**: written and kept current as EBNF in `docs/SPEC.md` §8. The
   parser's structure should map 1:1 onto that grammar so the two never
   drift apart.
 
@@ -121,16 +129,27 @@ themselves.
 - Precedence levels as an ordered enum: `LOWEST, EQUALS, LESSGREATER, SUM,
   PRODUCT, PREFIX, CALL, INDEX`.
 - Statements parsed via straightforward recursive descent —
-  `parseStatement()` dispatches on the leading token (variable
-  declaration, `if`, loop, function definition, `return`, expression
-  statement).
+  `parseStatement()` dispatches on the leading token (`recipe`, `order`,
+  loop, `serve`, `burnt`, `flip`, block) and otherwise falls through to
+  `parseSimpleStatement()`.
+- **Assignment has no leading keyword to dispatch on.** `parseSimpleStatement()`
+  parses an expression first, then checks if the next token is an
+  assignment operator (`=`, `+=`, ...); if so it re-interprets what it
+  just parsed as an lvalue and builds an `AssignStatement`, rejecting
+  anything that isn't a bare identifier or index expression. This is the
+  same trick Go's own parser uses — assignment targets are parsed as
+  ordinary expressions and validated after the fact, rather than given
+  their own grammar branch.
 - **AST** (`internal/ast`): two marker interfaces, `Statement` and
   `Expression`, both embedding a `Node` interface (`TokenLiteral()`,
   `String()` for debug-printing/round-tripping). Concrete nodes:
-  `LetStatement`, `ReturnStatement`, `IfExpression`, `ForStatement`,
-  `FunctionLiteral`, `CallExpression`, `InfixExpression`,
+  `AssignStatement`, `ReturnStatement`, `IfExpression`, `CountedLoop`,
+  `ForEachLoop`, `FunctionLiteral`, `CallExpression`, `InfixExpression`,
   `PrefixExpression`, `Identifier`, literals, `ListLiteral`, `MapLiteral`,
-  `IndexExpression`.
+  `SetLiteral`, `IndexExpression`. `CountedLoop` and `ForEachLoop` are
+  both produced by the same `knead` keyword — the parser picks which one
+  to build based on whether it sees a `(` or a bare identifier followed
+  by `in` right after `knead`.
 - **Error recovery**: parser errors are collected into a slice rather than
   aborting on the first one, so a single run can report multiple problems
   (skip to a synchronization point — next statement boundary — and keep
@@ -141,24 +160,43 @@ themselves.
   object.Object`, switching on the Go type of `node`. This is the whole
   evaluator — no separate compile step.
 - `object.Object` interface: `Type() ObjectType`, `Inspect() string`.
-  Concrete types mirror the runtime type list from Phase 1, plus two
-  internal control-flow signal types that are never exposed to user code:
-  `ReturnValue` (wraps a value bubbling up through nested blocks) and
-  `BreakSignal`/`ContinueSignal` for loop control.
+  Concrete types mirror the runtime type list from Phase 1 — including
+  `Set`, backed by a Go `map[HashKey]Object` the same way `Map` is —
+  plus two internal control-flow signal types that are never exposed to
+  user code: `ReturnValue` (wraps a value bubbling up through nested
+  blocks) and `BreakSignal`/`ContinueSignal` for loop control.
 - **Environment** (`object.Environment`): `map[string]object.Object` plus
-  an `outer *Environment` pointer. Lookups walk outward through enclosing
-  scopes. `NewEnclosedEnvironment(outer)` is created on every function
-  call and block entry, giving lexical scoping for free.
+  an `outer *Environment` pointer, with two methods reflecting the
+  scoping rule in `SPEC.md` §3: `Get(name)` walks outward through
+  enclosing scopes; `Set(name, value)` also walks outward looking for an
+  *existing* binding to mutate, and only creates a new one in the
+  current environment if none is found anywhere in the chain. This one
+  method is what implements "assignment with no declare keyword" —
+  there's no separate `Define` vs `Assign` split.
+- **Only `recipe` calls create a new `Environment`** —
+  `NewEnclosedEnvironment(outer)` runs on function call, *not* on
+  `order`/`combo`/`special`/`knead`/`bake` block entry. Those blocks
+  evaluate their statements directly in the enclosing function (or
+  global) scope. This is deliberate and mirrors Python's function-scoped
+  (not block-scoped) model: it's what makes `total = total + x` inside a
+  `knead` loop update the right variable without a declare keyword to
+  pin it to an outer scope.
 - **Closures**: a `Function` object captures the `*Environment` active at
   its definition site. Calling it builds a new enclosed environment over
   that captured one (not the caller's), binds parameters to argument
-  values, and evaluates the body in it.
+  values, and evaluates the body in it. Because `Set` walks the chain,
+  a closure can mutate a variable from its defining scope just by
+  assigning to it — no `global`/`nonlocal` equivalent needed.
 - **Control flow** rides on Go's own control flow: `if`/`else` evaluate
   the condition then recurse into the matching branch; loops are native
-  Go `for` loops around repeated `Eval` calls. `break`/`continue`/`return`
-  are implemented as sentinel objects that propagate up through
-  `Eval`'s block-statement handling until something catches them (loop
-  body catches break/continue; function call catches return).
+  Go `for` loops around repeated `Eval` calls. `knead`'s for-each form
+  (`knead item in collection`) dispatches on the collection's runtime
+  type — List and Set iterate their elements, Map iterates its keys —
+  binding `item` via the same `Environment.Set` as any other assignment.
+  `break`/`continue`/`return` are implemented as sentinel objects that
+  propagate up through `Eval`'s block-statement handling until something
+  catches them (loop body catches break/continue; function call catches
+  return).
 - **Errors**: an `Error` object carries a message and source position and
   propagates like any other value instead of using Go panic/recover in
   the hot path. The top-level `Run()` entrypoint wraps a single
@@ -181,6 +219,16 @@ themselves.
   (string↔number parsing), `math` (abs/pow/sqrt/gcd/lcm), `sort`
   (list sorting). Input builtins wrap `os.ReadFile` / `bufio.Scanner` for
   reading puzzle input files or stdin.
+- The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
+  `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
+  `value` or a `fallback` if `value` is `nobox`), `chars` (string → List
+  of characters), and the Set builtins `gather`/`sprinkle`/`scrape`/
+  `topped`/`combine`/`shared`/`strip`. These names were chosen
+  specifically because dropping `topping`/`sauce` as declaration
+  keywords (Phase 1 revision) freed them up to mean something more
+  useful as functions — `sauce` in particular reuses the "base layer
+  under everything else" metaphor for a fallback value. Math builtins
+  keep their standard names on purpose; see `SPEC.md` §7 for why.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit) and
@@ -219,5 +267,6 @@ months ahead of the event instead of the week before.
 | Typing | Dynamic, runtime-checked | Faster puzzle iteration beats compile-time safety for this use case |
 | Error propagation | Errors as values (`object.Error`), not panics | Predictable control flow through `Eval`; panic/recover reserved for genuine interpreter bugs |
 | Expression parsing | Pratt parser | Precedence/associativity handled by two small tables instead of a large grammar-rule cascade |
-| Scoping | Environment chain with outer pointers | Simple, well-understood, gives closures for free |
+| Scoping | Environment chain with outer pointers; only `recipe` calls create a new scope | Simple, well-understood, gives closures for free; matches Python's function-scoped model so accumulator patterns work with no declare keyword |
+| Variable declaration | None — bare assignment (`x = 1`) creates or updates | Removes `let`/`const` ceremony; walk-and-mutate `Environment.Set` needs no `global`/`nonlocal` equivalent |
 | Blocks | Braces, not indentation | Simpler lexer/parser; avoids whitespace-sensitivity edge cases |

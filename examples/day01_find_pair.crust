@@ -2,8 +2,8 @@
 // and report the product. Demonstrates recipe/knead/order/serve/nobox.
 
 recipe findPair(nums, target) {
-    knead (topping i = 0; i < len(nums); i = i + 1) {
-        knead (topping j = i + 1; j < len(nums); j = j + 1) {
+    knead (i = 0; i < slices(nums); i += 1) {
+        knead (j = i + 1; j < slices(nums); j += 1) {
             order (nums[i] + nums[j] == target) {
                 serve [nums[i], nums[j]]
             }
@@ -12,8 +12,8 @@ recipe findPair(nums, target) {
     serve nobox
 }
 
-topping entries = [1721, 979, 366, 299, 675, 1456]
-topping pair = findPair(entries, 2020)
+entries = [1721, 979, 366, 299, 675, 1456]
+pair = findPair(entries, 2020)
 
 order (pair == nobox) {
     deliver("no combo found")

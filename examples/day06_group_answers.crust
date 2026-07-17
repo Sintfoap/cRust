@@ -1,0 +1,31 @@
+// AoC 2020 Day 6, shape only: from one group's answer lines, find the
+// questions everyone said yes to (set intersection) and the questions
+// anyone said yes to (set union). Demonstrates the Set type, for-each
+// knead loops, and the set builtins.
+
+recipe lineSet(line) {
+    people = toppings{}
+    knead ch in chars(line) {
+        sprinkle(people, ch)
+    }
+    serve people
+}
+
+group = ["abc", "abac", "abcd"]
+
+everyone = nobox
+anyone = nobox
+
+knead line in group {
+    people = lineSet(line)
+    order (everyone == nobox) {
+        everyone = people
+        anyone = people
+    } special {
+        everyone = shared(everyone, people)
+        anyone = combine(anyone, people)
+    }
+}
+
+deliver(slices(everyone))   // questions everyone answered yes to
+deliver(slices(anyone))     // questions anyone answered yes to
