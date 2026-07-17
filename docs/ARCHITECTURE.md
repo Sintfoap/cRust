@@ -15,7 +15,7 @@ stages, each owned by its own package:
       │
       ▼
   ┌─────────┐   tokens    ┌────────┐    AST     ┌─────────────┐   object.Object
-  │  Lexer  │ ──────────▶ │ Parser │ ─────────▶ │ Interpreter │ ─────────────▶
+  │  Lexer  │ ─────────▶ │ Parser │ ─────────▶ │ Interpreter │ ─────────────▶
   └─────────┘             └────────┘            └─────────────┘   (stdout / value)
    internal/lexer         internal/parser        internal/interpreter
    internal/token         internal/ast            internal/object
