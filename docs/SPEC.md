@@ -13,9 +13,10 @@ both in the same change.
   Python-style. See [§3](#3-variables--assignment).
 - Every structural keyword is pizza jargon — see
   [§4](#4-keyword-vocabulary).
-- Unpacking assignment, integer ranges (`..` / `.<`), and `++`/`--`
-  round out the ergonomics that matter most for tight AoC loops — see
-  [§3.1](#31-unpacking-assignment) and [§5](#5-operators).
+- Unpacking assignment, integer ranges (`..` / `.<`), `++`/`--`, and the
+  nil-coalescing pair `(|`/`|)` round out the ergonomics that matter
+  most for tight AoC loops — see [§3.1](#31-unpacking-assignment) and
+  [§5](#5-operators).
 
 ## 2. Core Types
 
@@ -197,8 +198,9 @@ Reserved for later phases, not yet implemented: a module-import keyword
 | Unary | `-x`, `hold x` | numeric negate, logical not |
 | Comparison | `==  !=  <  >  <=  >=` | see §6 for cross-type rules |
 | Logical | `with` (and), `or` (or), `hold` (not) | keyword operators, not symbols |
-| Assignment | `=  +=  -=  *=  /=  %=` | statement-level only (§3), not usable as a sub-expression — like Python's `=`, unlike C's |
+| Assignment | `=  +=  -=  *=  /=  %=  \|)` | statement-level only (§3), not usable as a sub-expression — like Python's `=`, unlike C's; `\|)` is conditional — see §5.3 |
 | Increment/decrement | `++  --` | either side of the target (`i++` and `++i` are identical); statement-level only, no return value — see §5.2 |
+| Nil-coalesce | `(\|` | expression form of "or this fallback" — see §5.3 |
 | Indexing | `x[i]` | List (by position), Map (by key), String (by position); **not** valid on Set |
 | Grouping | `( )` | expression grouping |
 
@@ -211,7 +213,7 @@ Precedence, low to high (unchanged shape, assignment/increment sit
 outside this ladder as statement forms):
 
 ```
-or  <  with  <  equality (== !=)  <  comparison (< > <= >=)
+coalesce (|)  <  or  <  with  <  equality (== !=)  <  comparison (< > <= >=)
     <  range (.. .<)  <  sum (+ -)  <  product (* / %)
     <  unary (- hold)  <  call/index
 ```
@@ -265,6 +267,62 @@ i--
 - Reads naturally in a `knead` counted-loop post-clause:
   `knead (i = 0; i < n; i++) { ... }`.
 
+### 5.3 Nil-Coalescing (`(|`, `|)`)
+
+Two half-pizza glyphs, one job split across an expression form and a
+statement form — mirroring how `sauce(value, fallback)` (§7) already
+does this as a function call:
+
+```
+name = maybeNil (| "default"      // expression: use maybeNil, or "default" if it's nobox
+
+cache[key] |) expensiveCompute()  // statement: fill cache[key] only if it's currently nobox
+```
+
+- **`a (| b`** (expression) evaluates `a`; if it isn't `nobox`, that's
+  the result and `b` is never evaluated. If `a` *is* `nobox`, `b` is
+  evaluated and becomes the result. Right-associative and chainable —
+  `a (| b (| c` tries `a`, then `b`, then `c`. Usable anywhere an
+  expression is: `deliver(x (| "n/a")`, `total += y (| 0`. This is
+  exactly `sauce(a, b)` as an operator; pick whichever reads better at
+  the call site.
+- **`x |) expr`** (statement, one more entry in the assignment family
+  from §3) assigns `expr` to `x` *only if* `x` is currently `nobox`;
+  otherwise it's a no-op and, critically, **`expr` is never evaluated**
+  — the same short-circuiting as `(|`, just landing in an assignment
+  instead of producing a value. That's what makes
+  `cache[key] |) expensiveCompute()` safe to write on every lookup: the
+  expensive call only actually runs on a cache miss.
+- **Both test for `nobox` specifically, not falsiness.** `thin (|
+  "fallback"` stays `thin` — a real Boolean isn't an absence, so it's
+  never replaced. This is the same principle behind §6's truthiness
+  rule (`0` isn't falsy) applied to a different operator family: don't
+  let "empty-ish" and "absent" collapse into the same check.
+- Lowest precedence of any binary operator (§5's ladder) — a coalesce
+  reads as "everything to my left, or this fallback," so it should
+  never need parens to grab the whole preceding expression.
+- The target of `|)` follows the same lvalue rule as `=`: identifier or
+  index expression.
+
+Why two glyphs instead of one: `(|` and `|)` read as the two cut halves
+of a pizza, and splitting the job in half is exactly what they do —
+`(|` hands back a value (it's the one that "opens" into an expression),
+`|)` closes a box that was empty (it's the one that "seals" an
+assignment). They're a matched pair by shape, not by grammar — each is
+an independent binary operator, not an opening/closing delimiter pair
+like `( )`.
+
+**Known trade-off**: because these operators contain a literal `(` or
+`)`, editors that do generic bracket-matching/rainbow-bracket
+highlighting (without actually understanding cRust's grammar) will see
+an unmatched paren inside `(|` and an unmatched paren inside `|)`. It's
+purely a cosmetic editor-support annoyance, not a language ambiguity —
+the lexer treats each as one atomic token (see the Phase 2 lexing notes
+in [ARCHITECTURE.md](./ARCHITECTURE.md#phase-2--lexer-internallexer))
+— but it's worth knowing about before it's confused for a typo. A
+cRust-aware editor mode/grammar (Phase 6 stretch) would fix the
+highlighting; nothing to do about it before then.
+
 ## 6. Truthiness & Coercion Rules
 
 Pinned down explicitly so the evaluator has one rule to follow instead of
@@ -303,7 +361,7 @@ it's directly tied to the Set type this doc introduces.
 |---|---|---|
 | `deliver(...)` | `deliver(values...)` | print — send output out |
 | `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Map, or Set |
-| `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — the base layer under a possibly-missing value |
+| `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `(|` operator (§5.3), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
@@ -325,7 +383,7 @@ statement      = simpleStmt terminator | recipeStmt | orderStmt
 simpleStmt     = unpackAssign | assignStmt | incDecStmt | expression ;
 assignStmt     = lvalue assignOp expression ;
 lvalue         = identifier { index } ;
-assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
+assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "|)" ;
 
 unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
 incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
@@ -351,7 +409,8 @@ flipStmt       = "flip" terminator ;
 block          = "{" { statement } "}" ;
 terminator     = NEWLINE | ";" ;
 
-expression     = logicalOr ;
+expression     = coalesce ;
+coalesce       = logicalOr [ "(|" coalesce ] ;
 logicalOr      = logicalAnd { "or" logicalAnd } ;
 logicalAnd     = equality { "with" equality } ;
 equality       = comparison { ( "==" | "!=" ) comparison } ;
@@ -383,6 +442,11 @@ terminator follows the init/post clauses — the parens do that job
 instead. `unpackAssign` is checked before plain `assignStmt` since both
 start with an identifier; the parser only knows which one it's in once
 it sees whether a `,` or an `assignOp` follows.
+
+Note on `"|)"` as an `assignOp`: the grammar treats it like any other
+compound assignment, but it isn't evaluated like one — see §5.3.
+`x += expr` always evaluates `expr` and writes the result; `x |) expr`
+only evaluates and writes `expr` if `x` is currently `nobox`.
 
 ## 9. Examples
 
@@ -479,6 +543,39 @@ knead i in 1.<5 {             // exclusive range: [1, 2, 3, 4]
     deliver(i)
 }
 ```
+
+### Nil-coalescing (`(|`, `|)`)
+
+```
+recipe greet(name) {
+    display = name (| "stranger"
+    deliver("Hello, " + display + "!")
+}
+
+greet("Ryan")   // Hello, Ryan!
+greet(nobox)    // Hello, stranger!
+
+// memoized fibonacci: cache[n] only gets computed once per n
+cache = {}
+
+recipe fib(n) {
+    cache[n] |) computeFib(n)
+    serve cache[n]
+}
+
+recipe computeFib(n) {
+    order (n < 2) {
+        serve n
+    }
+    serve fib(n - 1) + fib(n - 2)
+}
+```
+
+Note `(|`'s precedence is *lower* than `+`, so `a + b (| c` groups as
+`(a + b) (| c)`, not `a + (b (| c)` — that's why `greet` assigns the
+coalesced value to `display` first rather than trying to inline it into
+the concatenation. When mixing `(|` with other operators, parenthesize
+explicitly rather than relying on precedence to do what you mean.
 
 All examples also live as runnable files under
 [`examples/`](../examples) once the interpreter exists to run them.

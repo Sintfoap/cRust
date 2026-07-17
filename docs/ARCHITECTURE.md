@@ -93,13 +93,17 @@ themselves.
   optionally auto-insert a terminator token at line end after certain
   token kinds), avoiding mandatory semicolons.
 - **Operators**: full list (arithmetic, comparison, logical, assignment,
-  ranges, increment/decrement, indexing) is `SPEC.md` §5. Set
-  union/intersection/difference are builtins, not operators — see Phase
-  5 below. Two additions worth flagging here because they touch the
-  lexer directly, not just the parser: range operators `..`/`.<`
-  (`SPEC.md` §5.1) and `++`/`--` (§5.2), both statement-level like `=`,
-  with no prefix/postfix value distinction — same reasoning as
-  assignment not being a sub-expression.
+  ranges, increment/decrement, nil-coalescing, indexing) is `SPEC.md`
+  §5. Set union/intersection/difference are builtins, not operators —
+  see Phase 5 below. Three additions worth flagging here because they
+  touch the lexer directly, not just the parser: range operators
+  `..`/`.<` (`SPEC.md` §5.1) and `++`/`--` (§5.2), both statement-level
+  like `=` with no prefix/postfix value distinction; and the
+  nil-coalescing pair `(|`/`|)` (§5.3), where `(|` is a genuine
+  expression operator (lowest precedence of any binary operator) while
+  `|)` is one more entry in the assignment-statement family, and both
+  short-circuit — the right-hand side is only evaluated when the
+  left-hand side is `nobox`.
 - **Unpacking assignment** (`x, y = list`, `SPEC.md` §3.1): the last
   target always receives a List, even when only one item remains —
   chosen deliberately so consuming code never has to guess whether
@@ -134,6 +138,17 @@ themselves.
   trailing-dot float syntax (`5.` is illegal), which is what keeps this
   unambiguous — there's no case where a bare `.` at that position could
   legitimately mean anything else.
+- **`(|` / `|)`**: `(` peeks for a following `|` (→ `TOKEN_COALESCE`)
+  before falling back to plain `TOKEN_LPAREN`; `|` peeks for a
+  following `)` (→ `TOKEN_COALESCE_ASSIGN`). `|` has no other meaning
+  anywhere in cRust (Set operations are builtins, not `|`/`&`
+  operators — `SPEC.md` §5), so a bare `|` not immediately followed by
+  `)` is always `ILLEGAL`, and there's no case where `(` or `)` could
+  be legitimately confused with these two tokens. Note for editor/
+  syntax-highlighting tooling: these tokens contain a real `(` or `)`
+  character, so naive bracket-matching will flag them as unbalanced —
+  a cosmetic cost the language accepts for the visual pun (`SPEC.md`
+  §5.3).
 - Identifiers vs. keywords: scan the full identifier, then look it up in
   the `token/keywords.go` table; unmatched falls back to `IDENT`.
 - Lexer errors don't panic — an unrecognized character produces an
@@ -149,9 +164,13 @@ themselves.
   small dispatch tables instead of a deep grammar-rule hierarchy:
   - `prefixParseFns map[token.TokenType]func() ast.Expression`
   - `infixParseFns  map[token.TokenType]func(ast.Expression) ast.Expression`
-- Precedence levels as an ordered enum: `LOWEST, OR, AND, EQUALS,
-  LESSGREATER, RANGE, SUM, PRODUCT, PREFIX, CALL, INDEX` — `RANGE` slots
-  in between `LESSGREATER` and `SUM` per `SPEC.md` §5's ladder.
+- Precedence levels as an ordered enum: `LOWEST, COALESCE, OR, AND,
+  EQUALS, LESSGREATER, RANGE, SUM, PRODUCT, PREFIX, CALL, INDEX` —
+  `COALESCE` sits below everything (§5's ladder puts `(|` last), `RANGE`
+  slots in between `LESSGREATER` and `SUM`. `(|`'s infix parse function
+  recurses back into the top of the precedence chain for its
+  right-hand side rather than the next level up, which is what makes it
+  right-associative and chainable (`a (| b (| c`).
 - Statements parsed via straightforward recursive descent —
   `parseStatement()` dispatches on the leading token (`recipe`, `order`,
   loop, `serve`, `burnt`, `flip`, block) and otherwise falls through to
@@ -164,9 +183,12 @@ themselves.
     lookahead past a single token, since `x` alone is ambiguous between
     "the start of `x, y = ...`" and "the whole expression statement `x`"
     until the `,` shows up;
-  - an assignment operator (`=`, `+=`, ...) → re-interpret what was
-    just parsed as an lvalue and build an `AssignStatement`, rejecting
-    anything that isn't a bare identifier or index expression;
+  - an assignment operator (`=`, `+=`, ..., `|)`) → re-interpret what
+    was just parsed as an lvalue and build an `AssignStatement` (`|)`
+    gets its own `CoalesceAssignStatement` node instead of reusing
+    `AssignStatement`, since its evaluation is conditional — see Phase
+    4), rejecting anything that isn't a bare identifier or index
+    expression;
   - `++`/`--` → build an `IncDecStatement` with the same lvalue check;
   - otherwise → it's an ordinary expression statement.
 
@@ -177,13 +199,14 @@ themselves.
   `Expression`, both embedding a `Node` interface (`TokenLiteral()`,
   `String()` for debug-printing/round-tripping). Concrete nodes:
   `AssignStatement`, `UnpackAssignStatement`, `IncDecStatement`,
-  `ReturnStatement`, `IfExpression`, `CountedLoop`, `ForEachLoop`,
-  `FunctionLiteral`, `CallExpression`, `InfixExpression`,
-  `RangeExpression`, `PrefixExpression`, `Identifier`, literals,
-  `ListLiteral`, `MapLiteral`, `SetLiteral`, `IndexExpression`.
-  `CountedLoop` and `ForEachLoop` are both produced by the same `knead`
-  keyword — the parser picks which one to build based on whether it
-  sees a `(` or a bare identifier followed by `in` right after `knead`.
+  `CoalesceAssignStatement`, `ReturnStatement`, `IfExpression`,
+  `CountedLoop`, `ForEachLoop`, `FunctionLiteral`, `CallExpression`,
+  `InfixExpression`, `RangeExpression`, `CoalesceExpression`,
+  `PrefixExpression`, `Identifier`, literals, `ListLiteral`,
+  `MapLiteral`, `SetLiteral`, `IndexExpression`. `CountedLoop` and
+  `ForEachLoop` are both produced by the same `knead` keyword — the
+  parser picks which one to build based on whether it sees a `(` or a
+  bare identifier followed by `in` right after `knead`.
 - **Error recovery**: parser errors are collected into a slice rather than
   aborting on the first one, so a single run can report multiple problems
   (skip to a synchronization point — next statement boundary — and keep
@@ -249,6 +272,22 @@ themselves.
   for `N` targets, binds the first `N - 1` targets to elements
   positionally via `Environment.Set`, and binds the last target to a
   freshly-allocated `List` of whatever remains (`[]` if nothing does).
+- **`CoalesceExpression`** (`a (| b`) evaluates `a` first; if the result
+  isn't `object.NULL`, that's the value and `b`'s AST subtree is never
+  passed to `Eval` at all. Only on `nobox` does it evaluate and return
+  `b`. Chained `a (| b (| c` falls out of the parser's right-associative
+  shape (Phase 3) without any special evaluator logic — it's just
+  nested `CoalesceExpression` nodes.
+- **`CoalesceAssignStatement`** (`x |) expr`) is the statement mirror:
+  `Eval` the target lvalue first; if it's anything other than `nobox`,
+  stop — `expr` is never evaluated, matching §5.3's "no needless
+  recomputation" guarantee. Otherwise evaluate `expr` and
+  `Environment.Set` it, same as any other assignment. This is *why* it
+  needs its own AST node rather than reusing `AssignStatement` with a
+  `"|)"` operator string: every other `assignOp` unconditionally
+  evaluates its right-hand side, and folding a conditional-evaluation
+  path into that shared code would make the common case (`+=` etc.)
+  harder to reason about for a one-off exception.
 - **Truthiness / coercion rules** get pinned down explicitly in
   `docs/SPEC.md` once decided (e.g. whether ints auto-widen to floats in
   mixed arithmetic) so the evaluator has one unambiguous rule to follow
@@ -320,3 +359,4 @@ months ahead of the event instead of the week before.
 | Ranges | Eager `List`, not a lazy Range type | Matches exactly what `1..5` looks like it should produce; avoids a second "sequence" abstraction alongside List this early |
 | Increment/decrement | Statement only, `i++` and `++i` identical | Removes C's prefix/postfix return-value distinction entirely — consistent with `=` also being statement-level, not an expression |
 | Unpacking's last target | Always a `List`, never sometimes-scalar | One predictable type regardless of input length; avoids call sites needing a runtime check on what they got back |
+| Nil-coalescing spelling | `(|`/`|)` (literal parens) over `?:`/`??=` | On-theme (half-pizza) and matches `sauce()`'s existing "fallback for nobox" concept exactly; accepted cosmetic cost is that generic bracket-matching in editors sees an unmatched paren inside each token |
