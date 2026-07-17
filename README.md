@@ -5,7 +5,9 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
 ## Status
 
-Early planning. See [TODO.md](./TODO.md) for the roadmap and milestones.
+Early planning. See [TODO.md](./TODO.md) for the roadmap and milestones,
+and [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical
+design behind each phase.
 
 ## Why
 
