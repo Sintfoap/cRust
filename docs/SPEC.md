@@ -13,6 +13,9 @@ both in the same change.
   Python-style. See [§3](#3-variables--assignment).
 - Every structural keyword is pizza jargon — see
   [§4](#4-keyword-vocabulary).
+- Unpacking assignment, integer ranges (`..` / `.<`), and `++`/`--`
+  round out the ergonomics that matter most for tight AoC loops — see
+  [§3.1](#31-unpacking-assignment) and [§5](#5-operators).
 
 ## 2. Core Types
 
@@ -98,6 +101,51 @@ An assignment target (an *lvalue*) is either a bare identifier or an
 index expression: `x = 1`, `list[0] = 1`, `map["key"] = 1`. Anything else
 on the left of `=` is a parse error.
 
+### 3.1 Unpacking Assignment
+
+Two or more comma-separated identifiers on the left of `=` unpack a List
+on the right: each target but the last takes one element positionally,
+and the **last target always takes a List of everything left over** —
+even if that's a single item, or none:
+
+```
+entries = [1, 2, 3, 4]
+first, rest = entries
+// first = 1
+// rest  = [2, 3, 4]
+
+a, b = [1, 2]
+// a = 1
+// b = [2]        <- still a List, not the bare value 2
+
+a, b, c = [1, 2, 3, 4, 5]
+// a = 1, b = 2, c = [3, 4, 5]
+```
+
+The last target is *always* a List, regardless of how many items land in
+it — this is deliberate: code that reads `rest` shouldn't have to guard
+against it sometimes being a bare scalar depending on the input's
+length. If you specifically want the last *element* rather than the
+list of everything after the first, index it: `list[slices(list) - 1]`.
+
+Rules:
+- The right-hand side must be a List (unpacking a Set, Map, or String
+  directly is a parse/runtime error — Sets have no defined order to
+  unpack by, and Maps/Strings would be ambiguous about what "an element"
+  means here).
+- Needs at least `N - 1` items for `N` targets (the last target is
+  allowed to end up empty); fewer than that is a runtime error.
+- Unpacking targets must be bare identifiers, not index expressions —
+  `list[0], list[1] = pair` isn't supported. Use ordinary index
+  assignment twice instead.
+- Only plain `=` works with unpacking; there's no unpacking form of
+  `+=` etc. — that wouldn't have a sensible meaning.
+
+For-each `knead` loops don't support multiple loop variables yet (e.g.
+unpacking `[key, value]` pairs while iterating a Map). That's a natural
+next question once this lands, but it's deliberately left open for now
+rather than guessed at.
+
 ## 4. Keyword Vocabulary
 
 The whole language is framed as running a pizza kitchen: a `recipe` is a
@@ -145,10 +193,12 @@ Reserved for later phases, not yet implemented: a module-import keyword
 | Category | Operators | Notes |
 |---|---|---|
 | Arithmetic | `+  -  *  /  %` | `+` also concatenates strings; `/` always true-divides to a Float (§6); `%` requires two Integers |
+| Range | `..  .<` | Integer-only, produces a List — see §5.1 |
 | Unary | `-x`, `hold x` | numeric negate, logical not |
 | Comparison | `==  !=  <  >  <=  >=` | see §6 for cross-type rules |
 | Logical | `with` (and), `or` (or), `hold` (not) | keyword operators, not symbols |
 | Assignment | `=  +=  -=  *=  /=  %=` | statement-level only (§3), not usable as a sub-expression — like Python's `=`, unlike C's |
+| Increment/decrement | `++  --` | either side of the target (`i++` and `++i` are identical); statement-level only, no return value — see §5.2 |
 | Indexing | `x[i]` | List (by position), Map (by key), String (by position); **not** valid on Set |
 | Grouping | `( )` | expression grouping |
 
@@ -157,16 +207,63 @@ overloading `+`/`&`/`-` with a second meaning for one type isn't worth
 the ambiguity. They're builtins instead: `combine`, `shared`, `strip`
 (§7).
 
-Precedence, low to high (unchanged shape, assignment sits outside this
-ladder as a statement form):
+Precedence, low to high (unchanged shape, assignment/increment sit
+outside this ladder as statement forms):
 
 ```
 or  <  with  <  equality (== !=)  <  comparison (< > <= >=)
-    <  sum (+ -)  <  product (* / %)  <  unary (- hold)  <  call/index
+    <  range (.. .<)  <  sum (+ -)  <  product (* / %)
+    <  unary (- hold)  <  call/index
 ```
 
 This maps directly onto the Pratt-parser dispatch tables in
 [ARCHITECTURE.md](./ARCHITECTURE.md#phase-3--parser-internalparser).
+
+### 5.1 Ranges (`..`, `.<`)
+
+```
+1..5    // [1, 2, 3, 4, 5]   inclusive of both ends
+1.<5    // [1, 2, 3, 4]      exclusive of the upper end
+```
+
+- Both operands must be Integers — a Float on either side is a runtime
+  error (`range bounds must be Integers`). This is a deliberate
+  restriction, not a current limitation: a float-stepped range invites
+  off-by-epsilon bugs for no real AoC benefit.
+- The result is an ordinary, immediately-materialized **List**, exactly
+  as if you'd written it out by hand — not a lazy sequence. `slices(1..5)
+  == 5`, `(1..5)[0] == 1`.
+- If the start is greater than the end, the result is an **empty List**
+  — there's no implicit reversal. Want it descending? Reverse the List
+  explicitly (a `reverse`-style builtin lands in Phase 5).
+- Range doesn't chain: `1..5..10` is a parse error, not
+  `(1..5)..10` silently doing something odd — the grammar only allows
+  one range operator per expression (§8).
+- Binds tighter than comparison, looser than `+`/`-`:  `1..5 == [1,2,3,4,5]`
+  parses as `(1..5) == [1,2,3,4,5]`, and `1+1..5+1` parses as
+  `(1+1)..(5+1)`.
+
+### 5.2 Increment/Decrement (`++`, `--`)
+
+```
+i++
+++i     // identical to the line above
+i--
+--i     // identical to the line above
+```
+
+- `i++`, `++i`, and `i += 1` all do exactly the same thing: increment
+  `i` by 1 in place. Neither form "returns" a value — unlike C, there's
+  no prefix/postfix distinction (no old-value-vs-new-value footgun),
+  because `++`/`--` are statements, not expressions, just like `=`
+  (§3). `x = i++` is a parse error, not a way to read the old value.
+  `--` is the symmetric decrement companion to the requested `++`.
+- The target follows the same lvalue rule as assignment: a bare
+  identifier or an index expression (`arr[i]++` is valid).
+- Only defined for Integer and Float targets; anything else is a
+  runtime error.
+- Reads naturally in a `knead` counted-loop post-clause:
+  `knead (i = 0; i < n; i++) { ... }`.
 
 ## 6. Truthiness & Coercion Rules
 
@@ -225,10 +322,13 @@ statement      = simpleStmt terminator | recipeStmt | orderStmt
                | kneadStmt | bakeStmt | serveStmt | burntStmt
                | flipStmt | block ;
 
-simpleStmt     = assignStmt | expression ;
+simpleStmt     = unpackAssign | assignStmt | incDecStmt | expression ;
 assignStmt     = lvalue assignOp expression ;
 lvalue         = identifier { index } ;
 assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
+
+unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
+incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
 
 recipeStmt     = "recipe" identifier "(" [ paramList ] ")" block ;
 paramList      = identifier { "," identifier } ;
@@ -255,7 +355,8 @@ expression     = logicalOr ;
 logicalOr      = logicalAnd { "or" logicalAnd } ;
 logicalAnd     = equality { "with" equality } ;
 equality       = comparison { ( "==" | "!=" ) comparison } ;
-comparison     = term { ( "<" | ">" | "<=" | ">=" ) term } ;
+comparison     = range { ( "<" | ">" | "<=" | ">=" ) range } ;
+range          = term [ ( ".." | ".<" ) term ] ;
 term           = factor { ( "+" | "-" ) factor } ;
 factor         = unary { ( "*" | "/" | "%" ) unary } ;
 unary          = [ "hold" | "-" ] callOrIndex ;
@@ -277,9 +378,11 @@ setLiteral     = "toppings" "{" [ expression { "," expression } ] "}" ;
 
 Note on `simpleStmt`: it's the shared building block for both an
 ordinary statement (`x = 1` followed by a terminator) and a `knead`
-counted-loop clause (`knead (i = 0; i < n; i += 1) { ... }`), where no
+counted-loop clause (`knead (i = 0; i < n; i++) { ... }`), where no
 terminator follows the init/post clauses — the parens do that job
-instead.
+instead. `unpackAssign` is checked before plain `assignStmt` since both
+start with an identifier; the parser only knows which one it's in once
+it sees whether a `,` or an `assignOp` follows.
 
 ## 9. Examples
 
@@ -293,8 +396,8 @@ deliver("Hello, World!")
 
 ```
 recipe findPair(nums, target) {
-    knead (i = 0; i < slices(nums); i += 1) {
-        knead (j = i + 1; j < slices(nums); j += 1) {
+    knead (i = 0; i < slices(nums); i++) {
+        knead (j = i + 1; j < slices(nums); j++) {
             order (nums[i] + nums[j] == target) {
                 serve [nums[i], nums[j]]
             }
@@ -356,9 +459,26 @@ bake (n > 0) {
         burnt
     }
     deliver(n)
-    n -= 1
+    n--
 }
 ```
 
-All three examples also live as runnable files under
+### Unpacking and ranges
+
+```
+recipe firstAndRest(nums) {
+    first, rest = nums
+    serve [first, rest]
+}
+
+result = firstAndRest(1..5)   // range literal: [1, 2, 3, 4, 5]
+deliver(result[0])            // 1
+deliver(result[1])            // [2, 3, 4, 5]
+
+knead i in 1.<5 {             // exclusive range: [1, 2, 3, 4]
+    deliver(i)
+}
+```
+
+All examples also live as runnable files under
 [`examples/`](../examples) once the interpreter exists to run them.

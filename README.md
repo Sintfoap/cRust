@@ -24,8 +24,8 @@ assigned, Python-style.
 
 ```
 recipe findPair(nums, target) {
-    knead (i = 0; i < slices(nums); i += 1) {
-        knead (j = i + 1; j < slices(nums); j += 1) {
+    knead (i = 0; i < slices(nums); i++) {
+        knead (j = i + 1; j < slices(nums); j++) {
             order (nums[i] + nums[j] == target) {
                 serve [nums[i], nums[j]]
             }

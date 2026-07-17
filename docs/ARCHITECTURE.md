@@ -93,8 +93,17 @@ themselves.
   optionally auto-insert a terminator token at line end after certain
   token kinds), avoiding mandatory semicolons.
 - **Operators**: full list (arithmetic, comparison, logical, assignment,
-  indexing) is `SPEC.md` §5. Set union/intersection/difference are
-  builtins, not operators — see Phase 5 below.
+  ranges, increment/decrement, indexing) is `SPEC.md` §5. Set
+  union/intersection/difference are builtins, not operators — see Phase
+  5 below. Two additions worth flagging here because they touch the
+  lexer directly, not just the parser: range operators `..`/`.<`
+  (`SPEC.md` §5.1) and `++`/`--` (§5.2), both statement-level like `=`,
+  with no prefix/postfix value distinction — same reasoning as
+  assignment not being a sub-expression.
+- **Unpacking assignment** (`x, y = list`, `SPEC.md` §3.1): the last
+  target always receives a List, even when only one item remains —
+  chosen deliberately so consuming code never has to guess whether
+  `rest` is a scalar or a list depending on runtime input length.
 - **Truthiness/coercion**: pinned down in `SPEC.md` §6 — only `thin` and
   `nobox` are falsy, `/` always produces a float, `+` on mixed
   string/number is a type error. The evaluator should never need a
@@ -109,8 +118,22 @@ themselves.
 - Emits a flat `Token{ Type TokenType, Literal string, Line, Col int }`
   stream; the parser pulls one token at a time via `NextToken()`
   (no pre-materialized slice needed).
-- Multi-character operators (`==`, `!=`, `<=`, `>=`, `&&`, `||`) resolved
-  by maximal-munch: peek one rune ahead before deciding the token type.
+- Multi-character operators (`==`, `!=`, `<=`, `>=`, `+=`, `-=`, `*=`,
+  `/=`, `%=`) resolved by maximal-munch: peek one rune ahead before
+  deciding the token type. `+` peeks for a second `+` (→ `TOKEN_INC`)
+  before falling back to `+=`/`+`; `-` does the same for `TOKEN_DEC`.
+  `- -x` (two separate unary minuses, double negation) needs an
+  explicit space to avoid being lexed as `TOKEN_DEC` — same trade-off
+  C makes, and just as rare in practice.
+- **Number vs. range disambiguation**: `.` is overloaded between float
+  literals (`1.5`) and the range operators (`1..5`, `1.<5`). While
+  scanning a number, on hitting `.` the lexer peeks *two* runes ahead:
+  digit → part of a float literal; a second `.` → stop the number,
+  emit `TOKEN_INT`, then `TOKEN_DOTDOT`; `<` → stop the number, emit
+  `TOKEN_INT`, then `TOKEN_DOTLT`. cRust deliberately has no
+  trailing-dot float syntax (`5.` is illegal), which is what keeps this
+  unambiguous — there's no case where a bare `.` at that position could
+  legitimately mean anything else.
 - Identifiers vs. keywords: scan the full identifier, then look it up in
   the `token/keywords.go` table; unmatched falls back to `IDENT`.
 - Lexer errors don't panic — an unrecognized character produces an
@@ -126,30 +149,41 @@ themselves.
   small dispatch tables instead of a deep grammar-rule hierarchy:
   - `prefixParseFns map[token.TokenType]func() ast.Expression`
   - `infixParseFns  map[token.TokenType]func(ast.Expression) ast.Expression`
-- Precedence levels as an ordered enum: `LOWEST, EQUALS, LESSGREATER, SUM,
-  PRODUCT, PREFIX, CALL, INDEX`.
+- Precedence levels as an ordered enum: `LOWEST, OR, AND, EQUALS,
+  LESSGREATER, RANGE, SUM, PRODUCT, PREFIX, CALL, INDEX` — `RANGE` slots
+  in between `LESSGREATER` and `SUM` per `SPEC.md` §5's ladder.
 - Statements parsed via straightforward recursive descent —
   `parseStatement()` dispatches on the leading token (`recipe`, `order`,
   loop, `serve`, `burnt`, `flip`, block) and otherwise falls through to
   `parseSimpleStatement()`.
 - **Assignment has no leading keyword to dispatch on.** `parseSimpleStatement()`
-  parses an expression first, then checks if the next token is an
-  assignment operator (`=`, `+=`, ...); if so it re-interprets what it
-  just parsed as an lvalue and builds an `AssignStatement`, rejecting
-  anything that isn't a bare identifier or index expression. This is the
-  same trick Go's own parser uses — assignment targets are parsed as
-  ordinary expressions and validated after the fact, rather than given
-  their own grammar branch.
+  parses an expression first, then checks what follows it:
+  - a `,` → re-enter as an unpacking target list, consume more
+    identifiers up to `=`, and build an `UnpackAssignStatement`
+    (`SPEC.md` §3.1) — this is the one place the parser needs
+    lookahead past a single token, since `x` alone is ambiguous between
+    "the start of `x, y = ...`" and "the whole expression statement `x`"
+    until the `,` shows up;
+  - an assignment operator (`=`, `+=`, ...) → re-interpret what was
+    just parsed as an lvalue and build an `AssignStatement`, rejecting
+    anything that isn't a bare identifier or index expression;
+  - `++`/`--` → build an `IncDecStatement` with the same lvalue check;
+  - otherwise → it's an ordinary expression statement.
+
+  This is the same trick Go's own parser uses for assignment — targets
+  are parsed as ordinary expressions and validated after the fact,
+  rather than given their own grammar branch.
 - **AST** (`internal/ast`): two marker interfaces, `Statement` and
   `Expression`, both embedding a `Node` interface (`TokenLiteral()`,
   `String()` for debug-printing/round-tripping). Concrete nodes:
-  `AssignStatement`, `ReturnStatement`, `IfExpression`, `CountedLoop`,
-  `ForEachLoop`, `FunctionLiteral`, `CallExpression`, `InfixExpression`,
-  `PrefixExpression`, `Identifier`, literals, `ListLiteral`, `MapLiteral`,
-  `SetLiteral`, `IndexExpression`. `CountedLoop` and `ForEachLoop` are
-  both produced by the same `knead` keyword — the parser picks which one
-  to build based on whether it sees a `(` or a bare identifier followed
-  by `in` right after `knead`.
+  `AssignStatement`, `UnpackAssignStatement`, `IncDecStatement`,
+  `ReturnStatement`, `IfExpression`, `CountedLoop`, `ForEachLoop`,
+  `FunctionLiteral`, `CallExpression`, `InfixExpression`,
+  `RangeExpression`, `PrefixExpression`, `Identifier`, literals,
+  `ListLiteral`, `MapLiteral`, `SetLiteral`, `IndexExpression`.
+  `CountedLoop` and `ForEachLoop` are both produced by the same `knead`
+  keyword — the parser picks which one to build based on whether it
+  sees a `(` or a bare identifier followed by `in` right after `knead`.
 - **Error recovery**: parser errors are collected into a slice rather than
   aborting on the first one, so a single run can report multiple problems
   (skip to a synchronization point — next statement boundary — and keep
@@ -202,6 +236,19 @@ themselves.
   the hot path. The top-level `Run()` entrypoint wraps a single
   `recover()` as a last-resort safety net for interpreter bugs, not as
   the primary error-handling mechanism.
+- **`RangeExpression`** evaluates both bounds, type-checks them as
+  `Integer` (else an `Error`), and eagerly builds a `List` — no separate
+  lazy Range object, matching `SPEC.md` §5.1 exactly. `.<` is just `..`
+  with the upper bound evaluated as `end - 1`.
+- **`IncDecStatement`** evaluates to `Environment.Set(name, current + 1)`
+  (or `- 1`), reusing the exact same walk-and-mutate `Set` as ordinary
+  assignment — it's sugar at the AST level, not a distinct runtime
+  mechanism.
+- **`UnpackAssignStatement`** evaluates the right-hand side once,
+  type-checks it as a `List`, verifies it has at least `N - 1` elements
+  for `N` targets, binds the first `N - 1` targets to elements
+  positionally via `Environment.Set`, and binds the last target to a
+  freshly-allocated `List` of whatever remains (`[]` if nothing does).
 - **Truthiness / coercion rules** get pinned down explicitly in
   `docs/SPEC.md` once decided (e.g. whether ints auto-widen to floats in
   mixed arithmetic) so the evaluator has one unambiguous rule to follow
@@ -270,3 +317,6 @@ months ahead of the event instead of the week before.
 | Scoping | Environment chain with outer pointers; only `recipe` calls create a new scope | Simple, well-understood, gives closures for free; matches Python's function-scoped model so accumulator patterns work with no declare keyword |
 | Variable declaration | None — bare assignment (`x = 1`) creates or updates | Removes `let`/`const` ceremony; walk-and-mutate `Environment.Set` needs no `global`/`nonlocal` equivalent |
 | Blocks | Braces, not indentation | Simpler lexer/parser; avoids whitespace-sensitivity edge cases |
+| Ranges | Eager `List`, not a lazy Range type | Matches exactly what `1..5` looks like it should produce; avoids a second "sequence" abstraction alongside List this early |
+| Increment/decrement | Statement only, `i++` and `++i` identical | Removes C's prefix/postfix return-value distinction entirely — consistent with `=` also being statement-level, not an expression |
+| Unpacking's last target | Always a `List`, never sometimes-scalar | One predictable type regardless of input length; avoids call sites needing a runtime check on what they got back |

@@ -1,0 +1,21 @@
+// Demonstrates unpacking assignment, integer ranges (.. and .<),
+// and the ++/-- increment/decrement operators.
+
+recipe firstAndRest(nums) {
+    first, rest = nums
+    serve [first, rest]
+}
+
+result = firstAndRest(1..5)   // inclusive range -> [1, 2, 3, 4, 5]
+deliver(result[0])            // 1
+deliver(result[1])            // [2, 3, 4, 5]
+
+knead i in 1.<5 {             // exclusive range -> [1, 2, 3, 4]
+    deliver(i)
+}
+
+countdown = 3
+bake (countdown > 0) {
+    deliver(countdown)
+    countdown--
+}

@@ -18,14 +18,19 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] Variable model: no `let`/`const` — bare, Python-style assignment
       (`x = 1`), scoped to the nearest enclosing `recipe`
 - [x] Full operator list: arithmetic, comparison, logical, assignment
-      (incl. compound `+=`/`-=`/etc.), indexing
+      (incl. compound `+=`/`-=`/etc.), increment/decrement (`++`/`--`),
+      ranges (`..`/`.<`), indexing
+- [x] Unpacking assignment (`x, y = list`, last target always a List)
 - [x] Write `docs/SPEC.md` with grammar (EBNF) and semantics
-- [x] Write a "Hello World" and two AoC-shaped sample programs by hand, in
-      the target syntax, to sanity-check ergonomics before coding anything
+- [x] Write a "Hello World" and three AoC-shaped sample programs by hand,
+      in the target syntax, to sanity-check ergonomics before coding
+      anything
 
   → See [docs/SPEC.md](./docs/SPEC.md) for the full keyword table, grammar,
   operator list, and truthiness/coercion rules, and [`examples/`](./examples)
-  for the sample programs.
+  for the sample programs. Open question, deliberately deferred: whether
+  for-each `knead` should support unpacking (e.g. `k, v` pairs over a
+  Map) — see SPEC.md §3.1.
 
 ## Phase 2 — Lexer
 - [ ] Token type definitions
