@@ -13,10 +13,10 @@ both in the same change.
   Python-style. See [§3](#3-variables--assignment).
 - Every structural keyword is pizza jargon — see
   [§4](#4-keyword-vocabulary).
-- Unpacking assignment, integer ranges (`..` / `.<`), `++`/`--`, and the
-  nil-coalescing pair `(|`/`|)` round out the ergonomics that matter
-  most for tight AoC loops — see [§3.1](#31-unpacking-assignment) and
-  [§5](#5-operators).
+- Unpacking assignment, integer ranges (`..` / `.<`), `++`/`--`, a
+  ternary conditional (`(|`/`|)`), and an Elvis nil-coalescing operator
+  (`?:`) round out the ergonomics that matter most for tight AoC loops
+  — see [§3.1](#31-unpacking-assignment) and [§5](#5-operators).
 
 ## 2. Core Types
 
@@ -198,9 +198,10 @@ Reserved for later phases, not yet implemented: a module-import keyword
 | Unary | `-x`, `hold x` | numeric negate, logical not |
 | Comparison | `==  !=  <  >  <=  >=` | see §6 for cross-type rules |
 | Logical | `with` (and), `or` (or), `hold` (not) | keyword operators, not symbols |
-| Assignment | `=  +=  -=  *=  /=  %=  \|)` | statement-level only (§3), not usable as a sub-expression — like Python's `=`, unlike C's; `\|)` is conditional — see §5.3 |
+| Assignment | `=  +=  -=  *=  /=  %=` | statement-level only (§3), not usable as a sub-expression — like Python's `=`, unlike C's |
 | Increment/decrement | `++  --` | either side of the target (`i++` and `++i` are identical); statement-level only, no return value — see §5.2 |
-| Nil-coalesce | `(\|` | expression form of "or this fallback" — see §5.3 |
+| Ternary | `(\|`, `\|)` | `cond (\| then \|) else` — the two half-pizza glyphs as a matched pair, one job each — see §5.3 |
+| Elvis / nil-coalesce | `?:` | `a ?: b` — a if it isn't `nobox`, else `b` — see §5.4 |
 | Indexing | `x[i]` | List (by position), Map (by key), String (by position); **not** valid on Set |
 | Grouping | `( )` | expression grouping |
 
@@ -213,9 +214,9 @@ Precedence, low to high (unchanged shape, assignment/increment sit
 outside this ladder as statement forms):
 
 ```
-coalesce (|)  <  or  <  with  <  equality (== !=)  <  comparison (< > <= >=)
-    <  range (.. .<)  <  sum (+ -)  <  product (* / %)
-    <  unary (- hold)  <  call/index
+ternary (| |)  <  elvis (?:)  <  or  <  with  <  equality (== !=)
+    <  comparison (< > <= >=)  <  range (.. .<)  <  sum (+ -)
+    <  product (* / %)  <  unary (- hold)  <  call/index
 ```
 
 This maps directly onto the Pratt-parser dispatch tables in
@@ -267,59 +268,72 @@ i--
 - Reads naturally in a `knead` counted-loop post-clause:
   `knead (i = 0; i < n; i++) { ... }`.
 
-### 5.3 Nil-Coalescing (`(|`, `|)`)
+### 5.3 Ternary Conditional (`(|`, `|)`)
 
-Two half-pizza glyphs, one job split across an expression form and a
-statement form — mirroring how `sauce(value, fallback)` (§7) already
-does this as a function call:
+The two half-pizza glyphs turned out to fit a genuinely two-part
+structure — a conditional with a "then" and an "else" — much better
+than they fit a single fallback value, so that's what they are: a
+matched pair forming one ternary expression, `cond (| then |) else`.
 
 ```
-name = maybeNil (| "default"      // expression: use maybeNil, or "default" if it's nobox
+label = (n % 2 == 0) (| "even" |) "odd"
+deliver(label)
 
-cache[key] |) expensiveCompute()  // statement: fill cache[key] only if it's currently nobox
+// chains read like an else-if ladder — else-branch is right-associative
+grade = (score >= 90) (| "A" |)
+        (score >= 80) (| "B" |)
+        (score >= 70) (| "C" |)
+        "F"
 ```
 
-- **`a (| b`** (expression) evaluates `a`; if it isn't `nobox`, that's
-  the result and `b` is never evaluated. If `a` *is* `nobox`, `b` is
-  evaluated and becomes the result. Right-associative and chainable —
-  `a (| b (| c` tries `a`, then `b`, then `c`. Usable anywhere an
-  expression is: `deliver(x (| "n/a")`, `total += y (| 0`. This is
-  exactly `sauce(a, b)` as an operator; pick whichever reads better at
-  the call site.
-- **`x |) expr`** (statement, one more entry in the assignment family
-  from §3) assigns `expr` to `x` *only if* `x` is currently `nobox`;
-  otherwise it's a no-op and, critically, **`expr` is never evaluated**
-  — the same short-circuiting as `(|`, just landing in an assignment
-  instead of producing a value. That's what makes
-  `cache[key] |) expensiveCompute()` safe to write on every lookup: the
-  expensive call only actually runs on a cache miss.
-- **Both test for `nobox` specifically, not falsiness.** `thin (|
-  "fallback"` stays `thin` — a real Boolean isn't an absence, so it's
-  never replaced. This is the same principle behind §6's truthiness
-  rule (`0` isn't falsy) applied to a different operator family: don't
-  let "empty-ish" and "absent" collapse into the same check.
-- Lowest precedence of any binary operator (§5's ladder) — a coalesce
-  reads as "everything to my left, or this fallback," so it should
-  never need parens to grab the whole preceding expression.
-- The target of `|)` follows the same lvalue rule as `=`: identifier or
-  index expression.
+- `cond` follows the exact same truthiness rule as `order`/`bake`
+  (§6) — only `thin`/`nobox` are falsy, everything else picks the
+  `then` branch. There's no special-cased "is this nobox" check here
+  (that's Elvis, §5.4); ternary is a plain condition, same as an `if`.
+- Exactly one of `then`/`else` is evaluated, never both — this is a
+  real branch, not two eager expressions with one discarded.
+- `then` (between `(|` and `|)`) can be any expression, including a
+  nested ternary — the two distinct delimiter tokens bound it
+  unambiguously, so no extra parens are needed there. `else` (after
+  `|)`) is right-associative, which is what makes the chained
+  else-if-ladder example above work without explicit grouping.
+- `cond` itself is parsed one precedence level below `ternary`, so a
+  bare ternary used *as* a condition needs parens:
+  `(a (| b |) c) (| d |) e`.
+- This is an **expression**, unlike `order`/`combo`/`special` (§4),
+  which are statements. Use ternary for a single value pick
+  (`x = cond (| a |) b`); use `order`/`special` when either branch
+  needs to run more than one statement.
 
-Why two glyphs instead of one: `(|` and `|)` read as the two cut halves
-of a pizza, and splitting the job in half is exactly what they do —
-`(|` hands back a value (it's the one that "opens" into an expression),
-`|)` closes a box that was empty (it's the one that "seals" an
-assignment). They're a matched pair by shape, not by grammar — each is
-an independent binary operator, not an opening/closing delimiter pair
-like `( )`.
+### 5.4 Elvis / Nil-Coalescing (`?:`)
 
-**Known trade-off**: because these operators contain a literal `(` or
-`)`, editors that do generic bracket-matching/rainbow-bracket
-highlighting (without actually understanding cRust's grammar) will see
-an unmatched paren inside `(|` and an unmatched paren inside `|)`. It's
-purely a cosmetic editor-support annoyance, not a language ambiguity —
-the lexer treats each as one atomic token (see the Phase 2 lexing notes
-in [ARCHITECTURE.md](./ARCHITECTURE.md#phase-2--lexer-internallexer))
-— but it's worth knowing about before it's confused for a typo. A
+```
+name = maybeNil ?: "default"      // "default" only if maybeNil is nobox
+value = a ?: b ?: c ?: "fallback" // chainable, right-associative
+```
+
+- `a ?: b` evaluates `a`; if it isn't `nobox`, that's the result and
+  `b` is never evaluated. Only when `a` *is* `nobox` does it evaluate
+  and return `b`. This is exactly `sauce(a, b)` (§7) as an operator —
+  same short-circuiting, same nobox-only check, pick whichever reads
+  better at the call site.
+- **Tests for `nobox` specifically, not falsiness** — `thin ?:
+  "fallback"` stays `thin`, and `0 ?: 99` stays `0`. A real value isn't
+  an absence, so it's never replaced. Same principle as §6's
+  truthiness rule (`0` isn't falsy), applied to a different operator.
+- Sits just above ternary in precedence (§5's ladder) — below `or`, so
+  `a with b ?: c` groups as `a with (b ?: c)`.
+- Unlike ternary, `?:` involves no literal parens in its token, so it
+  doesn't have the bracket-matching quirk noted below for `(|`/`|)`.
+
+**Known trade-off (ternary only)**: because `(|` and `|)` contain a
+literal `(` or `)`, editors that do generic bracket-matching/
+rainbow-bracket highlighting (without actually understanding cRust's
+grammar) will see an unmatched paren inside each token. It's purely a
+cosmetic editor-support annoyance, not a language ambiguity — the
+lexer treats each as one atomic token (see the Phase 2 lexing notes in
+[ARCHITECTURE.md](./ARCHITECTURE.md#phase-2--lexer-internallexer)) —
+but it's worth knowing about before it's confused for a typo. A
 cRust-aware editor mode/grammar (Phase 6 stretch) would fix the
 highlighting; nothing to do about it before then.
 
@@ -361,7 +375,7 @@ it's directly tied to the Set type this doc introduces.
 |---|---|---|
 | `deliver(...)` | `deliver(values...)` | print — send output out |
 | `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Map, or Set |
-| `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `(|` operator (§5.3), as a plain function |
+| `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `?:` operator (§5.4), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
@@ -383,7 +397,7 @@ statement      = simpleStmt terminator | recipeStmt | orderStmt
 simpleStmt     = unpackAssign | assignStmt | incDecStmt | expression ;
 assignStmt     = lvalue assignOp expression ;
 lvalue         = identifier { index } ;
-assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "|)" ;
+assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 
 unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
 incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
@@ -409,8 +423,9 @@ flipStmt       = "flip" terminator ;
 block          = "{" { statement } "}" ;
 terminator     = NEWLINE | ";" ;
 
-expression     = coalesce ;
-coalesce       = logicalOr [ "(|" coalesce ] ;
+expression     = ternary ;
+ternary        = elvis [ "(|" expression "|)" ternary ] ;
+elvis          = logicalOr [ "?:" elvis ] ;
 logicalOr      = logicalAnd { "or" logicalAnd } ;
 logicalAnd     = equality { "with" equality } ;
 equality       = comparison { ( "==" | "!=" ) comparison } ;
@@ -443,10 +458,12 @@ instead. `unpackAssign` is checked before plain `assignStmt` since both
 start with an identifier; the parser only knows which one it's in once
 it sees whether a `,` or an `assignOp` follows.
 
-Note on `"|)"` as an `assignOp`: the grammar treats it like any other
-compound assignment, but it isn't evaluated like one — see §5.3.
-`x += expr` always evaluates `expr` and writes the result; `x |) expr`
-only evaluates and writes `expr` if `x` is currently `nobox`.
+Note on `ternary`: the condition is parsed at `elvis` precedence, one
+level below `ternary` itself, so a bare ternary used as a condition
+needs parens (§5.3). The `then` branch is parsed as a full `expression`
+because it's unambiguously bounded by `|)`; the `else` branch recurses
+back into `ternary`, which is what makes else-if-style chains
+right-associate without extra grouping.
 
 ## 9. Examples
 
@@ -544,11 +561,29 @@ knead i in 1.<5 {             // exclusive range: [1, 2, 3, 4]
 }
 ```
 
-### Nil-coalescing (`(|`, `|)`)
+### Ternary conditional (`(|`, `|)`)
+
+```
+recipe parity(n) {
+    serve (n % 2 == 0) (| "even" |) "odd"
+}
+
+deliver(parity(4))   // even
+deliver(parity(7))   // odd
+
+score = 82
+grade = (score >= 90) (| "A" |)
+        (score >= 80) (| "B" |)
+        (score >= 70) (| "C" |)
+        "F"
+deliver(grade)        // B
+```
+
+### Elvis / nil-coalescing (`?:`)
 
 ```
 recipe greet(name) {
-    display = name (| "stranger"
+    display = name ?: "stranger"
     deliver("Hello, " + display + "!")
 }
 
@@ -559,7 +594,7 @@ greet(nobox)    // Hello, stranger!
 cache = {}
 
 recipe fib(n) {
-    cache[n] |) computeFib(n)
+    cache[n] = cache[n] ?: computeFib(n)
     serve cache[n]
 }
 
@@ -569,12 +604,14 @@ recipe computeFib(n) {
     }
     serve fib(n - 1) + fib(n - 2)
 }
+
+deliver(fib(10))
 ```
 
-Note `(|`'s precedence is *lower* than `+`, so `a + b (| c` groups as
-`(a + b) (| c)`, not `a + (b (| c)` — that's why `greet` assigns the
+Note `?:`'s precedence is *lower* than `+`, so `a + b ?: c` groups as
+`(a + b) ?: c`, not `a + (b ?: c)` — that's why `greet` assigns the
 coalesced value to `display` first rather than trying to inline it into
-the concatenation. When mixing `(|` with other operators, parenthesize
+the concatenation. When mixing `?:` with other operators, parenthesize
 explicitly rather than relying on precedence to do what you mean.
 
 All examples also live as runnable files under

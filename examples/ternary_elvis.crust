@@ -1,0 +1,46 @@
+// Demonstrates the ternary conditional (| |) and the Elvis
+// nil-coalescing operator ?:, plus the equivalent sauce() builtin
+// Elvis is sugar for.
+
+recipe parity(n) {
+    serve (n % 2 == 0) (| "even" |) "odd"
+}
+
+deliver(parity(4))   // even
+deliver(parity(7))   // odd
+
+// chained ternary reads like an else-if ladder
+score = 82
+grade = (score >= 90) (| "A" |)
+        (score >= 80) (| "B" |)
+        (score >= 70) (| "C" |)
+        "F"
+deliver(grade)        // B
+
+recipe greet(name) {
+    display = name ?: "stranger"
+    deliver("Hello, " + display + "!")
+}
+
+greet("Ryan")   // Hello, Ryan!
+greet(nobox)    // Hello, stranger!
+
+// same thing via the builtin instead of the operator
+deliver(sauce(nobox, "stranger"))
+
+// memoized fibonacci: cache[n] only gets computed once per n
+cache = {}
+
+recipe fib(n) {
+    cache[n] = cache[n] ?: computeFib(n)
+    serve cache[n]
+}
+
+recipe computeFib(n) {
+    order (n < 2) {
+        serve n
+    }
+    serve fib(n - 1) + fib(n - 2)
+}
+
+deliver(fib(10))

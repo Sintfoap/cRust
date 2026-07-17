@@ -19,7 +19,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       (`x = 1`), scoped to the nearest enclosing `recipe`
 - [x] Full operator list: arithmetic, comparison, logical, assignment
       (incl. compound `+=`/`-=`/etc.), increment/decrement (`++`/`--`),
-      ranges (`..`/`.<`), nil-coalescing (`(|`/`|)`), indexing
+      ranges (`..`/`.<`), ternary (`(|`/`|)`), Elvis nil-coalescing
+      (`?:`), indexing
 - [x] Unpacking assignment (`x, y = list`, last target always a List)
 - [x] Write `docs/SPEC.md` with grammar (EBNF) and semantics
 - [x] Write a "Hello World" and four AoC-shaped sample programs by hand,
