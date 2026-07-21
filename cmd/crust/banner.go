@@ -36,8 +36,23 @@ const pizzaArt = `                      @
                       @`
 
 // pizzaWidth is the longest line in pizzaArt, used to center the
-// tagline underneath it.
+// wordmark and tagline underneath it.
 const pizzaWidth = 44
+
+// crustLogo is the "cRust" wordmark, rendered with the ansi_shadow
+// figlet font (pyfiglet: Figlet(font="ansi_shadow").renderText("cRust")) —
+// the same font the reference CLI's own banner uses. figlet block fonts
+// don't distinguish case for glyphs this size, so it comes out as
+// CRUST; matching the reference's all-caps convention read better here
+// than hand-forcing a smaller "c" into an otherwise uniform block font.
+const crustLogo = ` ██████╗██████╗ ██╗   ██╗███████╗████████╗
+██╔════╝██╔══██╗██║   ██║██╔════╝╚══██╔══╝
+██║     ██████╔╝██║   ██║███████╗   ██║
+██║     ██╔══██╗██║   ██║╚════██║   ██║
+╚██████╗██║  ██║╚██████╔╝███████║   ██║
+ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝`
+
+const logoWidth = 42
 
 // True-color ANSI codes, matched to the exact hex palette used in
 // assets/banner.png so the terminal banner and the README banner agree.
@@ -132,24 +147,51 @@ func renderPizza(toppings map[string]bool, color bool) string {
 	return b.String()
 }
 
-// banner renders the pizza plus a centered tagline underneath it.
+// banner renders the pizza, the "cRust" wordmark, and the tagline,
+// each centered to pizzaWidth.
 func banner(toppings map[string]bool, color bool) string {
 	var b strings.Builder
 	b.WriteString(renderPizza(toppings, color))
-	b.WriteString(centeredTagline(color))
+	b.WriteString(centeredBlock(crustLogo, logoWidth, colBold+colCheese, color))
+	b.WriteString("\n")
+	b.WriteString(centeredLine("language baked better", colBold+colPep, color))
 	b.WriteString("\n\n")
 	return b.String()
 }
 
-func centeredTagline(color bool) string {
-	const plain = "cRust — language baked better"
-	pad := (pizzaWidth - utf8.RuneCountInString(plain)) / 2
+// centeredBlock centers a multi-line block within pizzaWidth, coloring
+// each line individually (rather than spanning one escape across
+// newlines, which not every terminal/pager handles cleanly).
+func centeredBlock(block string, blockWidth int, code string, color bool) string {
+	pad := (pizzaWidth - blockWidth) / 2
 	if pad < 0 {
 		pad = 0
 	}
-	text := plain
-	if color {
-		text = colBold + colCheese + plain + colReset
+	prefix := strings.Repeat(" ", pad)
+
+	var b strings.Builder
+	for _, line := range strings.Split(block, "\n") {
+		b.WriteString(prefix)
+		if color {
+			b.WriteString(code)
+			b.WriteString(line)
+			b.WriteString(colReset)
+		} else {
+			b.WriteString(line)
+		}
+		b.WriteRune('\n')
 	}
-	return strings.Repeat(" ", pad) + text
+	return b.String()
+}
+
+func centeredLine(text, code string, color bool) string {
+	pad := (pizzaWidth - utf8.RuneCountInString(text)) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	out := text
+	if color {
+		out = code + text + colReset
+	}
+	return strings.Repeat(" ", pad) + out
 }

@@ -156,6 +156,17 @@ standard practice to avoid import cycles in a Go interpreter.
     `--no-banner` skips the pizza entirely and prints just the usage
     text. All three are independent of `--toppings`/etc. being
     otherwise irrelevant to non-banner invocations.
+  - Below the pizza, `crustLogo` is a block-letter "cRust" wordmark
+    (figlet's `ansi_shadow` font — generated once via `pyfiglet` and
+    pasted into the Go source as a raw string, not generated at
+    runtime) plus a smaller "language baked better" tagline, both
+    centered under the pizza by `centeredBlock`/`centeredLine`. Colored
+    as one flat color per line (not character-identity-based like the
+    pizza) since block-font glyphs don't carry topping semantics.
+    figlet fonts at this size don't distinguish letter case, so it
+    renders as CRUST rather than mixed-case "cRust" — matching the
+    reference banner's own all-caps convention read better here than
+    hand-forcing a visually-smaller "c" into an otherwise uniform font.
   - **No `golang.org/x/term` dependency for TTY detection** — `isTerminal`
     uses `os.Stdout.Stat()` and checks `os.ModeCharDevice` directly, a
     stdlib-only heuristic that works on Linux/macOS/Windows consoles.
