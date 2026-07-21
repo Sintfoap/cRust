@@ -53,8 +53,17 @@ go build ./cmd/crust
 ./crust --help
 ```
 
-`crust run`/`crust repl` exist but just say "not implemented yet" —
-the interpreter behind them lands in Phases 2–6.
+`crust run`/`crust repl` (also reachable as a bare `crust <file>`) exist
+but just say "not implemented yet" — the interpreter behind them lands
+in Phases 2–6. `--help` (and running `crust` with no arguments) prints
+the pizza banner in color; customize it with:
+
+```
+crust --toppings=all --help     # everything: pepperoni + basil
+crust --toppings=plain --help   # just cheese
+crust --no-color --help         # plain text, no ANSI (also respects $NO_COLOR)
+crust --no-banner --help        # usage only, no pizza
+```
 
 ### With Nix
 

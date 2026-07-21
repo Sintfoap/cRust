@@ -117,12 +117,62 @@ standard practice to avoid import cycles in a Go interpreter.
   "dev"`, meant to be overridden at build time via
   `-ldflags "-X main.version=1.2.3"` once there's a tagging scheme.
 - `main()` is a thin wrapper around `run(args []string, stdout, stderr
-  io.Writer) int` — pushing the actual logic into a function that
-  takes writers and returns an exit code (rather than calling
-  `os.Exit`/writing to `os.Stdout` directly throughout) is what makes
-  `cmd/crust/main_test.go` able to assert on output and exit codes
-  without subprocess spawning. Same shape will likely make sense for
-  the eventual `run`/`repl` implementations in Phase 6.
+  io.Writer, colorDefault bool) int` — pushing the actual logic into a
+  function that takes writers and returns an exit code (rather than
+  calling `os.Exit`/writing to `os.Stdout` directly throughout) is what
+  makes `cmd/crust/main_test.go` able to assert on output and exit
+  codes without subprocess spawning. `colorDefault` is computed once in
+  `main()` from real process state (`os.Stdout` + `$NO_COLOR`) and
+  passed in as a plain bool specifically so tests can force either path
+  deterministically without needing a real TTY. Same shape will likely
+  make sense for the eventual `run`/`repl` implementations in Phase 6.
+- **`cmd/crust/banner.go`**: the `--help` screen (and bare/no-arg
+  invocation) prints the pizza banner from the README, redrawn as
+  colored terminal text, ahead of Phase 6's "pizza-themed error
+  messages" item:
+  - The pizza is one Go raw string (`pizzaArt`) — plain characters,
+    no markup. Coloring is entirely **character-identity-based**:
+    `@`/`#` is crust, `o` is pepperoni, `*` is basil, everything else
+    printable is cheese. This is the same trick the original HTML/CSS
+    banner used (`SPEC.md`-adjacent, see the README banner's own
+    history) — no separate "layout map" to keep in sync with the art.
+  - Colors are **24-bit ANSI true-color** escapes (`\x1b[38;2;R;G;Bm`),
+    with R/G/B taken directly from `assets/banner.png`'s hex palette
+    (`#c88a3a`/`#f2c744`/`#e05a45`/`#7cbf58`), so the terminal banner
+    and the README image agree exactly. True color isn't universal but
+    is widely supported by anything a WSL/Linux/macOS user is likely
+    running; there's no fallback tier (16/256-color) since the
+    graceful failure mode (a modern terminal ignoring/approximating an
+    unsupported escape) is acceptable for a decorative banner.
+  - `--toppings <list>` (`pepperoni,basil` default, or `all`/`plain`)
+    controls which of the two topping layers render in their real
+    color vs. collapse to plain cheese (`.`) — implemented by
+    `parseToppings` returning a `map[string]bool` that `renderPizza`
+    consults per-character. The pizza's *shape* (crust outline, cheese
+    texture) never changes; only whether the `o`/`*` positions show
+    their topping or blend into the cheese.
+  - `--no-color` and `$NO_COLOR` (checked in `main()`, not `run()`,
+    since it's real process state) both suppress the ANSI codes;
+    `--no-banner` skips the pizza entirely and prints just the usage
+    text. All three are independent of `--toppings`/etc. being
+    otherwise irrelevant to non-banner invocations.
+  - **No `golang.org/x/term` dependency for TTY detection** — `isTerminal`
+    uses `os.Stdout.Stat()` and checks `os.ModeCharDevice` directly, a
+    stdlib-only heuristic that works on Linux/macOS/Windows consoles.
+    This is deliberate: the project has zero third-party Go
+    dependencies right now, which is exactly what keeps the Nix
+    flake's `vendorHash = null` valid (§ above) — pulling in a real
+    dependency just for isatty detection would break that for a
+    cosmetic feature.
+  - Bare-file invocation (`crust day01.crust`, no `run` keyword) is
+    now equivalent to `crust run day01.crust` — a small UX borrow from
+    a similar tool a friend of the project's author built, adopted
+    because it's a genuine ergonomics win independent of where the
+    idea came from, not because the surrounding command surface was
+    copied (it wasn't — no `build`/`check`/`lsp`/"expansion" commands
+    exist, because cRust doesn't compile and has no diagnostics engine;
+    inventing those to mimic the shape would misrepresent what the
+    tool actually does).
 - Directory scaffolding (`internal/{token,lexer,ast,parser,object,
   interpreter,builtins}`) from §2's package layout is **not** created
   yet as empty stub packages — those get created with real content
@@ -440,3 +490,5 @@ months ahead of the event instead of the week before.
 | Distribution | Build from source (`go build`/`go run`); no release workflow yet | Nothing worth shipping to non-developers at Phase 0/1; a release workflow is cheap to add later and premature now |
 | CLI shape | `main()` → `run(args, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; the same shape carries forward into Phase 6's real `run`/`repl` |
 | Nix packaging | `flake.nix` via `buildGoModule`, no `flake.lock` committed yet | Builds from source, so it's consistent with "no release workflow" rather than a separate distribution channel; the lock file needs a real Nix install (network access this dev environment doesn't have) to generate correctly |
+| Banner colors | 24-bit true-color ANSI, no 256-color fallback tier | Matches `assets/banner.png`'s hex palette exactly; a decorative help-screen banner degrading ungracefully on an ancient terminal isn't worth a second color-rendering path |
+| TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Keeps the project's dependency count at zero, which is what keeps the Nix flake's `vendorHash = null` valid — not worth breaking for isatty detection |

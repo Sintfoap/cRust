@@ -95,9 +95,12 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   phase is about implementing them, not naming them.
 
 ## Phase 6 — Tooling
-- [ ] CLI: `crust run <file>`
+- [ ] CLI: `crust run <file>` (still stubbed — needs Phase 4's interpreter)
 - [ ] REPL mode
-- [ ] Clear, pizza-themed error messages
+- [x] Clear, pizza-themed error messages *(started ahead of schedule)*
+- [x] Colorized `--help` banner (the pizza, customizable via
+      `--toppings`/`--no-banner`/`--no-color`) — see
+      [ARCHITECTURE.md](./docs/ARCHITECTURE.md) Phase 0/6 notes
 - [ ] (Stretch) editor syntax highlighting (TextMate grammar / tree-sitter)
 
 ## Phase 7 — Testing & Quality
