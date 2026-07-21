@@ -3,12 +3,30 @@
 Milestones for building cRust — a Go-based interpreter with a pizza-jargon
 keyword set — in time for Advent of Code 2026 (Dec 1).
 
-## Phase 0 — Project Foundations
-- [ ] Initialize Go module (`go.mod`)
-- [ ] Repo layout: `cmd/crust`, `internal/lexer`, `internal/parser`,
-      `internal/interpreter`, `examples/`, `docs/`
-- [ ] `.gitignore`, `LICENSE`
-- [ ] GitHub Actions CI: `go build`, `go vet`, `go test ./...`
+## Phase 0 — Project Foundations ✅
+- [x] Initialize Go module (`go.mod` — `github.com/Sintfoap/cRust`, Go 1.24)
+- [x] `cmd/crust` with a minimal CLI: `--version`, `--help`/`-h`, and
+      stubbed `run`/`repl` subcommands that say "not implemented yet"
+      rather than doing nothing or panicking
+- [x] `.gitignore`, `LICENSE` (MIT)
+- [x] GitHub Actions CI: `go build`, `go vet`, `gofmt -l`, `go test ./...`
+      on Linux only (see decisions below)
+- [x] Smoke tests for the CLI stub (`cmd/crust/main_test.go`) — gives
+      Phase 0 something for CI to actually run instead of an empty
+      `go test ./...`
+
+  → `internal/{token,lexer,ast,parser,object,interpreter,builtins}`
+  from ARCHITECTURE.md's package layout aren't created yet — they land
+  as stubs-with-real-content when their own phase starts (Phase 2+),
+  rather than as empty placeholder packages now.
+
+  → Decisions made explicitly rather than defaulted into: CI targets
+  **Linux only** (Go's stdlib is portable and this project has no
+  OS-specific code, so a single-platform CI is very unlikely to miss a
+  real bug; cross-compiling a one-off binary for another OS later is a
+  free `GOOS=... GOARCH=... go build` whenever actually needed) — and
+  **no release workflow yet** (build from source via `go build`/`go run`
+  until there's something worth distributing).
 
 ## Phase 1 — Language Design ✅
 - [x] Core types: int, float, string, bool, list, map, set, nil

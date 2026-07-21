@@ -7,7 +7,10 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
 ## Status
 
-Language design (Phase 1) is done. See [TODO.md](./TODO.md) for the
+Project foundations and language design (Phases 0–1) are done. There's
+a real `go.mod` and a `crust` CLI you can build today — `--version`,
+`--help`, and stubbed `run`/`repl` — but no lexer/parser/interpreter
+yet, so it can't run `.crust` code. See [TODO.md](./TODO.md) for the
 roadmap and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 for the technical design behind each phase, and
 [docs/SPEC.md](./docs/SPEC.md) for the actual language — keyword table,
@@ -39,3 +42,16 @@ recipe findPair(nums, target) {
 
 See [`examples/`](./examples) for runnable-once-the-interpreter-exists
 sample programs.
+
+## Building
+
+Requires Go 1.24+.
+
+```
+go build ./cmd/crust
+./crust --version
+./crust --help
+```
+
+`crust run`/`crust repl` exist but just say "not implemented yet" —
+the interpreter behind them lands in Phases 2–6.

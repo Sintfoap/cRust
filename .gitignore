@@ -1,0 +1,14 @@
+# Build output
+/crust
+/bin/
+*.exe
+*.test
+*.out
+
+# OS cruft
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp

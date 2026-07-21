@@ -57,13 +57,44 @@ standard practice to avoid import cycles in a Go interpreter.
 
 ## 3. Phase-by-Phase Technical Breakdown
 
-### Phase 0 — Project Foundations
-- `go.mod` pins a specific Go version (target latest stable at time of
-  writing) so CI and local dev can't silently drift.
-- CI runs `go build ./...`, `go vet ./...`, `go test ./...` on every push;
-  `gofmt -l` fails the build on unformatted files.
-- Directory scaffolding above is created up front so every later phase has
-  a fixed home — avoids churny "where does this file go" decisions mid-build.
+### Phase 0 — Project Foundations ✅
+- `go.mod` pins Go 1.24 (`github.com/Sintfoap/cRust`) so CI and local
+  dev can't silently drift.
+- CI (`.github/workflows/ci.yml`) runs `go build ./...`, `go vet ./...`,
+  `gofmt -l`, and `go test ./...` on every push, **Linux only**. Go's
+  standard library is highly portable and nothing in this project
+  touches OS-specific behavior (no syscalls, no path/filesystem
+  quirks beyond a plain file read), so a single-platform CI is very
+  unlikely to miss a real bug. If a one-off macOS/Windows binary is
+  ever needed, that's a free `GOOS=darwin GOARCH=arm64 go build` — no
+  CI investment required to unlock it.
+- **No release workflow yet, deliberately.** There's nothing worth
+  distributing at Phase 0/1; `go build ./cmd/crust` or
+  `go run ./cmd/crust` from source is the only supported path for now.
+  A GitHub Releases workflow (goreleaser or a manual build matrix) is
+  easy to bolt on later once the language actually does something.
+- `cmd/crust/main.go` exists now, ahead of Phase 6, with a genuine but
+  minimal CLI surface: `--version`, `--help`/`-h`, and `run`/`repl`
+  subcommands that print "not implemented yet" and exit 1 rather than
+  doing nothing. This is worth having from day one — it gives CI a
+  concrete smoke test (`go build && ./crust --version`) and means the
+  binary never silently no-ops before Phase 6 fills in the real
+  interpreter. The version string is a package-level `var version =
+  "dev"`, meant to be overridden at build time via
+  `-ldflags "-X main.version=1.2.3"` once there's a tagging scheme.
+- `main()` is a thin wrapper around `run(args []string, stdout, stderr
+  io.Writer) int` — pushing the actual logic into a function that
+  takes writers and returns an exit code (rather than calling
+  `os.Exit`/writing to `os.Stdout` directly throughout) is what makes
+  `cmd/crust/main_test.go` able to assert on output and exit codes
+  without subprocess spawning. Same shape will likely make sense for
+  the eventual `run`/`repl` implementations in Phase 6.
+- Directory scaffolding (`internal/{token,lexer,ast,parser,object,
+  interpreter,builtins}`) from §2's package layout is **not** created
+  yet as empty stub packages — those get created with real content
+  when their own phase starts (Phase 2 creates `token`+`lexer`, Phase 3
+  creates `ast`+`parser`, etc.). `examples/` and `docs/` already exist
+  from Phase 1.
 
 ### Phase 1 — Language Design ✅
 Fully specified in [`docs/SPEC.md`](./SPEC.md) — this section covers the
@@ -371,3 +402,6 @@ months ahead of the event instead of the week before.
 | Unpacking's last target | Always a `List`, never sometimes-scalar | One predictable type regardless of input length; avoids call sites needing a runtime check on what they got back |
 | Half-pizza glyphs' job | `(|`/`|)` as one matched-pair ternary, not a split coalesce | A two-branch conditional is a genuinely two-part structure, unlike coalescing (one fallback) — the shape fits the job better; accepted cosmetic cost is that generic editor bracket-matching sees an unmatched paren inside each token |
 | Nil-coalescing spelling | Conventional Elvis `?:`, `sauce()` builtin unchanged | Frees the half-pizza pair for ternary; `?:` is a well-known convention so it needs no introduction, and has no bracket-matching downside |
+| CI platform coverage | Linux only, no matrix | Go's stdlib is portable and this project has no OS-specific code; a full macOS/Windows CI matrix would cost real minutes to catch a bug that's very unlikely to exist |
+| Distribution | Build from source (`go build`/`go run`); no release workflow yet | Nothing worth shipping to non-developers at Phase 0/1; a release workflow is cheap to add later and premature now |
+| CLI shape | `main()` → `run(args, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; the same shape carries forward into Phase 6's real `run`/`repl` |
