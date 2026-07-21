@@ -55,3 +55,13 @@ go build ./cmd/crust
 
 `crust run`/`crust repl` exist but just say "not implemented yet" —
 the interpreter behind them lands in Phases 2–6.
+
+### With Nix
+
+```
+nix run github:Sintfoap/cRust -- --version
+nix build github:Sintfoap/cRust      # ./result/bin/crust
+nix develop github:Sintfoap/cRust    # dev shell with Go on PATH
+```
+
+Works from NixOS, Nix-on-WSL, or Nix on any other Linux/macOS system.

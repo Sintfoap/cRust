@@ -73,6 +73,40 @@ standard practice to avoid import cycles in a Go interpreter.
   `go run ./cmd/crust` from source is the only supported path for now.
   A GitHub Releases workflow (goreleaser or a manual build matrix) is
   easy to bolt on later once the language actually does something.
+- **`flake.nix` is not a release workflow and doesn't contradict the
+  point above** — it's a reproducible *build recipe* (`pkgs.buildGoModule`
+  compiling from source), not a prebuilt-binary distribution channel,
+  so it fits the "build from source" decision rather than working
+  around it. It's what makes `nix run github:Sintfoap/cRust` work from
+  any Nix-enabled system (NixOS, Nix-on-WSL, Nix on macOS/Linux)
+  without the repo needing to publish anything itself.
+  - `vendorHash = null` since `go.mod` has no `require`s yet (stdlib
+    only) — nothing to vendor. This needs to become a real hash the
+    moment a third-party Go dependency is added; `nix build` prints the
+    correct value on a mismatch.
+  - `subPackages = [ "cmd/crust" ]` restricts the build to the CLI
+    binary specifically, independent of whatever exists under
+    `internal/` at any given phase.
+  - `meta.mainProgram = "crust"` plus an explicit `apps.default` (via
+    `flake-utils.lib.mkApp`) covers both older and newer Nix versions'
+    ways of resolving what `nix run` should execute.
+  - A `devShells.default` with `pkgs.go` is included as the standard,
+    low-cost companion to a Go flake — lets `nix develop` give a
+    hacking environment without needing Go installed globally.
+  - **Not yet verified end-to-end**: this dev environment's network
+    policy blocks `nixos.org` (confirmed via the proxy status endpoint),
+    so Nix itself couldn't be installed here to test `nix build`/
+    `nix run` against the real thing. The flake follows well-established
+    `buildGoModule` + `flake-utils` conventions, but it should be run
+    through `nix flake check` on a real Nix install before being
+    trusted blindly.
+  - No `flake.lock` is committed yet, for the same reason: locking
+    requires Nix to actually resolve and hash `nixpkgs`/`flake-utils`
+    against real network access. `nix run`/`nix build` still work
+    without one (Nix resolves an ephemeral lock on the fly), but running
+    `nix flake lock` once on a real machine and committing the result
+    is what makes future runs reproducible instead of floating on
+    whatever `nixos-unstable` currently points to.
 - `cmd/crust/main.go` exists now, ahead of Phase 6, with a genuine but
   minimal CLI surface: `--version`, `--help`/`-h`, and `run`/`repl`
   subcommands that print "not implemented yet" and exit 1 rather than
@@ -405,3 +439,4 @@ months ahead of the event instead of the week before.
 | CI platform coverage | Linux only, no matrix | Go's stdlib is portable and this project has no OS-specific code; a full macOS/Windows CI matrix would cost real minutes to catch a bug that's very unlikely to exist |
 | Distribution | Build from source (`go build`/`go run`); no release workflow yet | Nothing worth shipping to non-developers at Phase 0/1; a release workflow is cheap to add later and premature now |
 | CLI shape | `main()` → `run(args, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; the same shape carries forward into Phase 6's real `run`/`repl` |
+| Nix packaging | `flake.nix` via `buildGoModule`, no `flake.lock` committed yet | Builds from source, so it's consistent with "no release workflow" rather than a separate distribution channel; the lock file needs a real Nix install (network access this dev environment doesn't have) to generate correctly |

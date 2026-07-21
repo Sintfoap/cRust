@@ -14,6 +14,11 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] Smoke tests for the CLI stub (`cmd/crust/main_test.go`) — gives
       Phase 0 something for CI to actually run instead of an empty
       `go test ./...`
+- [x] `flake.nix` so `nix run github:Sintfoap/cRust` builds and runs
+      the CLI from any Nix-enabled system (NixOS, Nix-on-WSL, etc.) —
+      **not yet verified end-to-end** (this dev environment can't reach
+      nixos.org to install Nix itself); run `nix flake check` /
+      `nix run .` locally before relying on it
 
   → `internal/{token,lexer,ast,parser,object,interpreter,builtins}`
   from ARCHITECTURE.md's package layout aren't created yet — they land

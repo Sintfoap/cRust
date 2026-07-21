@@ -5,6 +5,10 @@
 *.test
 *.out
 
+# Nix build output symlinks
+/result
+/result-*
+
 # OS cruft
 .DS_Store
 
