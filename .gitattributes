@@ -1,0 +1,11 @@
+# Normalize everything to LF regardless of what OS/editor checks it out
+# or commits it. Without this, a contributor with core.autocrlf=true (or
+# an editor that rewrites line endings) can accidentally convert every
+# tracked file to CRLF in one commit, which breaks `gofmt -l` in CI and
+# makes every subsequent diff noisy.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
