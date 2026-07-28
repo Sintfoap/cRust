@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,6 +64,24 @@ func TestRun(t *testing.T) {
 			args:       []string{"day01.crust"},
 			wantCode:   1,
 			wantStderr: "run day01.crust: not in the oven yet",
+		},
+		{
+			name:       "tokens missing file",
+			args:       []string{"tokens"},
+			wantCode:   1,
+			wantStderr: "missing <file.crust>",
+		},
+		{
+			name:       "tokens missing on disk",
+			args:       []string{"tokens", "/no/such/file.crust"},
+			wantCode:   1,
+			wantStderr: "no such file",
+		},
+		{
+			name:       "tokens with a real file",
+			args:       []string{"tokens", "../../examples/hello.crust"},
+			wantCode:   0,
+			wantStdout: "IDENT",
 		},
 		{
 			name:       "help shows banner by default",
@@ -126,6 +146,62 @@ func TestRun(t *testing.T) {
 		run([]string{"--no-banner", "--help"}, &stdout, &stderr, false)
 		if strings.Contains(stdout.String(), "@@@@@#########@@@@@") {
 			t.Errorf("expected no pizza art with --no-banner, got: %q", stdout.String())
+		}
+	})
+}
+
+func TestRunTokens(t *testing.T) {
+	t.Run("valid source prints one line per token", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ok.crust")
+		if err := os.WriteFile(path, []byte(`x = 1`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := runTokens(path, &stdout, &stderr)
+
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"IDENT", "x", "=", "INT", "1", "EOF"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q, got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("illegal input still prints tokens but fails", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "bad.crust")
+		if err := os.WriteFile(path, []byte(`x = 1 ! y`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := runTokens(path, &stdout, &stderr)
+
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stdout.String(), "ILLEGAL") {
+			t.Errorf("expected ILLEGAL in stdout, got: %q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "ILLEGAL") {
+			t.Errorf("expected a note about the ILLEGAL token on stderr, got: %q", stderr.String())
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runTokens("/no/such/file.crust", &stdout, &stderr)
+
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "no such file") {
+			t.Errorf("stderr = %q, want a file-not-found message", stderr.String())
 		}
 	})
 }

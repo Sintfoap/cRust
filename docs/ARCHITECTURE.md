@@ -317,6 +317,19 @@ themselves.
   token turns up — a cheap way to catch gaps the hand-written cases
   miss, since those files exercise every feature together rather than
   in isolation. 99%+ statement coverage on `internal/lexer`.
+- **`crust tokens <file>`** (`cmd/crust/tokens.go`, Phase 6 work done
+  ahead of schedule): reads a file, runs it through `lexer.New`, and
+  prints one line per token (`line:col  TYPE  literal`) until `EOF` or
+  the process would otherwise have nothing to show for `run`/`repl`
+  still being stubs. It's the only way to see the lexer act on real
+  input from the CLI right now, and doubles as a debugging aid for
+  Phase 3 once the parser exists to consume this same stream. String
+  and `ILLEGAL` literals print `%q`-quoted so embedded newlines/tabs
+  (from escape sequences, or an error message) can't break the
+  one-line-per-token output. Exit code is 1 if any `ILLEGAL` token
+  turns up, 0 otherwise — but every token still gets printed either
+  way, since seeing what came *before* the bad token is usually the
+  point of reaching for this in the first place.
 
 ### Phase 3 — Parser (`internal/parser`)
 - **Pratt parsing** (top-down operator precedence) for expressions —

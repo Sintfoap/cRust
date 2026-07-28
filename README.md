@@ -54,15 +54,30 @@ go build ./cmd/crust
 ```
 
 `crust run`/`crust repl` (also reachable as a bare `crust <file>`) exist
-but just say "not implemented yet" — the interpreter behind them lands
-in Phases 2–6. `--help` (and running `crust` with no arguments) prints
-the pizza banner in color; customize it with:
+but just say "not implemented yet" — the parser and interpreter behind
+them aren't built yet (see [TODO.md](./TODO.md)). `--help` (and running
+`crust` with no arguments) prints the pizza banner in color; customize
+it with:
 
 ```
 crust --toppings=all --help     # everything: pepperoni + basil
 crust --toppings=plain --help   # just cheese
 crust --no-color --help         # plain text, no ANSI (also respects $NO_COLOR)
 crust --no-banner --help        # usage only, no pizza
+```
+
+The lexer (Phase 2) is real, though, and `crust tokens <file>` is the
+way to see it work before there's a parser/interpreter to run files
+for real:
+
+```
+crust tokens examples/hello.crust
+#    1:1    IDENT      deliver
+#    1:8    (          (
+#    1:9    STRING     "Hello, World!"
+#    1:24   )          )
+#    1:25   NEWLINE    \n
+#    2:1    EOF
 ```
 
 ### With Nix

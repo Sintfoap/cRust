@@ -112,6 +112,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] Colorized `--help` banner (the pizza, customizable via
       `--toppings`/`--no-banner`/`--no-color`) — see
       [ARCHITECTURE.md](./docs/ARCHITECTURE.md) Phase 0/6 notes
+- [x] `crust tokens <file>` — debug command that prints the lexer's
+      token stream *(started ahead of schedule; the first real use of
+      Phase 2's lexer from the CLI, since `run` doesn't exist yet)*
 - [ ] (Stretch) editor syntax highlighting (TextMate grammar / tree-sitter)
 
 ## Phase 7 — Testing & Quality

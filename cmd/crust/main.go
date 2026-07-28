@@ -15,11 +15,12 @@ import (
 var version = "dev"
 
 const usageBody = `Usage:
-  crust <file.crust>        interpret a .crust source file
-  crust run <file.crust>    interpret, explicitly
-  crust repl                start an interactive REPL
-  crust --version           print the version
-  crust --help | -h         show this help
+  crust <file.crust>         interpret a .crust source file
+  crust run <file.crust>     interpret, explicitly
+  crust repl                 start an interactive REPL
+  crust tokens <file.crust>  print the lexer's token stream and exit
+  crust --version            print the version
+  crust --help | -h          show this help
 
 Pizza flags (banner customization):
   --toppings <list>  comma-separated: pepperoni, basil, all, plain (default: pepperoni,basil)
@@ -27,9 +28,10 @@ Pizza flags (banner customization):
   --no-color         disable ANSI colors (also respects $NO_COLOR)
 
 Examples:
-  crust day01.crust                 run a solution file
-  crust --toppings=all --help       preview the fully-loaded pizza
-  crust --no-color --help           plain-text help, no ANSI
+  crust day01.crust             run a solution file
+  crust tokens day01.crust      debug: see how it lexes
+  crust --toppings=all --help   preview the fully-loaded pizza
+  crust --no-color --help       plain-text help, no ANSI
 `
 
 func main() {
@@ -103,6 +105,12 @@ func run(args []string, stdout, stderr io.Writer, colorDefault bool) int {
 		}
 		notImplemented(stderr, "run "+rest[1])
 		return 1
+	case "tokens":
+		if len(rest) < 2 {
+			fmt.Fprintln(stderr, "crust tokens: missing <file.crust>")
+			return 1
+		}
+		return runTokens(rest[1], stdout, stderr)
 	default:
 		// Bare-file shorthand: `crust foo.crust` behaves like
 		// `crust run foo.crust`.
