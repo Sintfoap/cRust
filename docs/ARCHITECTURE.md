@@ -242,7 +242,7 @@ themselves.
   parser's structure should map 1:1 onto that grammar so the two never
   drift apart.
 
-### Phase 2 — Lexer (`internal/lexer`)
+### Phase 2 — Lexer (`internal/lexer`) ✅
 - Single-pass, rune-by-rune scanner (`Lexer` struct holds input, current
   position, read position, current rune).
 - Emits a flat `Token{ Type TokenType, Literal string, Line, Col int }`
@@ -283,12 +283,40 @@ themselves.
   parens in this token, so unlike `(|`/`|)` it doesn't trip up generic
   bracket-matching.
 - Identifiers vs. keywords: scan the full identifier, then look it up in
-  the `token/keywords.go` table; unmatched falls back to `IDENT`.
+  the keyword table in `token/token.go` (`token.LookupIdent`); unmatched
+  falls back to `IDENT`. (This ended up living alongside the `Type`
+  constants in one small file rather than a separate `keywords.go` —
+  the package is small enough that splitting it further didn't earn
+  its keep.)
+- **Newline collapsing**: a run of blank lines, whitespace, and
+  comments between two real tokens collapses into a single `NEWLINE`
+  token rather than one per physical line. This wasn't pinned down in
+  `SPEC.md` ahead of time; it's a lexer-level choice that keeps the
+  token stream — and therefore Phase 3's parser — from needing to
+  special-case runs of empty statements. **Phase 3 still needs to
+  tolerate a *leading* `NEWLINE`** (blank lines before the first
+  statement in a file or block resolve to one token the grammar's
+  `program`/`block` rules don't have an explicit slot for) — the
+  straightforward fix is skipping leading `NEWLINE` tokens where a
+  statement sequence begins.
+- **Comments and string escapes** are formalized in `SPEC.md` §2.1
+  now that they're implemented, since both were already in constant use
+  throughout every example file without ever being written down: `//`
+  line comments (stripped by the lexer, no grammar production, no
+  block-comment form), and a small string escape set (`\" \\ \n \t
+  \r`) — an unrecognized `\x` is a lexer error rather than a silent
+  passthrough, since that's far more likely a typo.
 - Lexer errors don't panic — an unrecognized character produces an
-  `ILLEGAL` token carrying the offending rune and position, which the
-  parser turns into a normal parse error.
-- **Tests**: table-driven — given an input string, assert the exact
-  expected token sequence.
+  `ILLEGAL` token carrying a message and position, which the parser
+  will turn into a normal parse error in Phase 3.
+- **Tests** (`internal/token`, `internal/lexer`): table-driven per
+  `SPEC.md` feature (operators, keywords, numbers incl. the range/float
+  disambiguation, strings incl. every error path, comments, newline
+  collapsing, line/col tracking), plus one test that lexes every real
+  `.crust` file under `examples/` end-to-end and asserts no `ILLEGAL`
+  token turns up — a cheap way to catch gaps the hand-written cases
+  miss, since those files exercise every feature together rather than
+  in isolation. 99%+ statement coverage on `internal/lexer`.
 
 ### Phase 3 — Parser (`internal/parser`)
 - **Pratt parsing** (top-down operator precedence) for expressions —

@@ -56,12 +56,23 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   for-each `knead` should support unpacking (e.g. `k, v` pairs over a
   Map) — see SPEC.md §3.1.
 
-## Phase 2 — Lexer
-- [ ] Token type definitions
-- [ ] Tokenizer implementation (numbers, strings, identifiers, keywords,
-      operators, comments)
-- [ ] Line/column tracking for error messages
-- [ ] Lexer unit tests
+## Phase 2 — Lexer ✅
+- [x] Token type definitions (`internal/token`)
+- [x] Tokenizer implementation (`internal/lexer`) — numbers (incl. the
+      float-vs-range `.` disambiguation), strings (incl. escapes),
+      identifiers, keywords, every operator including `(|`/`|)`/`?:`,
+      `//` comments
+- [x] Line/column tracking for error messages
+- [x] Lexer unit tests — table-driven, 99%+ coverage, plus lexing
+      every real `.crust` file under `examples/` end-to-end
+
+  → Two things formalized in `SPEC.md` §2.1 while building this, since
+  they were already in use everywhere but never specified: `//` line
+  comments and the string escape set (`\" \\ \n \t \r`). Also decided
+  (not pre-specified): consecutive blank lines/comments collapse into
+  one `NEWLINE` token — see ARCHITECTURE.md's Phase 2 notes for why,
+  and the one thing this leaves for Phase 3 (tolerating a leading
+  `NEWLINE`).
 
 ## Phase 3 — Parser
 - [ ] AST node definitions

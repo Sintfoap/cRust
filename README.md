@@ -7,14 +7,14 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
 ## Status
 
-Project foundations and language design (Phases 0–1) are done. There's
-a real `go.mod` and a `crust` CLI you can build today — `--version`,
-`--help`, and stubbed `run`/`repl` — but no lexer/parser/interpreter
-yet, so it can't run `.crust` code. See [TODO.md](./TODO.md) for the
-roadmap and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-for the technical design behind each phase, and
-[docs/SPEC.md](./docs/SPEC.md) for the actual language — keyword table,
-grammar, and semantics. Next up: Phase 2, the lexer.
+Project foundations, language design, and the lexer (Phases 0–2) are
+done — `.crust` source turns into a token stream (`internal/lexer`),
+but there's no parser or interpreter yet, so `crust run` still just
+says "not implemented yet." See [TODO.md](./TODO.md) for the roadmap
+and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
+technical design behind each phase, and [docs/SPEC.md](./docs/SPEC.md)
+for the actual language — keyword table, grammar, and semantics. Next
+up: Phase 3, the parser.
 
 ## Why
 

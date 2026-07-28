@@ -24,15 +24,42 @@ both in the same change.
 |---|---|---|
 | Integer | `42`, `-7` | 64-bit signed |
 | Float | `3.14`, `-0.5` | 64-bit |
-| String | `"pepperoni"` | double-quoted, UTF-8 |
+| String | `"pepperoni"` | double-quoted, UTF-8, single-line (see escapes below) |
 | Boolean | `stuffed`, `thin` | see §4 — no bare `true`/`false` |
 | Nil | `nobox` | absence of a value |
 | List | `[1, 2, 3]` | 0-indexed, ordered, heterogeneous, mutable |
 | Map | `{"a": 1, "b": 2}` | string or integer keys, mutable |
-| **Set** | `toppings{1, 2, 3}` | unordered, unique — a pizza's toppings never repeat and don't have an order, so that's the name; see §2.1 |
+| **Set** | `toppings{1, 2, 3}` | unordered, unique — a pizza's toppings never repeat and don't have an order, so that's the name; see §2.2 |
 | Function | `recipe(a, b) { ... }` | first-class, closes over defining scope |
 
-### 2.1 Sets (`toppings{...}`)
+### 2.1 Strings and Comments
+
+String literals are single-line and support a small set of backslash
+escapes — enough for AoC-style text processing, not a general escaping
+scheme:
+
+| Escape | Meaning |
+|---|---|
+| `\"` | literal double quote |
+| `\\` | literal backslash |
+| `\n` | newline |
+| `\t` | tab |
+| `\r` | carriage return |
+
+A raw (unescaped) newline inside a string, or the string running to
+EOF without a closing `"`, is a lexer error (`unterminated string
+literal`) rather than silently starting a multi-line string. Any other
+`\x` is an error too (`unknown escape sequence \x`) rather than
+passing the backslash through literally — an unrecognized escape is
+much more likely a typo than an intentional literal backslash.
+
+Comments start with `//` and run to end of line — used throughout
+every example in this doc and under [`examples/`](../examples), even
+though (correctly) there's no `comment` production in §8's grammar:
+comments are stripped by the lexer before the parser ever sees a
+token, the same way whitespace is. There's no block-comment syntax.
+
+### 2.2 Sets (`toppings{...}`)
 
 A Set holds unique values with no defined order — like the toppings on a
 pizza: you don't have "pepperoni" listed twice, and it doesn't matter
@@ -168,7 +195,7 @@ procedure, an `order` either gets made or falls through to today's
 | `stuffed` | `true` | crust is stuffed — full/true |
 | `thin` | `false` | thin crust — empty/false |
 | `nobox` | `nil` / `null` | an empty pizza box — nothing inside |
-| `toppings` | Set literal/type | a pizza's toppings: no duplicates, no order — see §2.1 |
+| `toppings` | Set literal/type | a pizza's toppings: no duplicates, no order — see §2.2 |
 | `with` | `&&` / logical AND | "pepperoni **with** mushrooms" |
 | `or` | `\|\|` / logical OR | plain English reads fine here, no jargon needed |
 | `hold` | `!` / logical NOT | "**hold** the onions" |
