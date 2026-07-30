@@ -85,11 +85,21 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   and the one thing this leaves for Phase 3 (tolerating a leading
   `NEWLINE`).
 
-## Phase 3 — Parser
-- [ ] AST node definitions
-- [ ] Recursive-descent / Pratt parser (operator precedence)
-- [ ] Parse errors with line/col + helpful messages
-- [ ] Parser unit tests
+## Phase 3 — Parser ✅
+- [x] AST node definitions (`internal/ast`)
+- [x] Recursive-descent / Pratt parser (operator precedence) (`internal/parser`)
+- [x] Parse errors with line/col + helpful messages (collected, not
+      abort-on-first; `synchronize()` recovers to the next statement
+      boundary so one bad statement doesn't cascade)
+- [x] Parser unit tests — table-driven, 93%+ coverage, incl. operator
+      precedence/associativity round-trips and a broad malformed-input
+      error table
+
+  → See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#phase-3--parser-internalparser-)
+  for the precedence-table design, the `ELVIS - 1` right-associativity
+  derivation, the range anti-chaining check, and the full AST node
+  list (including `BakeStatement`, added during implementation — it
+  wasn't in the original node list).
 
 ## Phase 4 — Interpreter / Evaluator
 - [ ] Tree-walking evaluator

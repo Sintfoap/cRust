@@ -1,0 +1,130 @@
+package ast
+
+import (
+	"strings"
+
+	"github.com/Sintfoap/cRust/internal/token"
+)
+
+// BlockStatement is `{ statement... }` (SPEC.md §8, block) — the body
+// of a recipe, order/combo/special, or a loop. Note that a block
+// existing doesn't imply a new scope: SPEC.md §3 only gives `recipe`
+// calls their own Environment, so evaluating a BlockStatement for
+// order/knead/bake must reuse the enclosing scope, not create one.
+type BlockStatement struct {
+	Token      token.Token // '{'
+	Statements []Statement
+}
+
+func (bs *BlockStatement) statementNode()       {}
+func (bs *BlockStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BlockStatement) String() string {
+	var out strings.Builder
+	out.WriteString("{\n")
+	for _, s := range bs.Statements {
+		out.WriteString(s.String())
+		out.WriteByte('\n')
+	}
+	out.WriteString("}")
+	return out.String()
+}
+
+// ExpressionStatement wraps a bare expression used on its own as a
+// statement — almost always a call, e.g. `deliver(x)` on its own line.
+type ExpressionStatement struct {
+	Token      token.Token // the expression's first token
+	Expression Expression
+}
+
+func (es *ExpressionStatement) statementNode()       {}
+func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *ExpressionStatement) String() string {
+	if es.Expression == nil {
+		return ""
+	}
+	return es.Expression.String()
+}
+
+// AssignStatement is `target OP value` for a single lvalue (SPEC.md
+// §3, §8 assignStmt) — Target is an *Identifier or *IndexExpression,
+// Operator is one of "=", "+=", "-=", "*=", "/=", "%=".
+type AssignStatement struct {
+	Token    token.Token // the operator token
+	Target   Expression
+	Operator string
+	Value    Expression
+}
+
+func (as *AssignStatement) statementNode()       {}
+func (as *AssignStatement) TokenLiteral() string { return as.Token.Literal }
+func (as *AssignStatement) String() string {
+	return as.Target.String() + " " + as.Operator + " " + as.Value.String()
+}
+
+// UnpackAssignStatement is `id, id, ... = value` (SPEC.md §3.1) —
+// always plain `=`, always bare identifier targets (never index
+// expressions).
+type UnpackAssignStatement struct {
+	Token   token.Token // the first identifier's token
+	Targets []*Identifier
+	Value   Expression
+}
+
+func (uas *UnpackAssignStatement) statementNode()       {}
+func (uas *UnpackAssignStatement) TokenLiteral() string { return uas.Token.Literal }
+func (uas *UnpackAssignStatement) String() string {
+	names := make([]string, len(uas.Targets))
+	for i, t := range uas.Targets {
+		names[i] = t.String()
+	}
+	return strings.Join(names, ", ") + " = " + uas.Value.String()
+}
+
+// IncDecStatement is `target++`/`++target`/`target--`/`--target`
+// (SPEC.md §5.2) — Operator is "++" or "--"; which side it appeared on
+// in the source doesn't matter, since both mean the same thing.
+type IncDecStatement struct {
+	Token    token.Token // '++' or '--'
+	Target   Expression
+	Operator string
+}
+
+func (ids *IncDecStatement) statementNode()       {}
+func (ids *IncDecStatement) TokenLiteral() string { return ids.Token.Literal }
+func (ids *IncDecStatement) String() string {
+	return ids.Target.String() + ids.Operator
+}
+
+// ReturnStatement is `serve [value]` (SPEC.md §4) — ReturnValue is nil
+// for a bare `serve`.
+type ReturnStatement struct {
+	Token       token.Token // 'serve'
+	ReturnValue Expression  // nil if bare
+}
+
+func (rs *ReturnStatement) statementNode()       {}
+func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
+func (rs *ReturnStatement) String() string {
+	if rs.ReturnValue == nil {
+		return "serve"
+	}
+	return "serve " + rs.ReturnValue.String()
+}
+
+// BurntStatement is `burnt` (SPEC.md §4) — break.
+type BurntStatement struct {
+	Token token.Token
+}
+
+func (bs *BurntStatement) statementNode()       {}
+func (bs *BurntStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BurntStatement) String() string       { return "burnt" }
+
+// FlipStatement is `flip` (SPEC.md §4) — continue.
+type FlipStatement struct {
+	Token token.Token
+}
+
+func (fs *FlipStatement) statementNode()       {}
+func (fs *FlipStatement) TokenLiteral() string { return fs.Token.Literal }
+func (fs *FlipStatement) String() string       { return "flip" }

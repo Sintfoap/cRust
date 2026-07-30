@@ -331,24 +331,55 @@ themselves.
   way, since seeing what came *before* the bad token is usually the
   point of reaching for this in the first place.
 
-### Phase 3 — Parser (`internal/parser`)
+### Phase 3 — Parser (`internal/parser`) ✅
 - **Pratt parsing** (top-down operator precedence) for expressions —
   chosen because arithmetic, comparisons, function calls, and indexing
   all need different binding strengths, and Pratt handles that with two
   small dispatch tables instead of a deep grammar-rule hierarchy:
-  - `prefixParseFns map[token.TokenType]func() ast.Expression`
-  - `infixParseFns  map[token.TokenType]func(ast.Expression) ast.Expression`
-- Precedence levels as an ordered enum: `LOWEST, TERNARY, ELVIS, OR,
-  AND, EQUALS, LESSGREATER, RANGE, SUM, PRODUCT, PREFIX, CALL, INDEX` —
-  `TERNARY` sits below everything (§5's ladder puts `(| |)` last),
-  `ELVIS` one level above that, `RANGE` slots in between `LESSGREATER`
-  and `SUM`. `?:`'s infix parse function recurses back into `ELVIS`
-  (not the level above it) for its right-hand side, which is what
-  makes it right-associative and chainable (`a ?: b ?: c`); `(|`'s
-  parse function is a dedicated three-part production (condition,
-  `then`, `else`) rather than a normal infix slot, since it needs to
-  consume the matching `|)` and a trailing `else` expression, not just
-  one right-hand operand.
+  - `prefixParseFns map[token.Type]func() ast.Expression`
+  - `infixParseFns  map[token.Type]func(ast.Expression) ast.Expression`
+- Precedence levels as an ordered `iota` enum: `LOWEST, TERNARY, ELVIS,
+  OR, AND, EQUALS, LESSGREATER, RANGE, SUM, PRODUCT, PREFIX, CALL,
+  INDEX` — `TERNARY` sits just above `LOWEST` (§5's ladder puts `(| |)`
+  last), `ELVIS` one level above that, `RANGE` slots in between
+  `LESSGREATER` and `SUM`.
+  - `?:`'s infix parse function recurses at `ELVIS - 1` (i.e. at
+    `TERNARY`'s numeric level) for its right-hand side, *not* at
+    `ELVIS` itself. This is the standard Pratt right-associativity
+    trick, and the reason it has to be `-1` rather than the same level
+    is worth spelling out since it's easy to get backwards: recursing
+    at precedence `ELVIS` would make the loop condition
+    `ELVIS < peekPrecedence()` false for a second `?:` (equal
+    precedences don't satisfy strict `<`), so that second `?:` would be
+    left for the *outer* loop to consume instead — producing
+    left-associativity (`(a ?: b) ?: c`), the opposite of what's
+    wanted. Dropping to `ELVIS - 1` makes a follow-on `?:` satisfy the
+    recursive call's own loop condition, so it gets folded into the
+    right-hand side instead — right-associative, chainable
+    (`a ?: (b ?: c)`) — while still being high enough to exclude a
+    trailing ternary (`TERNARY`, one level further down), which
+    correctly isn't part of `elvis`'s own grammar production.
+  - `(|`'s parse function is a dedicated three-part production
+    (condition, `then`, `else`) rather than a normal infix slot, since
+    it needs to consume the matching `|)` and a trailing `else`
+    expression, not just one right-hand operand. Both `then` (between
+    the delimiters) and `else` (after `|)`) parse at `LOWEST` — for
+    `else` specifically, that's equivalent to parsing a full nested
+    ternary again, since `TERNARY` is the lowest real operator
+    precedence above `LOWEST`, which is exactly what `ternary`'s own
+    grammar production needs (`ternary = elvis [ "(|" expression "|)"
+    ternary ]` — the `else` branch is itself a `ternary`).
+  - Ranges (`start..end` / `start.<end`) need an explicit anti-chaining
+    check that precedence alone can't provide: parsing `end` at `SUM`
+    (`term`) precedence stops the *recursive* call from swallowing a
+    second range operator, but doesn't stop the *outer* Pratt loop —
+    which was entered at whatever precedence the caller used, often
+    `LOWEST` — from re-entering the range parse function with the
+    already-built range as its new left operand. `1..5..10` would
+    otherwise silently parse as `(1..5)..10`. `parseRangeExpression`
+    checks the peek token after building the range and records a parse
+    error if another `..`/`.<` immediately follows, rather than letting
+    the chain form.
 - Statements parsed via straightforward recursive descent —
   `parseStatement()` dispatches on the leading token (`recipe`, `order`,
   loop, `serve`, `burnt`, `flip`, block) and otherwise falls through to
@@ -370,47 +401,88 @@ themselves.
     since neither is a dedicated statement form).
 
   This is the same trick Go's own parser uses for assignment — targets
-  are parsed as ordinary expressions and validated after the fact,
-  rather than given their own grammar branch.
+  are parsed as ordinary expressions and validated after the fact
+  (`isValidLvalue`: only `*Identifier` and `*IndexExpression` qualify),
+  rather than given their own grammar branch. The same validation is
+  reused for both forms of `incDecStmt` (`x++` and `++x`).
+- **`knead` dispatch** needs only one token of lookahead, not the
+  general expression backtracking `parseSimpleStatement` uses: a `(`
+  immediately after `knead` always means `countedHeader`, a bare
+  identifier always means `forEachHeader` — the two productions can't
+  start with the same token, so `parseKneadStatement` just checks
+  `peekToken` once.
+- **Block vs. map-literal ambiguity at `{`**: `{` starting a *statement*
+  is always parsed as a `BlockStatement`; `{` reached while parsing an
+  *expression* (assignment RHS, call argument, etc.) is always a
+  `MapLiteral`, via `prefixParseFns[LBRACE]`. `parseStatement`'s switch
+  branches on `LBRACE` before expression parsing ever gets a chance to
+  run, so there's no runtime ambiguity to resolve — just two code paths
+  that never see the same `{`.
+- **Terminators**: `expectTerminator()` consumes a trailing `NEWLINE` or
+  `;` if present, but also silently accepts a following `}` or `EOF` as
+  an *implicit* terminator without consuming it — so the last statement
+  in a block never needs a trailing newline before its closing brace.
+  Only `simpleStmt` (assignment/unpack/inc-dec/expression) and
+  `serve`/`burnt`/`flip` call it; `recipe`/`order`/`knead`/`bake` all
+  end in a `block` per their own grammar productions, with no
+  terminator token to consume.
 - **AST** (`internal/ast`): two marker interfaces, `Statement` and
   `Expression`, both embedding a `Node` interface (`TokenLiteral()`,
   `String()` for debug-printing/round-tripping). Concrete nodes:
-  `AssignStatement`, `UnpackAssignStatement`, `IncDecStatement`,
-  `ReturnStatement`, `IfStatement`, `CountedLoop`, `ForEachLoop`,
-  `FunctionLiteral`, `CallExpression`, `InfixExpression`,
+  `Program`, `BlockStatement`, `ExpressionStatement`, `AssignStatement`,
+  `UnpackAssignStatement`, `IncDecStatement`, `ReturnStatement`,
+  `BurntStatement`, `FlipStatement`, `IfStatement` (+ `ComboClause`),
+  `CountedLoop`, `ForEachLoop`, `BakeStatement`, `FunctionLiteral`,
+  `Identifier`, `IntegerLiteral`, `FloatLiteral`, `StringLiteral`,
+  `BooleanLiteral`, `NilLiteral`, `ListLiteral`, `MapLiteral` (+
+  `MapPair`), `SetLiteral`, `PrefixExpression`, `InfixExpression`,
   `RangeExpression`, `TernaryExpression`, `ElvisExpression`,
-  `PrefixExpression`, `Identifier`, literals, `ListLiteral`,
-  `MapLiteral`, `SetLiteral`, `IndexExpression`. `TernaryExpression`
-  holds three children (`Cond`, `Then`, `Else`) rather than the two an
-  `InfixExpression` has. `CountedLoop` and `ForEachLoop` are both
-  produced by the same `knead` keyword — the parser picks which one to
-  build based on whether it sees a `(` or a bare identifier followed by
-  `in` right after `knead`. (Corrected from an earlier draft's
+  `CallExpression`, `IndexExpression`. `TernaryExpression` holds three
+  children (`Cond`, `Then`, `Else`) rather than the two an
+  `InfixExpression` has. `BakeStatement` (`bake (cond) { block }`,
+  SPEC.md §8 `bakeStmt`) wasn't in this list in an earlier draft of
+  this doc — added alongside the rest of the loop nodes once the AST
+  was actually written, since a plain conditional loop needs its own
+  node the same way `CountedLoop`/`ForEachLoop` do. `CountedLoop` and
+  `ForEachLoop` are both produced by the same `knead` keyword — see the
+  dispatch note above. (Corrected from an earlier draft's
   `IfExpression`: `order`/`combo`/`special` are statements, not
   expressions — SPEC.md §5.3 draws that line specifically to justify
   the ternary's own existence, so the AST node name needs to agree.)
   `FunctionLiteral`'s `Name` field is a `*Identifier` that's `nil` for
-  an anonymous literal (SPEC.md's `recipeStmt` grammar note) — `nil`
-  Name is what tells `parseStatement()`'s `recipe` case whether it's
-  looking at a real declaration or a value-producing expression
-  statement.
-- **Error recovery**: parser errors are collected into a slice rather than
-  aborting on the first one, so a single run can report multiple problems
-  (skip to a synchronization point — next statement boundary — and keep
-  going).
+  an anonymous literal (SPEC.md's `recipeStmt` grammar note); there's
+  no separate "recipe declaration" node — `parseRecipeStatement` just
+  wraps a named `FunctionLiteral` in an `ExpressionStatement`, and
+  deciding what a named one *means* (binding it in the environment) is
+  left to `Eval` in Phase 4, not resolved at parse time.
+- **Error recovery**: parser errors are collected into a slice
+  (`Parser.Errors()`) rather than aborting on the first one, so a
+  single run can report multiple problems. A statement that fails to
+  parse triggers `synchronize()`, which skips tokens until it finds a
+  terminator, a block's closing `}`, or a keyword that starts a new
+  statement — so one malformed statement doesn't cascade into a wall of
+  unrelated follow-on errors.
+- **Parser unit tests** (`internal/parser/*_test.go`) are table-driven,
+  93%+ coverage: operator-precedence round-trips via `String()`
+  (matching the classic Pratt-parser test style), every statement form,
+  associativity checks for `?:` and chained `(| |)`, the range
+  anti-chaining check, and a broad table of malformed inputs
+  (`errors_test.go`) asserting each one produces at least one recorded
+  error rather than a panic or a silently-wrong tree.
 
 ### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`) 🚧
 **`internal/object` exists already** (built ahead of schedule, alongside
 the Performance Strategy work below) — `Object`, `ObjectType`,
 `Integer`/`Float`/`String`/`Boolean`/`Null`/`List`/`Map`/`Set`,
 `HashKey`/`Hashable`, and `Environment` are real, tested code, not just
-this plan. **Not yet built**: `Function` (needs `ast` types, which
-don't exist until Phase 3), `Error`/`ReturnValue`/`BreakSignal`/
-`ContinueSignal` (the control-flow signal types — deferred because
-they need a decided error-value convention, which is naturally a
-Phase 4 question once there's an `Eval` to design it around), and all
-of `internal/interpreter` (`Eval` itself). The bullets below describe
-that remaining, still-planned work.
+this plan. **`internal/ast` and `internal/parser` are also done now**
+(Phase 3, above), so `Function` no longer has a blocker on the AST
+side. **Still not built**: `Function` itself, `Error`/`ReturnValue`/
+`BreakSignal`/`ContinueSignal` (the control-flow signal types —
+deferred because they need a decided error-value convention, which is
+naturally a Phase 4 question once there's an `Eval` to design it
+around), and all of `internal/interpreter` (`Eval` itself). The
+bullets below describe that remaining, still-planned work.
 
 - One recursive function, `Eval(node ast.Node, env *object.Environment)
   object.Object`, switching on the Go type of `node`. This is the whole

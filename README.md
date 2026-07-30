@@ -7,18 +7,20 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
 ## Status
 
-Project foundations, language design, and the lexer (Phases 0–2) are
-done — `.crust` source turns into a token stream (`internal/lexer`).
-Some of Phase 4's runtime value model (`internal/object` — the
-Integer/Float/String/Boolean/Null/List/Map/Set types and
-`Environment`) is already built too, ahead of schedule. There's no
-parser or interpreter yet, though, so `crust run` still just says "not
+Project foundations, language design, the lexer, and the parser
+(Phases 0–3) are done — `.crust` source turns into a token stream
+(`internal/lexer`) and then a full AST (`internal/ast`,
+`internal/parser`). Some of Phase 4's runtime value model
+(`internal/object` — the Integer/Float/String/Boolean/Null/List/Map/Set
+types and `Environment`) is already built too, ahead of schedule.
+There's no interpreter yet, though, so `crust run` still just says "not
 implemented yet." See [TODO.md](./TODO.md) for the roadmap and
 milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
 technical design behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
 section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
-keyword table, grammar, and semantics. Next up: Phase 3, the parser.
+keyword table, grammar, and semantics. Next up: Phase 4, the
+tree-walking evaluator.
 
 ## Why
 
@@ -60,8 +62,8 @@ go build ./cmd/crust
 ```
 
 `crust run`/`crust repl` (also reachable as a bare `crust <file>`) exist
-but just say "not implemented yet" — the parser and interpreter behind
-them aren't built yet (see [TODO.md](./TODO.md)). `--help` (and running
+but just say "not implemented yet" — the interpreter behind them isn't
+built yet (see [TODO.md](./TODO.md)). `--help` (and running
 `crust` with no arguments) prints the pizza banner in color; customize
 it with:
 
@@ -73,8 +75,8 @@ crust --no-banner --help        # usage only, no pizza
 ```
 
 The lexer (Phase 2) is real, though, and `crust tokens <file>` is the
-way to see it work before there's a parser/interpreter to run files
-for real:
+way to see it work before there's an interpreter to run files for
+real:
 
 ```
 crust tokens examples/hello.crust
