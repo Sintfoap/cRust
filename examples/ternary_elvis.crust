@@ -9,12 +9,17 @@ recipe parity(n) {
 deliver(parity(4))   // even
 deliver(parity(7))   // odd
 
-// chained ternary reads like an else-if ladder
+// chained ternary reads like an else-if ladder. Wrapped in an outer
+// (...) so the chain can span multiple lines — a bare '\n' only gets
+// swallowed as insignificant whitespace inside an unclosed '(' or '[',
+// see SPEC.md's note on line continuation.
 score = 82
-grade = (score >= 90) (| "A" |)
-        (score >= 80) (| "B" |)
-        (score >= 70) (| "C" |)
-        "F"
+grade = (
+    (score >= 90) (| "A" |)
+    (score >= 80) (| "B" |)
+    (score >= 70) (| "C" |)
+    "F"
+)
 deliver(grade)        // B
 
 recipe greet(name) {

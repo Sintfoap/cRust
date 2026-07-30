@@ -236,6 +236,108 @@ func TestNewlineCollapsing(t *testing.T) {
 	assertTokens(t, input, want)
 }
 
+func TestLineContinuationInsideBrackets(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []expected
+	}{
+		{
+			name:  "multi-line call arguments",
+			input: "add(\n1,\n2\n)",
+			want: []expected{
+				{token.IDENT, "add"}, {token.LPAREN, "("},
+				{token.INT, "1"}, {token.COMMA, ","},
+				{token.INT, "2"},
+				{token.RPAREN, ")"},
+				{token.EOF, ""},
+			},
+		},
+		{
+			name:  "multi-line list literal",
+			input: "[\n1,\n2\n]",
+			want: []expected{
+				{token.LBRACKET, "["},
+				{token.INT, "1"}, {token.COMMA, ","},
+				{token.INT, "2"},
+				{token.RBRACKET, "]"},
+				{token.EOF, ""},
+			},
+		},
+		{
+			name:  "nested brackets combine depth",
+			input: "f([\n1,\n2\n])",
+			want: []expected{
+				{token.IDENT, "f"}, {token.LPAREN, "("}, {token.LBRACKET, "["},
+				{token.INT, "1"}, {token.COMMA, ","},
+				{token.INT, "2"},
+				{token.RBRACKET, "]"}, {token.RPAREN, ")"},
+				{token.EOF, ""},
+			},
+		},
+		{
+			name:  "newline significant again once brackets close",
+			input: "f(\n1\n)\nx = 2",
+			want: []expected{
+				{token.IDENT, "f"}, {token.LPAREN, "("},
+				{token.INT, "1"},
+				{token.RPAREN, ")"},
+				{token.NEWLINE, "\n"},
+				{token.IDENT, "x"}, {token.ASSIGN, "="}, {token.INT, "2"},
+				{token.EOF, ""},
+			},
+		},
+		{
+			name:  "a comment inside an unclosed paren is still skipped",
+			input: "f(\n// comment\n1\n)",
+			want: []expected{
+				{token.IDENT, "f"}, {token.LPAREN, "("},
+				{token.INT, "1"},
+				{token.RPAREN, ")"},
+				{token.EOF, ""},
+			},
+		},
+		{
+			name:  "unbalanced closing paren doesn't underflow depth",
+			input: ")\nx = 1",
+			want: []expected{
+				{token.RPAREN, ")"},
+				{token.NEWLINE, "\n"},
+				{token.IDENT, "x"}, {token.ASSIGN, "="}, {token.INT, "1"},
+				{token.EOF, ""},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertTokens(t, tt.input, tt.want)
+		})
+	}
+}
+
+// TestBlockNewlinesStayInsideBraces guards against the '(' / '['
+// line-continuation rule accidentally leaking into '{' — brace-delimited
+// blocks must keep treating every '\n' as a real statement terminator,
+// even while nested inside an open '(' (a recipe declared inside a
+// call's argument list, however contrived, shouldn't lose statement
+// separation in its body).
+func TestBlockNewlinesStayInsideBraces(t *testing.T) {
+	input := "f(recipe() {\nx = 1\ny = 2\n})"
+
+	want := []expected{
+		{token.IDENT, "f"}, {token.LPAREN, "("},
+		{token.RECIPE, "recipe"}, {token.LPAREN, "("}, {token.RPAREN, ")"}, {token.LBRACE, "{"},
+		{token.NEWLINE, "\n"},
+		{token.IDENT, "x"}, {token.ASSIGN, "="}, {token.INT, "1"}, {token.NEWLINE, "\n"},
+		{token.IDENT, "y"}, {token.ASSIGN, "="}, {token.INT, "2"}, {token.NEWLINE, "\n"},
+		{token.RBRACE, "}"}, {token.RPAREN, ")"},
+		{token.EOF, ""},
+	}
+
+	assertTokens(t, input, want)
+}
+
 func TestIllegalCharacters(t *testing.T) {
 	tests := []struct {
 		name  string

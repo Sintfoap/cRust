@@ -299,6 +299,40 @@ themselves.
   `program`/`block` rules don't have an explicit slot for) — the
   straightforward fix is skipping leading `NEWLINE` tokens where a
   statement sequence begins.
+- **Line continuation inside `(` / `[`** (added after Phase 3 shipped,
+  found via `crust parse` on the example files rather than during
+  Phase 2 itself — see the note below): a `Lexer.brackets` stack tracks
+  every currently-unclosed `(`, `[`, or `{`, innermost last. A raw
+  `\n` is swallowed as insignificant whitespace instead of becoming a
+  `NEWLINE` token whenever the *innermost* entry is `(` or `[` — the
+  same rule Python and most C-family languages use for wrapping call
+  arguments and list literals across lines. This has to be a stack, not
+  a single open/close counter: what governs newline significance is the
+  innermost delimiter specifically, not "is anything open at all," so
+  a `{` block nested inside a still-open `(` — e.g. an anonymous
+  `recipe` literal passed as a call argument,
+  `apply(recipe(x) { serve x * 2 })` — keeps its own body's newlines
+  meaningful even though the outer `(` hasn't closed yet. `{` itself
+  never enables continuation (regardless of what's below it on the
+  stack), which — as a side effect, not a targeted decision — also
+  means map/set literals (also `{`-delimited) stay single-line for now,
+  since the lexer has no way to tell a block's `{` from a
+  `mapLiteral`/`setLiteral`'s at this context-free stage; see `SPEC.md`
+  §8's note on this.
+
+  → This was a real gap, not a deliberate limitation discovered and
+  then accepted: it surfaced when `crust parse` (added alongside this
+  fix, see Phase 6 below) was run against every file in `examples/` for
+  the first time and `ternary_elvis.crust`'s multi-line chained-ternary
+  formatting failed to parse — a bare, un-bracketed line break with no
+  syntax around it, which even this fix can't (and isn't meant to)
+  solve, so that one construct got reformatted to wrap in an explicit
+  `(...)` instead, rather than the language growing bare multi-line
+  expression continuation. The fix itself is purely additive: every
+  input that lexed successfully before still lexes to the identical
+  token stream (nothing that used to produce a `NEWLINE` inside a
+  balanced `{...}`, or outside any bracket, changed), so this shipped
+  without a version bump or a compatibility note beyond this one.
 - **Comments and string escapes** are formalized in `SPEC.md` §2.1
   now that they're implemented, since both were already in constant use
   throughout every example file without ever being written down: `//`
@@ -469,6 +503,19 @@ themselves.
   anti-chaining check, and a broad table of malformed inputs
   (`errors_test.go`) asserting each one produces at least one recorded
   error rather than a panic or a silently-wrong tree.
+- **`crust parse <file>`** (`cmd/crust/parse.go`, Phase 6 work done
+  ahead of schedule, same rationale as `crust tokens` for Phase 2):
+  reads a file, runs it through `Lexer` → `Parser`, and prints one
+  numbered line per top-level statement using that node's `String()`
+  — which fully parenthesizes every expression, so precedence and
+  associativity are visible directly in the output without a separate
+  tree-printer. Whatever did parse is printed to stdout first, then any
+  `Parser.Errors()` go to stderr and the exit code goes non-zero — same
+  "show what you got, then flag the problem" shape as `crust tokens`.
+  Running this against every file in `examples/` for the first time is
+  what caught the line-continuation gap described in Phase 2 above —
+  exactly the kind of thing this tool exists to surface before Phase 4
+  has to debug it blind.
 
 ### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`) 🚧
 **`internal/object` exists already** (built ahead of schedule, alongside
@@ -561,6 +608,16 @@ bullets below describe that remaining, still-planned work.
   `docs/SPEC.md` once decided (e.g. whether ints auto-widen to floats in
   mixed arithmetic) so the evaluator has one unambiguous rule to follow
   rather than ad hoc per-operator behavior.
+- **Entry points** (`SPEC.md` §9, designed ahead of this phase existing
+  to implement it): after evaluating every top-level statement, the
+  `run` command looks for a top-level `recipe` named `store` or
+  `store_<name>` and, if `--store=<name>` (or its absence, for the bare
+  `store` case) resolves to one, calls it with zero arguments. This is
+  a `cmd/crust` + entry-point-resolution concern layered on top of
+  `Eval`, not a new `ast`/`parser` concept — `store_part1` is just an
+  ordinary named `recipe`, so nothing upstream of this phase needs to
+  change to support it. Still fully unimplemented, since it needs `Eval`
+  to exist first.
 
 ### Phase 5 — Standard Library (`internal/builtins`)
 - A `Builtin` object wraps a plain Go function:
@@ -589,6 +646,9 @@ bullets below describe that remaining, still-planned work.
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit) and
   `crust repl` (interactive loop). Kept intentionally minimal — manual
   flag handling is enough; no need for a CLI framework dependency.
+- `crust run <file> --store=<name>` selects which `store`/`store_<name>`
+  recipe the file's entry point resolves to (`SPEC.md` §9) — omitted,
+  it selects the bare `store`. Still unimplemented pending Phase 4.
 - The REPL reuses the exact same `Lexer` → `Parser` → `Eval` pipeline as
   file execution, holding one persistent `*object.Environment` across
   lines so variables/functions defined earlier stay in scope.

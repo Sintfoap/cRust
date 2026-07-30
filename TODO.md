@@ -85,6 +85,20 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   and the one thing this leaves for Phase 3 (tolerating a leading
   `NEWLINE`).
 
+  → **Fixed post-Phase-3**: a bare `\n` had no line-continuation
+  handling at all — any multi-line function call, list literal, or
+  grouped expression was a guaranteed parse error, since every physical
+  newline became a real terminator regardless of context. Caught by
+  running the new `crust parse` (below) against every `examples/*.crust`
+  file, where `ternary_elvis.crust`'s multi-line chained ternary failed
+  to parse. Fixed by tracking a stack of unclosed `(`/`[`/`{` in the
+  lexer and swallowing `\n` while the innermost one is `(` or `[` — see
+  `SPEC.md` §8's note and ARCHITECTURE.md's Phase 2 section for why it
+  has to be a stack (not a counter) and why `{` is excluded. Purely
+  additive/backward-compatible; the one example that needed a multi-line
+  layout got reformatted to wrap in explicit parens rather than the
+  language growing bare (bracket-free) continuation.
+
 ## Phase 3 — Parser ✅
 - [x] AST node definitions (`internal/ast`) — 100% coverage, table-driven
       `String()`/`TokenLiteral()` tests per node type
@@ -118,6 +132,10 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       source, but the underlying types, HashKey scheme, and
       mutate-in-place semantics are implemented and tested)*
 - [ ] Runtime error handling (panics with source location)
+- [ ] Entry-point resolution (`store`/`store_<name>` recipes, `crust run
+      <file> --store=<name>`) — designed in SPEC.md §9 and
+      ARCHITECTURE.md's Phase 4/6 sections, not yet implemented (needs
+      `Eval` first)
 
   → `internal/object` was started ahead of schedule — see
   [ARCHITECTURE.md §5](./docs/ARCHITECTURE.md#5-performance-strategy)
@@ -152,6 +170,10 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `crust tokens <file>` — debug command that prints the lexer's
       token stream *(started ahead of schedule; the first real use of
       Phase 2's lexer from the CLI, since `run` doesn't exist yet)*
+- [x] `crust parse <file>` — debug command that prints the parsed AST
+      *(started ahead of schedule; running it against every
+      `examples/*.crust` file caught a real lexer bug — see the Phase 2
+      line-continuation entry below)*
 - [ ] (Stretch) editor syntax highlighting (TextMate grammar / tree-sitter)
 
 ## Phase 7 — Testing & Quality

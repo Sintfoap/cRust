@@ -19,6 +19,7 @@ const usageBody = `Usage:
   crust run <file.crust>     interpret, explicitly
   crust repl                 start an interactive REPL
   crust tokens <file.crust>  print the lexer's token stream and exit
+  crust parse <file.crust>   print the parsed AST and exit
   crust --version            print the version
   crust --help | -h          show this help
 
@@ -30,6 +31,7 @@ Pizza flags (banner customization):
 Examples:
   crust day01.crust             run a solution file
   crust tokens day01.crust      debug: see how it lexes
+  crust parse day01.crust       debug: see how it parses
   crust --toppings=all --help   preview the fully-loaded pizza
   crust --no-color --help       plain-text help, no ANSI
 `
@@ -111,6 +113,12 @@ func run(args []string, stdout, stderr io.Writer, colorDefault bool) int {
 			return 1
 		}
 		return runTokens(rest[1], stdout, stderr)
+	case "parse":
+		if len(rest) < 2 {
+			fmt.Fprintln(stderr, "crust parse: missing <file.crust>")
+			return 1
+		}
+		return runParse(rest[1], stdout, stderr)
 	default:
 		// Bare-file shorthand: `crust foo.crust` behaves like
 		// `crust run foo.crust`.

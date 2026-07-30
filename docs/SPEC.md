@@ -450,6 +450,10 @@ flipStmt       = "flip" terminator ;
 block          = "{" { statement } "}" ;
 terminator     = NEWLINE | ";" ;
 
+(* A NEWLINE only appears here — it's swallowed as insignificant
+   whitespace, not tokenized at all, while the innermost unclosed
+   delimiter is "(" or "[". See the note below the grammar. *)
+
 expression     = ternary ;
 ternary        = elvis [ "(|" expression "|)" ternary ] ;
 elvis          = logicalOr [ "?:" elvis ] ;
@@ -501,7 +505,102 @@ anonymous form as the example). A bare `recipe(a, b) { ... }` as a
 whole statement — anonymous, name omitted, value immediately
 discarded — is legal by this grammar and harmless, if pointless.
 
-## 9. Examples
+Note on line continuation inside `(` / `[`: a raw newline only becomes
+a `terminator` while nothing is open, or while the innermost open
+delimiter is `{`. Inside an unclosed `(` or `[` it's insignificant
+whitespace instead — the same rule Python and most C-family languages
+use — so call arguments, `list` literals, and grouped expressions can
+wrap across lines freely:
+
+```
+total = sum(
+    1,
+    2,
+    3
+)
+
+xs = [
+    1, 2,
+    3, 4
+]
+```
+
+(No trailing comma before the closing `)`/`]` — `argList`/`listLiteral`
+above don't allow one.)
+
+What governs this is the *innermost* open delimiter, not "is anything
+open at all" — a block nested inside a still-open `(` (an anonymous
+`recipe` literal passed as a call argument, `apply(recipe(x) {
+serve x * 2 })`) keeps its own body's newlines significant, because the
+innermost delimiter at that point is the block's `{`, not the outer
+`(`. `{` itself never enables continuation, for a more fundamental
+reason than just "blocks need it off": at this stage of the grammar
+`{` is ambiguous between a `block` and a `mapLiteral`/being the
+`toppings` half of a `setLiteral`, and only a `block` could safely have
+newlines suppressed inside it. Rather than resolve that ambiguity,
+`mapLiteral`/`setLiteral` simply inherit the restriction and stay
+single-line for now:
+
+```
+m = {"a": 1, "b": 2}          // fine
+m = {
+    "a": 1,                   // parse error — NEWLINE has no
+    "b": 2                    // meaning here yet
+}
+```
+
+## 9. Entry Points
+
+A file with no `store`-family recipe runs exactly as it does today —
+every top-level statement executes in order, start to finish (§8's
+`program` production). This feature is purely additive; no existing
+`examples/*.crust` file needs to change.
+
+A bare `recipe store() { ... }` is cRust's answer to Python's
+`if __name__ == "__main__":` / Go's `func main()` — "the store is
+open" is where a solution's actual entry point lives. Top-level
+statements (global bindings, other `recipe` declarations) still run
+first, exactly like a Python module executing at import time; once the
+whole file has been evaluated, the CLI calls the resolved entry-point
+recipe with zero arguments.
+
+Multiple entry points per file are named by suffix — `recipe
+store_part1() { ... }`, `recipe store_part2() { ... }` — a plain
+naming convention, not new grammar: `store_part1` is already an
+ordinary, valid `identifier` (§8), so nothing about the grammar
+changes. The interpreter's entry-point resolver just looks, after
+parsing, for any top-level `recipe` whose name is exactly `store` or
+matches `store_<name>`.
+
+Selected via `crust run <file> --store=<name>`:
+- `crust run day01.crust` — runs the bare `store`, if one exists.
+- `crust run day01.crust --store=part1` — runs `store_part1`.
+- No `store`-family recipe at all — `--store` is ignored (there's
+  nothing for it to select) and the file just runs top-to-bottom, per
+  the no-entry-point case above.
+- `store_part1`/`store_part2` exist but there's no bare `store`, and
+  `--store` wasn't given — this is an error listing the available
+  names, rather than silently running the whole file top-to-bottom,
+  since that's very unlikely to be what someone who bothered to define
+  named parts actually wants.
+
+If the puzzle needs input, `store`/`store_part1` reads it itself via
+the stdlib input builtins (§7) — there's no implicit `argv`-style
+parameter passed in.
+
+Naming convention chosen over a dedicated annotation (e.g. `recipe
+part1() impl store { ... }`) specifically to avoid a new keyword:
+`impl` has no obvious pizza-jargon equivalent, and reusing the
+existing `recipeStmt` production this way costs zero grammar/lexer
+changes — the same reasoning behind how anonymous-vs-named `recipe`
+already works (`FunctionLiteral.Name == nil` for anonymous, no
+separate syntax needed for the distinction).
+
+This section is documented ahead of Phase 4 (the interpreter) actually
+existing to implement it — the same "design before code" order used
+for everything else in this project.
+
+## 10. Examples
 
 ### Hello, World
 

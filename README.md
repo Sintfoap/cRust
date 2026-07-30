@@ -74,9 +74,9 @@ crust --no-color --help         # plain text, no ANSI (also respects $NO_COLOR)
 crust --no-banner --help        # usage only, no pizza
 ```
 
-The lexer (Phase 2) is real, though, and `crust tokens <file>` is the
-way to see it work before there's an interpreter to run files for
-real:
+The lexer and parser (Phases 2–3) are real, though, and `crust tokens
+<file>` / `crust parse <file>` are the way to see them work before
+there's an interpreter to run files for real:
 
 ```
 crust tokens examples/hello.crust
@@ -86,6 +86,9 @@ crust tokens examples/hello.crust
 #    1:24   )          )
 #    1:25   NEWLINE    \n
 #    2:1    EOF
+
+crust parse examples/hello.crust
+#1: deliver("Hello, World!")
 ```
 
 ### With Nix

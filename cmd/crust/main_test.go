@@ -84,6 +84,24 @@ func TestRun(t *testing.T) {
 			wantStdout: "IDENT",
 		},
 		{
+			name:       "parse missing file",
+			args:       []string{"parse"},
+			wantCode:   1,
+			wantStderr: "missing <file.crust>",
+		},
+		{
+			name:       "parse missing on disk",
+			args:       []string{"parse", "/no/such/file.crust"},
+			wantCode:   1,
+			wantStderr: "no such file",
+		},
+		{
+			name:       "parse with a real file",
+			args:       []string{"parse", "../../examples/hello.crust"},
+			wantCode:   0,
+			wantStdout: "#1:",
+		},
+		{
 			name:       "help shows banner by default",
 			args:       []string{"--help"},
 			wantCode:   0,
@@ -196,6 +214,62 @@ func TestRunTokens(t *testing.T) {
 	t.Run("missing file", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		code := runTokens("/no/such/file.crust", &stdout, &stderr)
+
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "no such file") {
+			t.Errorf("stderr = %q, want a file-not-found message", stderr.String())
+		}
+	})
+}
+
+func TestRunParse(t *testing.T) {
+	t.Run("valid source prints one line per statement", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ok.crust")
+		if err := os.WriteFile(path, []byte("x = 1\ny = x + 2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := runParse(path, &stdout, &stderr)
+
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"#1: x = 1", "#2: y = (x + 2)"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q, got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("malformed input still prints what parsed but fails", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "bad.crust")
+		if err := os.WriteFile(path, []byte("x = 1\norder (a < b {\n serve 1\n}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := runParse(path, &stdout, &stderr)
+
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stdout.String(), "#1: x = 1") {
+			t.Errorf("expected the statement before the error to still print, got: %q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "parse error") {
+			t.Errorf("expected a parse error note on stderr, got: %q", stderr.String())
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runParse("/no/such/file.crust", &stdout, &stderr)
 
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)

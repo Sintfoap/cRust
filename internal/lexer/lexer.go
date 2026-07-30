@@ -15,12 +15,21 @@ import (
 // Lexer is a single-pass, rune-by-rune scanner. Callers pull tokens
 // one at a time via NextToken(); there's no pre-materialized slice.
 type Lexer struct {
-	input   []rune
-	pos     int  // position of ch in input
-	readPos int  // position of the next rune to read
-	ch      rune // current rune under examination; 0 means EOF
-	line    int  // 1-indexed line of ch
-	col     int  // 1-indexed column of ch
+	input    []rune
+	pos      int  // position of ch in input
+	readPos  int  // position of the next rune to read
+	ch       rune // current rune under examination; 0 means EOF
+	line     int  // 1-indexed line of ch
+	col      int  // 1-indexed column of ch
+	brackets []byte
+	// brackets is a stack of unclosed '(' / '[' / '{', innermost last —
+	// see NextToken. A stack rather than a single depth counter,
+	// because what governs newline significance is the *innermost*
+	// open delimiter, not "is anything at all still open": a '{' block
+	// nested inside an unclosed '(' — e.g. an anonymous recipe literal
+	// passed as a call argument, `f(recipe() {...})` — has to keep
+	// treating its own body's newlines as real statement terminators
+	// even though the outer '(' is still open.
 }
 
 // New returns a Lexer positioned at the first rune of input.
@@ -56,13 +65,59 @@ func (l *Lexer) peekChar() rune {
 	return l.input[l.readPos]
 }
 
+func (l *Lexer) pushBracket(b byte) {
+	l.brackets = append(l.brackets, b)
+}
+
+// popBracket pops the innermost open delimiter. It's a no-op on an
+// empty stack rather than an error — malformed/unbalanced input (a
+// stray ')' with nothing open) is the parser's problem to report, not
+// something the lexer needs to reject.
+func (l *Lexer) popBracket() {
+	if n := len(l.brackets); n > 0 {
+		l.brackets = l.brackets[:n-1]
+	}
+}
+
+// newlineIsInsignificant reports whether the innermost currently-open
+// delimiter is '(' or '[' — see NextToken's doc comment for what this
+// governs and why '{' (or nothing open) always keeps NEWLINE meaningful.
+func (l *Lexer) newlineIsInsignificant() bool {
+	n := len(l.brackets)
+	if n == 0 {
+		return false
+	}
+	innermost := l.brackets[n-1]
+	return innermost == '(' || innermost == '['
+}
+
 // NextToken scans and returns the next token, advancing past it.
 // Calling NextToken repeatedly past the end of input keeps returning
 // an EOF token.
+//
+// Inside an unclosed '(' or '[' — i.e. innermostBracket() is '(' or
+// '[' — a raw '\n' is swallowed here instead of becoming a NEWLINE
+// token: the same rule Python and most C-family languages use to let
+// call arguments and list literals wrap across lines without an
+// explicit continuation character. '{' never enables this: whether the
+// innermost open delimiter is '{', or nothing is open at all, NEWLINE
+// keeps meaning "statement ends here" — blocks need every one of their
+// own newlines to stay significant even when nested inside an outer,
+// still-open '(' or '[' (see the brackets field doc). Map/set literals
+// (also '{'-delimited) inherit the same restriction as a result and
+// stay single-line for now — see SPEC.md's note on this.
 func (l *Lexer) NextToken() token.Token {
-	l.skipSpacesAndTabs()
-	if l.ch == '/' && l.peekChar() == '/' {
-		l.skipLineComment()
+	for {
+		l.skipSpacesAndTabs()
+		if l.ch == '\n' && l.newlineIsInsignificant() {
+			l.readChar()
+			continue
+		}
+		if l.ch == '/' && l.peekChar() == '/' {
+			l.skipLineComment()
+			continue
+		}
+		break
 	}
 
 	line, col := l.line, l.col
@@ -171,6 +226,7 @@ func (l *Lexer) NextToken() token.Token {
 			l.readChar()
 			return l.tok2(token.TERN_THEN, "(|", line, col)
 		}
+		l.pushBracket('(')
 		return l.tok1(token.LPAREN, line, col)
 
 	case '|':
@@ -181,14 +237,19 @@ func (l *Lexer) NextToken() token.Token {
 		return l.illegal(line, col, "unexpected character %q", l.ch)
 
 	case ')':
+		l.popBracket()
 		return l.tok1(token.RPAREN, line, col)
 	case '{':
+		l.pushBracket('{')
 		return l.tok1(token.LBRACE, line, col)
 	case '}':
+		l.popBracket()
 		return l.tok1(token.RBRACE, line, col)
 	case '[':
+		l.pushBracket('[')
 		return l.tok1(token.LBRACKET, line, col)
 	case ']':
+		l.popBracket()
 		return l.tok1(token.RBRACKET, line, col)
 	case ',':
 		return l.tok1(token.COMMA, line, col)
