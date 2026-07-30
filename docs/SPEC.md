@@ -429,7 +429,7 @@ assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
 incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
 
-recipeStmt     = "recipe" identifier "(" [ paramList ] ")" block ;
+recipeStmt     = "recipe" [ identifier ] "(" [ paramList ] ")" block ;
 paramList      = identifier { "," identifier } ;
 
 orderStmt      = "order" "(" expression ")" block
@@ -491,6 +491,15 @@ needs parens (§5.3). The `then` branch is parsed as a full `expression`
 because it's unambiguously bounded by `|)`; the `else` branch recurses
 back into `ternary`, which is what makes else-if-style chains
 right-associate without extra grouping.
+
+Note on `recipeStmt`'s optional identifier: the same production covers
+both a named statement (`recipe add(a, b) { serve a + b }`) and an
+anonymous function literal in expression position
+(`double = recipe(x) { serve x * 2 }`), which is what `primary`
+reusing `recipeStmt` already implied (§2's Function row shows the
+anonymous form as the example). A bare `recipe(a, b) { ... }` as a
+whole statement — anonymous, name omitted, value immediately
+discarded — is legal by this grammar and harmless, if pointless.
 
 ## 9. Examples
 

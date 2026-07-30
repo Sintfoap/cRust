@@ -376,7 +376,7 @@ themselves.
   `Expression`, both embedding a `Node` interface (`TokenLiteral()`,
   `String()` for debug-printing/round-tripping). Concrete nodes:
   `AssignStatement`, `UnpackAssignStatement`, `IncDecStatement`,
-  `ReturnStatement`, `IfExpression`, `CountedLoop`, `ForEachLoop`,
+  `ReturnStatement`, `IfStatement`, `CountedLoop`, `ForEachLoop`,
   `FunctionLiteral`, `CallExpression`, `InfixExpression`,
   `RangeExpression`, `TernaryExpression`, `ElvisExpression`,
   `PrefixExpression`, `Identifier`, literals, `ListLiteral`,
@@ -385,7 +385,15 @@ themselves.
   `InfixExpression` has. `CountedLoop` and `ForEachLoop` are both
   produced by the same `knead` keyword — the parser picks which one to
   build based on whether it sees a `(` or a bare identifier followed by
-  `in` right after `knead`.
+  `in` right after `knead`. (Corrected from an earlier draft's
+  `IfExpression`: `order`/`combo`/`special` are statements, not
+  expressions — SPEC.md §5.3 draws that line specifically to justify
+  the ternary's own existence, so the AST node name needs to agree.)
+  `FunctionLiteral`'s `Name` field is a `*Identifier` that's `nil` for
+  an anonymous literal (SPEC.md's `recipeStmt` grammar note) — `nil`
+  Name is what tells `parseStatement()`'s `recipe` case whether it's
+  looking at a real declaration or a value-producing expression
+  statement.
 - **Error recovery**: parser errors are collected into a slice rather than
   aborting on the first one, so a single run can report multiple problems
   (skip to a synchronization point — next statement boundary — and keep
