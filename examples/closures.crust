@@ -1,0 +1,56 @@
+// Demonstrates cRust's core scoping rule (SPEC.md §3): assignment
+// walks outward through enclosing recipe scopes and mutates an
+// existing binding if it finds one, rather than needing a declare
+// keyword to say which scope a variable belongs to. Three patterns
+// that rule makes possible, each written out in prose in SPEC.md §3
+// but not previously turned into a runnable file.
+
+// Accumulator: `total` lives in sum()'s own scope, and the knead loop
+// body (not a scope of its own) just keeps mutating it directly.
+recipe sum(nums) {
+    total = 0
+    knead i in nums {
+        total = total + i
+    }
+    serve total
+}
+
+deliver(sum([1, 2, 3, 4, 5]))   // 15
+
+// Mutating a captured global: bump() has no `tally` of its own — every
+// call walks out to the global scope and mutates the real one. No
+// global/nonlocal keyword needed.
+tally = 0
+
+recipe bump() {
+    tally = tally + 1
+}
+
+bump()
+bump()
+bump()
+deliver(tally)   // 3
+
+// Nested closures: makeCounter() returns a recipe that captures
+// `count` from makeCounter's own (non-global) scope, not from the
+// caller's — the classic closure test. Functions are first-class
+// (SPEC.md §2), so returning one and calling it later is ordinary.
+recipe makeCounter() {
+    count = 0
+    recipe increment() {
+        count = count + 1
+        serve count
+    }
+    serve increment
+}
+
+counter = makeCounter()
+deliver(counter())   // 1
+deliver(counter())   // 2
+deliver(counter())   // 3
+
+// A second, independent counter must not share state with the first —
+// each call to makeCounter() creates its own `count`.
+another = makeCounter()
+deliver(another())   // 1
+deliver(counter())   // 4

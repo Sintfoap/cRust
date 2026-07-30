@@ -46,9 +46,20 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       (`?:`), indexing
 - [x] Unpacking assignment (`x, y = list`, last target always a List)
 - [x] Write `docs/SPEC.md` with grammar (EBNF) and semantics
-- [x] Write a "Hello World" and four AoC-shaped sample programs by hand,
-      in the target syntax, to sanity-check ergonomics before coding
-      anything
+- [x] Write a "Hello World" and six AoC-shaped/feature sample programs
+      by hand, in the target syntax, to sanity-check ergonomics before
+      coding anything
+- [x] Exhaustive example coverage audit: every keyword, operator, and
+      builtin in `SPEC.md` used in at least one `examples/*.crust`
+      file — `the_works.crust` (deliberate checklist covering what the
+      AoC-shaped examples didn't naturally exercise: `combo`/`burnt`/
+      `flip`, `with`/`or`/`hold`, every compound assignment, `!=`/`<=`,
+      division, Float/Boolean literals, non-empty Map/Set literals,
+      string escapes, string indexing, and the `gather`/`scrape`/
+      `topped`/`strip` builtins) and `closures.crust` (the accumulator
+      and closure-mutates-captured-variable patterns `SPEC.md` §3
+      describes in prose, plus a nested-closure counter as a harder
+      case for whenever Phase 4 needs a regression test)
 
   → See [docs/SPEC.md](./docs/SPEC.md) for the full keyword table, grammar,
   operator list, and truthiness/coercion rules, and [`examples/`](./examples)

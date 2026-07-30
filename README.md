@@ -45,7 +45,9 @@ recipe findPair(nums, target) {
 ```
 
 See [`examples/`](./examples) for runnable-once-the-interpreter-exists
-sample programs.
+sample programs — AoC-shaped ones plus `the_works.crust` and
+`closures.crust`, which between them exercise every keyword, operator,
+and builtin in `SPEC.md` at least once.
 
 ## Building
 

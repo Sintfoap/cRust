@@ -1,0 +1,99 @@
+// "The Works" — a pizza with everything on it, and a cRust program
+// with everything in it. Not a realistic AoC solution; a deliberate
+// checklist covering every keyword, operator, and builtin the other
+// examples don't already exercise. See docs/SPEC.md for what each of
+// these means.
+
+// --- literals: Float, Boolean, non-empty Map/Set, string escapes ---
+temperature = 450.5
+isStuffedCrust = stuffed
+isThinCrust = thin
+menu = {"small": 8, "medium": 10, "large": 12}
+classics = toppings{"pepperoni", "mushroom", "olive"}
+note = "wood-fired\n\"extra crispy\"\tplease"
+
+deliver(temperature)
+deliver(isStuffedCrust)
+deliver(isThinCrust)
+deliver(menu["medium"])
+deliver(slices(classics))
+deliver(note)
+deliver(note[0])          // string indexing
+
+// --- hold (logical not), on its own ---
+deliver(hold thin)        // stuffed
+deliver(hold stuffed)     // thin
+
+// --- combo: else-if chain ---
+size = "medium"
+order (size == "small") {
+    deliver("6 slices")
+} combo (size == "medium") {
+    deliver("8 slices")
+} combo (size == "large") {
+    deliver("10 slices")
+} special {
+    deliver("unknown size")
+}
+
+// --- logical operators together: with (and), or ---
+order (isStuffedCrust with hold isThinCrust) {
+    deliver("definitely stuffed, definitely not thin")
+}
+order (size == "small" or size == "medium") {
+    deliver("on the smaller side")
+}
+
+// --- burnt (break) / flip (continue) ---
+minute = 0
+bake (minute < 20) {
+    minute++
+    order (minute % 2 == 0) {
+        flip
+    }
+    deliver(minute)
+    order (minute >= 7) {
+        burnt
+    }
+}
+
+// --- comparison operators not used elsewhere: != and <= ---
+order (minute != 100) {
+    deliver("not still baking after all that")
+}
+order (minute <= 20) {
+    deliver("within the timer")
+}
+
+// --- division (always widens to Float) ---
+pizzaCount = 3
+slicesPerPizza = 8
+perGuest = (pizzaCount * slicesPerPizza) / 4
+deliver(perGuest)
+
+// --- every compound assignment: += -= *= %= on an Integer, /= kept on
+// a separate variable since it widens to Float and % requires two
+// Integers ---
+tally = 10
+tally += 5
+tally -= 3
+tally *= 2
+tally %= 5
+deliver(tally)            // 4
+
+ratio = 24
+ratio /= 4
+deliver(ratio)             // 6
+
+// --- set builtins not used elsewhere: gather, scrape, topped, strip
+// (sprinkle/combine/shared are already covered in day06) ---
+ordered = gather(["pepperoni", "basil", "pepperoni", "olive"])
+deliver(slices(ordered))   // 3 — duplicates dropped
+
+scrape(ordered, "olive")
+deliver(topped(ordered, "olive"))     // thin
+deliver(topped(ordered, "pepperoni")) // stuffed
+
+vegetarian = toppings{"mushroom", "basil", "olive"}
+meatOnly = strip(classics, vegetarian)
+deliver(slices(meatOnly))
