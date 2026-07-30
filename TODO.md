@@ -86,7 +86,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   `NEWLINE`).
 
 ## Phase 3 — Parser ✅
-- [x] AST node definitions (`internal/ast`)
+- [x] AST node definitions (`internal/ast`) — 100% coverage, table-driven
+      `String()`/`TokenLiteral()` tests per node type
 - [x] Recursive-descent / Pratt parser (operator precedence) (`internal/parser`)
 - [x] Parse errors with line/col + helpful messages (collected, not
       abort-on-first; `synchronize()` recovers to the next statement
