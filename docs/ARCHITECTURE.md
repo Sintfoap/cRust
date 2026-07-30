@@ -391,7 +391,19 @@ themselves.
   (skip to a synchronization point — next statement boundary — and keep
   going).
 
-### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`)
+### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`) 🚧
+**`internal/object` exists already** (built ahead of schedule, alongside
+the Performance Strategy work below) — `Object`, `ObjectType`,
+`Integer`/`Float`/`String`/`Boolean`/`Null`/`List`/`Map`/`Set`,
+`HashKey`/`Hashable`, and `Environment` are real, tested code, not just
+this plan. **Not yet built**: `Function` (needs `ast` types, which
+don't exist until Phase 3), `Error`/`ReturnValue`/`BreakSignal`/
+`ContinueSignal` (the control-flow signal types — deferred because
+they need a decided error-value convention, which is naturally a
+Phase 4 question once there's an `Eval` to design it around), and all
+of `internal/interpreter` (`Eval` itself). The bullets below describe
+that remaining, still-planned work.
+
 - One recursive function, `Eval(node ast.Node, env *object.Environment)
   object.Object`, switching on the Go type of `node`. This is the whole
   evaluator — no separate compile step.
@@ -544,3 +556,84 @@ months ahead of the event instead of the week before.
 | Nix packaging | `flake.nix` via `buildGoModule`, no `flake.lock` committed yet | Builds from source, so it's consistent with "no release workflow" rather than a separate distribution channel; the lock file needs a real Nix install (network access this dev environment doesn't have) to generate correctly |
 | Banner colors | 24-bit true-color ANSI, no 256-color fallback tier | Matches `assets/banner.png`'s hex palette exactly; a decorative help-screen banner degrading ungracefully on an ancient terminal isn't worth a second color-rendering path |
 | TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Keeps the project's dependency count at zero, which is what keeps the Nix flake's `vendorHash = null` valid — not worth breaking for isatty detection |
+
+## 5. Performance Strategy
+
+A tree-walking interpreter's cost is lopsided: the lexer and parser run
+**once** per program (even a chunky AoC solution is a few hundred lines
+of source), while `Eval` and `Environment` lookups run **potentially
+millions of times** in a tight `knead` loop over a big grid or input
+set. That asymmetry is what decides where optimization effort actually
+pays for itself — the list below is split accordingly, and the second
+half is intentionally *not implemented*, because guessing past what's
+proven necessary is how simple interpreters grow accidental complexity.
+
+### Committed to now (implemented in `internal/object`, cheap, no design cost)
+
+- **Singleton `TRUE`/`FALSE`/`NULL`.** `stuffed`/`thin`/`nobox` get
+  evaluated constantly. One shared `*Boolean`/`*Boolean`/`*Null`
+  instance each, reused everywhere, instead of allocating on every
+  evaluation — safe because these types carry no mutable state.
+- **Small-integer cache** (`NewInteger`, `-256..256`). AoC loops are
+  full of small counters, indices, and grid-neighbor deltas (`-1, 0,
+  1` turn up constantly in "check 4/8 neighbors" code). Returning a
+  cached `*Integer` instead of allocating one is the single
+  highest-value change here — it lands directly on the hot path
+  (arithmetic inside loops), for near-zero implementation cost. Safe
+  for the same reason as the singletons: cRust Integers are immutable,
+  so two equal values sharing a pointer is unobservable.
+- **`List`/`Map`/`Set` as reference types** (pointer receivers over a
+  slice/map, never a value type). This one is a correctness
+  requirement first, performance win second: SPEC.md's `sprinkle`/
+  `scrape`/etc. mutate a Set in place, which only works if passing one
+  around doesn't copy it. The same representation choice happens to
+  mean a 10,000-element list argument to a `recipe` call doesn't get
+  deep-copied either.
+- **Precomputed `HashKey`** (`Type ObjectType; Value uint64`) for
+  Map/Set keys, computed once via a small `Hashable` interface
+  (`Integer`/`Float`/`String`/`Boolean`) rather than reflection-based
+  hashing on every lookup. `HashKey.Type` matters as much as `.Value`
+  here — `Integer(1)` and `TRUE` both naturally hash their `.Value` to
+  `1`, and only the `Type` field keeps them from colliding as Map/Set
+  keys.
+- **`strings.Builder` for anything building a string in a loop**
+  (already the convention in `cmd/crust/banner.go`; locked in as a
+  requirement for Phase 5's string-processing builtins —
+  `chars`/joins/`deliver` formatting — before any of them are
+  written). Repeated `+=` concatenation is the classic O(n²) trap and
+  there's no reason to ever write it here.
+
+### Deliberately deferred until a profile says otherwise
+
+- **Slot-resolved variable access instead of map-based `Environment`.**
+  The "real" way fast interpreters do variable lookup: resolve each
+  local to a fixed array index at parse time, so runtime access is
+  `frame.slots[3]` instead of a map lookup. It's a genuine speedup —
+  but it sits in real tension with cRust's own design. SPEC.md §3's
+  whole variable model is "no declarations; assignment walks the scope
+  chain *at runtime* and creates bindings dynamically." A static slot
+  resolver assumes every variable's home scope is knowable ahead of
+  time, which is a much easier guarantee in a language with mandatory
+  `let` than in one where `total = total + x` might create `total` or
+  might mutate an existing one three scopes up, decided only by
+  walking the chain at the moment it runs. Plain `map[string]Object` +
+  outer pointer (what's actually built) is simpler, correct, and very
+  likely fast enough for AoC-scale inputs. Not touching this without a
+  benchmark specifically pointing at `Environment.Get`/`Set`.
+- **Arena/bump allocation** for AST or Object nodes, to cut GC
+  pressure. Real technique, real implementation cost (lifetime
+  management stops being "let Go's GC handle it"). Speculative until
+  proven necessary.
+- **A bytecode VM.** Already a stretch goal in `TODO.md`, already
+  reasoned about in §4's trade-off table (execution model row) — not
+  reopening that here.
+
+### When to revisit this list
+
+`TODO.md`'s Phase 7 already has "Benchmark against a real prior-year
+AoC puzzle for performance sanity" as a checklist item. That's the
+right moment to profile (`go test -bench` + `pprof`) rather than
+extending the deferred list above by guesswork — if `Environment`
+lookups or GC pressure actually show up as the bottleneck there, that's
+the point to reconsider slot resolution or arenas, backed by a number
+instead of a hunch.

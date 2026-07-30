@@ -82,14 +82,29 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 
 ## Phase 4 — Interpreter / Evaluator
 - [ ] Tree-walking evaluator
-- [ ] Environment & scoping (function scope only — `recipe` calls create
+- [x] Environment & scoping (function scope only — `recipe` calls create
       a scope, `order`/`knead`/`bake` blocks don't; walk-and-mutate
-      assignment, see SPEC.md §3), closures
+      assignment, see SPEC.md §3), closures *(`object.Environment` —
+      the closures piece still needs `Function`/`Eval` to exist before
+      it means anything, but the scoping rule itself is implemented
+      and tested)*
 - [ ] Control flow: conditionals, `knead` (counted + for-each), `bake`,
       break/continue
 - [ ] Functions: declarations, calls, recursion, closures
-- [ ] Composite data: lists, maps, sets, indexing, slicing
+- [x] Composite data: lists, maps, sets *(`object.List`/`Map`/`Set` —
+      indexing/slicing still need `Eval` to exist to be reachable from
+      source, but the underlying types, HashKey scheme, and
+      mutate-in-place semantics are implemented and tested)*
 - [ ] Runtime error handling (panics with source location)
+
+  → `internal/object` was started ahead of schedule — see
+  [ARCHITECTURE.md §5](./docs/ARCHITECTURE.md#5-performance-strategy)
+  for the performance decisions baked into it (singleton
+  Boolean/Null, small-integer cache, reference-type collections,
+  precomputed HashKeys) and the Phase 4 section for what's built vs.
+  still pending (`Function`, `Error`/control-flow signal types, and
+  `Eval` itself all still need Phase 3's `ast` package and/or a
+  decided error-value convention first).
 
 ## Phase 5 — Standard Library (AoC-focused)
 - [ ] Input: read file / stdin, split into lines

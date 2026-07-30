@@ -8,13 +8,17 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 ## Status
 
 Project foundations, language design, and the lexer (Phases 0–2) are
-done — `.crust` source turns into a token stream (`internal/lexer`),
-but there's no parser or interpreter yet, so `crust run` still just
-says "not implemented yet." See [TODO.md](./TODO.md) for the roadmap
-and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
-technical design behind each phase, and [docs/SPEC.md](./docs/SPEC.md)
-for the actual language — keyword table, grammar, and semantics. Next
-up: Phase 3, the parser.
+done — `.crust` source turns into a token stream (`internal/lexer`).
+Some of Phase 4's runtime value model (`internal/object` — the
+Integer/Float/String/Boolean/Null/List/Map/Set types and
+`Environment`) is already built too, ahead of schedule. There's no
+parser or interpreter yet, though, so `crust run` still just says "not
+implemented yet." See [TODO.md](./TODO.md) for the roadmap and
+milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
+technical design behind each phase (including a
+[Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
+section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
+keyword table, grammar, and semantics. Next up: Phase 3, the parser.
 
 ## Why
 
