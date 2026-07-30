@@ -39,6 +39,20 @@ const (
 	LIST_OBJ    ObjectType = "LIST"
 	MAP_OBJ     ObjectType = "MAP"
 	SET_OBJ     ObjectType = "SET"
+
+	FUNCTION_OBJ ObjectType = "FUNCTION"
+	BUILTIN_OBJ  ObjectType = "BUILTIN"
+	ERROR_OBJ    ObjectType = "ERROR"
+
+	// Internal control-flow signals — Eval's return type for
+	// serve/burnt/flip. Never surfaced to user code (deliver-ing one
+	// can't happen: there's no expression that evaluates to one, only
+	// the statement forms), just bubbled through evalBlockStatement
+	// until a function call (ReturnValue) or loop (Break/Continue)
+	// catches and consumes it. See ARCHITECTURE.md's Phase 4 section.
+	RETURN_VALUE_OBJ ObjectType = "RETURN_VALUE"
+	BREAK_OBJ        ObjectType = "BREAK"
+	CONTINUE_OBJ     ObjectType = "CONTINUE"
 )
 
 // Object is any cRust runtime value. Inspect() renders it the way

@@ -48,10 +48,16 @@ func TestRun(t *testing.T) {
 			wantStderr: "missing <file.crust>",
 		},
 		{
-			name:       "run with file",
+			name:       "run with missing file",
 			args:       []string{"run", "day01.crust"},
 			wantCode:   1,
-			wantStderr: "run day01.crust: not in the oven yet",
+			wantStderr: "no such file",
+		},
+		{
+			name:       "run with a real file",
+			args:       []string{"run", "../../examples/hello.crust"},
+			wantCode:   0,
+			wantStdout: "Hello, World!",
 		},
 		{
 			name:       "repl stub",
@@ -61,9 +67,9 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:       "bare file shorthand",
-			args:       []string{"day01.crust"},
-			wantCode:   1,
-			wantStderr: "run day01.crust: not in the oven yet",
+			args:       []string{"../../examples/hello.crust"},
+			wantCode:   0,
+			wantStdout: "Hello, World!",
 		},
 		{
 			name:       "tokens missing file",
@@ -271,6 +277,171 @@ func TestRunParse(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		code := runParse("/no/such/file.crust", &stdout, &stderr)
 
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "no such file") {
+			t.Errorf("stderr = %q, want a file-not-found message", stderr.String())
+		}
+	})
+}
+
+func TestParseRunArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantPath  string
+		wantStore string
+		wantErr   bool
+	}{
+		{"file only", []string{"day01.crust"}, "day01.crust", "", false},
+		{"file then store", []string{"day01.crust", "--store=part1"}, "day01.crust", "part1", false},
+		{"store then file", []string{"--store=part2", "day01.crust"}, "day01.crust", "part2", false},
+		{"no args", nil, "", "", false},
+		{"bare --store with no value", []string{"day01.crust", "--store"}, "", "", true},
+		{"unknown flag", []string{"day01.crust", "--bogus"}, "", "", true},
+		{"two positional args", []string{"day01.crust", "day02.crust"}, "", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, store, err := parseRunArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseRunArgs(%v) = %q, %q, want an error", tt.args, path, store)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseRunArgs(%v) unexpected error: %v", tt.args, err)
+			}
+			if path != tt.wantPath || store != tt.wantStore {
+				t.Errorf("parseRunArgs(%v) = %q, %q, want %q, %q", tt.args, path, store, tt.wantPath, tt.wantStore)
+			}
+		})
+	}
+}
+
+func TestRunFile(t *testing.T) {
+	writeFile := func(t *testing.T, content string) string {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "prog.crust")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("plain script with no entry point runs top-to-bottom", func(t *testing.T) {
+		path := writeFile(t, `deliver("hi")`+"\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "hi") {
+			t.Errorf("stdout = %q, want it to contain %q", stdout.String(), "hi")
+		}
+	})
+
+	t.Run("bare store runs by default", func(t *testing.T) {
+		path := writeFile(t, `recipe store() { deliver("default") }`+"\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "default") {
+			t.Errorf("stdout = %q, want it to contain %q", stdout.String(), "default")
+		}
+	})
+
+	t.Run("--store selects the named entry point", func(t *testing.T) {
+		path := writeFile(t, `
+recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }
+`)
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "part2", &stdout, &stderr)
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+		}
+		out := stdout.String()
+		if strings.Contains(out, "one") || !strings.Contains(out, "two") {
+			t.Errorf("stdout = %q, want only %q", out, "two")
+		}
+	})
+
+	t.Run("--store with an unknown name is an error", func(t *testing.T) {
+		path := writeFile(t, `recipe store_part1() { deliver("one") }`+"\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "nope", &stdout, &stderr)
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), `no entry point named "nope"`) {
+			t.Errorf("stderr = %q, want a no-entry-point-named message", stderr.String())
+		}
+	})
+
+	t.Run("named parts but no bare store and no --store lists the options", func(t *testing.T) {
+		path := writeFile(t, `
+recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }
+`)
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "--store=part1") || !strings.Contains(stderr.String(), "--store=part2") {
+			t.Errorf("stderr = %q, want it to list both available entry points", stderr.String())
+		}
+	})
+
+	t.Run("parse error is reported and nothing runs", func(t *testing.T) {
+		path := writeFile(t, "order (a < b {\n serve 1\n}\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "parse error") {
+			t.Errorf("stderr = %q, want a parse error message", stderr.String())
+		}
+	})
+
+	t.Run("runtime error is reported with file position", func(t *testing.T) {
+		path := writeFile(t, "x = 1 / 0\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "division by zero") {
+			t.Errorf("stderr = %q, want a division-by-zero message", stderr.String())
+		}
+		if !strings.Contains(stderr.String(), ":1:") {
+			t.Errorf("stderr = %q, want it to include the line number", stderr.String())
+		}
+	})
+
+	t.Run("runtime error inside a store entry point is reported", func(t *testing.T) {
+		path := writeFile(t, "recipe store() {\n deliver(1 / 0)\n}\n")
+		var stdout, stderr bytes.Buffer
+		code := runFile(path, "", &stdout, &stderr)
+		if code != 1 {
+			t.Errorf("exit code = %d, want 1", code)
+		}
+		if !strings.Contains(stderr.String(), "division by zero") {
+			t.Errorf("stderr = %q, want a division-by-zero message", stderr.String())
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runFile("/no/such/file.crust", "", &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}

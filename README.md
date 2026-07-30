@@ -7,20 +7,22 @@ pizza jargon. Built to solve [Advent of Code 2026](https://adventofcode.com/).
 
 ## Status
 
-Project foundations, language design, the lexer, and the parser
-(Phases 0–3) are done — `.crust` source turns into a token stream
-(`internal/lexer`) and then a full AST (`internal/ast`,
-`internal/parser`). Some of Phase 4's runtime value model
-(`internal/object` — the Integer/Float/String/Boolean/Null/List/Map/Set
-types and `Environment`) is already built too, ahead of schedule.
-There's no interpreter yet, though, so `crust run` still just says "not
-implemented yet." See [TODO.md](./TODO.md) for the roadmap and
-milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
-technical design behind each phase (including a
+cRust actually runs code now. Project foundations, language design, the
+lexer, the parser, and the interpreter (Phases 0–4) are done —
+`.crust` source turns into a token stream (`internal/lexer`), a full
+AST (`internal/ast`, `internal/parser`), and now a real result
+(`internal/interpreter`, `internal/object`), with a first pass at the
+standard library (`internal/builtins`: `deliver`, `slices`, `sauce`,
+`chars`, `idiv`, and the Set family) built alongside it. `crust run
+<file.crust>` (and the bare-file shorthand) both work end to end,
+closures and all — see [Building](#building) below. See
+[TODO.md](./TODO.md) for the roadmap and milestones,
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
+behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
 section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
-keyword table, grammar, and semantics. Next up: Phase 4, the
-tree-walking evaluator.
+keyword table, grammar, and semantics. Next up: rounding out Phase 5's
+standard library (string/math builtins, file input) and Phase 6's REPL.
 
 ## Why
 
@@ -46,10 +48,10 @@ recipe findPair(nums, target) {
 }
 ```
 
-See [`examples/`](./examples) for runnable-once-the-interpreter-exists
-sample programs — AoC-shaped ones plus `the_works.crust` and
-`closures.crust`, which between them exercise every keyword, operator,
-and builtin in `SPEC.md` at least once.
+See [`examples/`](./examples) for runnable sample programs — AoC-shaped
+ones plus `the_works.crust` and `closures.crust`, which between them
+exercise every keyword, operator, and builtin in `SPEC.md` at least
+once (`crust run examples/the_works.crust` and friends all work today).
 
 ## Building
 
@@ -59,13 +61,25 @@ Requires Go 1.24+.
 go build ./cmd/crust
 ./crust --version
 ./crust --help
+./crust examples/hello.crust     # or: ./crust run examples/hello.crust
 ```
 
-`crust run`/`crust repl` (also reachable as a bare `crust <file>`) exist
-but just say "not implemented yet" — the interpreter behind them isn't
-built yet (see [TODO.md](./TODO.md)). `--help` (and running
-`crust` with no arguments) prints the pizza banner in color; customize
-it with:
+`crust repl` still just says "not implemented yet" (see
+[TODO.md](./TODO.md)) — `crust run <file.crust>` (also reachable as a
+bare `crust <file.crust>`) is real, though: it lexes, parses, and
+evaluates the file end to end. If the file defines a `recipe store()`
+(or named variants, `recipe store_part1()`/`store_part2()`/...), that's
+run as the entry point after the rest of the file's top-level code;
+`--store=<name>` picks a named one instead of the bare `store`
+(SPEC.md §9) — handy for AoC's usual part-1/part-2 split:
+
+```
+crust day01.crust                  # runs store, if the file has one
+crust day01.crust --store=part2    # runs store_part2 instead
+```
+
+`--help` (and running `crust` with no arguments) prints the pizza
+banner in color; customize it with:
 
 ```
 crust --toppings=all --help     # everything: pepperoni + basil
@@ -74,9 +88,8 @@ crust --no-color --help         # plain text, no ANSI (also respects $NO_COLOR)
 crust --no-banner --help        # usage only, no pizza
 ```
 
-The lexer and parser (Phases 2–3) are real, though, and `crust tokens
-<file>` / `crust parse <file>` are the way to see them work before
-there's an interpreter to run files for real:
+The lexer and parser also have their own debug commands, useful for
+seeing exactly how a file lexes/parses without running it:
 
 ```
 crust tokens examples/hello.crust

@@ -517,115 +517,175 @@ themselves.
   exactly the kind of thing this tool exists to surface before Phase 4
   has to debug it blind.
 
-### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`) 🚧
-**`internal/object` exists already** (built ahead of schedule, alongside
-the Performance Strategy work below) — `Object`, `ObjectType`,
-`Integer`/`Float`/`String`/`Boolean`/`Null`/`List`/`Map`/`Set`,
-`HashKey`/`Hashable`, and `Environment` are real, tested code, not just
-this plan. **`internal/ast` and `internal/parser` are also done now**
-(Phase 3, above), so `Function` no longer has a blocker on the AST
-side. **Still not built**: `Function` itself, `Error`/`ReturnValue`/
-`BreakSignal`/`ContinueSignal` (the control-flow signal types —
-deferred because they need a decided error-value convention, which is
-naturally a Phase 4 question once there's an `Eval` to design it
-around), and all of `internal/interpreter` (`Eval` itself). The
-bullets below describe that remaining, still-planned work.
+### Phase 4 — Interpreter (`internal/interpreter`, `internal/object`, `internal/builtins`) ✅
+**`internal/object` and `internal/ast`/`internal/parser` were already
+done** (built ahead of schedule — see the Performance Strategy notes
+and Phase 3, above). This phase filled in the rest: `Function`,
+`Error`, `ReturnValue`/`BreakSignal`/`ContinueSignal` in
+`internal/object`; the `Eval` dispatcher itself in
+`internal/interpreter`; and — built ahead of *its own* schedule, same
+reasoning as `crust tokens`/`crust parse` for earlier phases —
+`internal/builtins`, since without at least `deliver` there'd be no
+way to see the interpreter do anything at all.
 
-- One recursive function, `Eval(node ast.Node, env *object.Environment)
-  object.Object`, switching on the Go type of `node`. This is the whole
-  evaluator — no separate compile step.
+- **One recursive method**, `(*Interpreter).Eval(node ast.Node, env
+  *object.Environment) object.Object`, switching on the Go type of
+  `node` — no separate compile step. A method on an `Interpreter`
+  struct (holding the builtin table) rather than a bare function or
+  package-level state, specifically so the builtin table isn't global
+  mutable state — each `crust run`, REPL session, or test gets its own
+  `Interpreter`, bound to its own output writer via
+  `interpreter.New(output io.Writer)`.
 - `object.Object` interface: `Type() ObjectType`, `Inspect() string`.
-  Concrete types mirror the runtime type list from Phase 1 — including
-  `Set`, backed by a Go `map[HashKey]Object` the same way `Map` is —
-  plus two internal control-flow signal types that are never exposed to
-  user code: `ReturnValue` (wraps a value bubbling up through nested
-  blocks) and `BreakSignal`/`ContinueSignal` for loop control.
-- **Environment** (`object.Environment`): `map[string]object.Object` plus
-  an `outer *Environment` pointer, with two methods reflecting the
-  scoping rule in `SPEC.md` §3: `Get(name)` walks outward through
-  enclosing scopes; `Set(name, value)` also walks outward looking for an
-  *existing* binding to mutate, and only creates a new one in the
-  current environment if none is found anywhere in the chain. This one
-  method is what implements "assignment with no declare keyword" —
-  there's no separate `Define` vs `Assign` split.
+  Concrete types mirror the runtime type list from Phase 1, plus
+  `Function` (captures `Parameters`, `Body`, and the defining
+  `*Environment`), `Builtin` (wraps a Go
+  `func(args ...Object) Object`), `Error` (`Message` + `Line`/`Col`),
+  and three internal control-flow signals never exposed to user code:
+  `ReturnValue` (wraps a value bubbling up through nested blocks) and
+  the `BREAK`/`CONTINUE` singletons for loop control.
+- **Environment** (`object.Environment`): unchanged from the ahead-of-
+  schedule Phase 4 groundwork — `Get`/`Set` implement `SPEC.md` §3's
+  scoping rule exactly as designed, no changes needed once `Eval`
+  actually started using it.
 - **Only `recipe` calls create a new `Environment`** —
-  `NewEnclosedEnvironment(outer)` runs on function call, *not* on
-  `order`/`combo`/`special`/`knead`/`bake` block entry. Those blocks
-  evaluate their statements directly in the enclosing function (or
-  global) scope. This is deliberate and mirrors Python's function-scoped
-  (not block-scoped) model: it's what makes `total = total + x` inside a
-  `knead` loop update the right variable without a declare keyword to
-  pin it to an outer scope.
-- **Closures**: a `Function` object captures the `*Environment` active at
-  its definition site. Calling it builds a new enclosed environment over
-  that captured one (not the caller's), binds parameters to argument
-  values, and evaluates the body in it. Because `Set` walks the chain,
-  a closure can mutate a variable from its defining scope just by
-  assigning to it — no `global`/`nonlocal` equivalent needed.
-- **Control flow** rides on Go's own control flow: `if`/`else` evaluate
-  the condition then recurse into the matching branch; loops are native
-  Go `for` loops around repeated `Eval` calls. `knead`'s for-each form
-  (`knead item in collection`) dispatches on the collection's runtime
-  type — List and Set iterate their elements, Map iterates its keys —
-  binding `item` via the same `Environment.Set` as any other assignment.
-  `break`/`continue`/`return` are implemented as sentinel objects that
-  propagate up through `Eval`'s block-statement handling until something
-  catches them (loop body catches break/continue; function call catches
-  return).
-- **Errors**: an `Error` object carries a message and source position and
-  propagates like any other value instead of using Go panic/recover in
-  the hot path. The top-level `Run()` entrypoint wraps a single
-  `recover()` as a last-resort safety net for interpreter bugs, not as
-  the primary error-handling mechanism.
+  `NewEnclosedEnvironment(outer)` runs on function call (in
+  `applyFunction`), *not* on `order`/`combo`/`special`/`knead`/`bake`
+  block entry, which all evaluate directly via the shared
+  `evalBlockStatement` in whatever `Environment` the caller passed in.
+- **Block evaluation is the one place control-flow signals get
+  caught.** `evalBlockStatement` runs a block's statements in sequence
+  and stops the moment one evaluates to `Error`, `ReturnValue`,
+  `BreakSignal`, or `ContinueSignal` — bubbling that signal up
+  unchanged rather than continuing. It's every *caller* of
+  `evalBlockStatement` that decides whether to catch a signal or keep
+  bubbling it: a loop (`evalCountedLoop`/`evalForEachLoop`/
+  `evalBakeStatement`) catches `BreakSignal` (and stops, without
+  running `knead`'s `Post` clause — matching C-family `break`) and lets
+  `ContinueSignal` fall through to `Post` + the next condition check
+  (matching C-family `continue`); `applyFunction` catches
+  `ReturnValue` and unwraps it back to the plain value inside via
+  `unwrapReturnValue`. A block that completes with no signal hit
+  evaluates to `NULL` — cRust has no implicit last-statement-as-value
+  the way Rust/Ruby do, which is also why a `recipe` that runs off the
+  end without `serve` returns `nobox`, and a bare `serve` (no
+  expression) wraps `NULL` explicitly rather than needing special-
+  casing anywhere else.
+- **Closures**: a `Function` object captures the `*Environment` active
+  at its definition site (`evalFunctionLiteral`). Calling it
+  (`applyFunction`) builds a new enclosed environment over that
+  *captured* one (not the caller's) and evaluates the body in it —
+  because `Set` walks the chain, a closure can mutate a variable from
+  its defining scope just by assigning to it, no `global`/`nonlocal`
+  equivalent needed. A *named* `FunctionLiteral` also binds itself into
+  `env` under its name as a side effect of being evaluated — this, not
+  a separate "recipe declaration" AST node, is what makes `recipe
+  add(a, b) {...}` at statement level act like a declaration (see
+  Phase 3's note on why there's no such node).
+- **Wrong argument count is a runtime `Error`** (`want N, got M`) —
+  exact arity is required; `SPEC.md` doesn't propose default/variadic
+  parameters, so there's no partial-match case to design around.
+- **Assignment/index-assignment/inc-dec all evaluate an index target's
+  base and index expressions exactly once**, even for a compound op
+  like `list[f()] += 1` — re-evaluating them for a "read current value,
+  then write" sequence would run `f()` twice, which would be a real
+  correctness bug (not just wasted work) the moment a base/index
+  expression has any side effect via a call.
 - **`RangeExpression`** evaluates both bounds, type-checks them as
-  `Integer` (else an `Error`), and eagerly builds a `List` — no separate
-  lazy Range object, matching `SPEC.md` §5.1 exactly. `.<` is just `..`
-  with the upper bound evaluated as `end - 1`.
-- **`IncDecStatement`** evaluates to `Environment.Set(name, current + 1)`
-  (or `- 1`), reusing the exact same walk-and-mutate `Set` as ordinary
-  assignment — it's sugar at the AST level, not a distinct runtime
-  mechanism.
+  `Integer` (else an `Error`, `"range bounds must be Integers"`), and
+  eagerly builds a `List` — no lazy Range object, matching `SPEC.md`
+  §5.1 exactly. `.<` is `..` with the upper bound evaluated as
+  `end - 1`; `start > ` the (already-adjusted) upper bound produces an
+  empty List rather than an implicit reversal, covering both
+  `5..1 → []` and the exclusive edge case `1.<1 → []`.
 - **`UnpackAssignStatement`** evaluates the right-hand side once,
   type-checks it as a `List`, verifies it has at least `N - 1` elements
-  for `N` targets, binds the first `N - 1` targets to elements
-  positionally via `Environment.Set`, and binds the last target to a
-  freshly-allocated `List` of whatever remains (`[]` if nothing does).
-- **`TernaryExpression`** (`cond (| then |) else`) evaluates `Cond`
-  first, applies the standard truthiness rule (§6, same helper `if`/
-  `while` already use), then evaluates and returns *only* `Then` or
-  only `Else` — never both, and the unevaluated branch's AST subtree
-  is never passed to `Eval`. Chained else-if-ladders
-  (`a (| b |) c (| d |) e`) fall out of the parser's right-associative
-  `Else` shape (Phase 3) without any special evaluator logic — it's
-  just a `TernaryExpression` nested in the `Else` slot of another.
-- **`ElvisExpression`** (`a ?: b`) evaluates `a` first; if the result
-  isn't `object.NULL`, that's the value and `b`'s AST subtree is never
-  passed to `Eval` at all. Only on `nobox` does it evaluate and return
-  `b`. Chained `a ?: b ?: c` falls out of the parser's right-associative
-  shape (Phase 3) the same way ternary chains do — nested
-  `ElvisExpression` nodes, no extra evaluator logic.
-- **Truthiness / coercion rules** get pinned down explicitly in
-  `docs/SPEC.md` once decided (e.g. whether ints auto-widen to floats in
-  mixed arithmetic) so the evaluator has one unambiguous rule to follow
-  rather than ad hoc per-operator behavior.
+  for `N` targets, binds the first `N - 1` targets positionally, and
+  binds the last target to a freshly-allocated `List` of whatever
+  remains — even if that's empty, never a bare scalar.
+- **`TernaryExpression`/`ElvisExpression`** evaluate lazily: exactly
+  one of ternary's `Then`/`Else` runs (never both, and the untaken
+  branch's AST subtree is never passed to `Eval` at all); Elvis
+  evaluates `Right` only when `Left` evaluates to exactly
+  `object.NULL` — a pointer-identity check against the `NULL`
+  singleton, not a general truthiness check, so `thin ?: x` stays
+  `thin` and `0 ?: x` stays `0`. Both chain correctly (right-
+  associative else-if ladders, right-associative `?:`) purely from the
+  parser's right-associative AST shape (Phase 3) — no extra evaluator
+  logic needed for chaining itself.
+- **`with`/`or`** also short-circuit (`evalLogicalExpression` peels
+  them off before `InfixExpression`'s normal both-sides-eager path even
+  evaluates `Right`), and always produce a strict `Boolean` rather than
+  leaking through whichever operand's value decided the result —
+  unlike Python's `and`/`or`. Decided this way specifically because
+  cRust already has a dedicated "give me back the actual value, falling
+  through on `nobox`" operator (Elvis) — `with`/`or` staying in the
+  plainer "give me a Boolean" lane keeps the two forms from
+  overlapping in confusing ways, and matches the language using
+  explicit `stuffed`/`thin` rather than truthy-value passthrough
+  anywhere else in its design.
+- **Truthiness/coercion rules pinned down while implementing this**
+  (now in `SPEC.md` §6, previously either unspecified or only implicit
+  in earlier phases' examples): int/Float are one "number" category for
+  **both** ordering *and* equality (`1 == 1.0` is `stuffed`, not just
+  orderable against each other) — comparing an Integer against a Float
+  exactly via `int64` when both happen to be Integer, to avoid
+  `float64` precision loss on large values, widening only when at least
+  one side is a Float; division by zero (`/`, `%`, or `idiv`, Integer
+  or Float divisor) is always a runtime `Error`, not an implicit `Inf`/
+  `NaN`; List/Map/Set indices are **not** negative-wrappable (`xs[-1]`
+  is `"index out of range"`, matching how `SPEC.md`'s own examples
+  compute the last index manually via `slices(list) - 1` instead — that
+  phrasing only makes sense if `-1` doesn't already do it); reading a
+  **missing Map key evaluates to `nobox`, not an Error** — required for
+  `SPEC.md`'s own memoization idiom
+  (`cache[n] = cache[n] ?: computeFib(n)`) to work at all, since `?:`
+  needs something to fall through *from*; `Function` equality is by
+  Go-level pointer identity (`SPEC.md` never proposes structural
+  function equality, and there's no sensible definition of it beyond
+  "the same closure").
 - **Entry points** (`SPEC.md` §9, designed ahead of this phase existing
   to implement it): after evaluating every top-level statement, the
   `run` command looks for a top-level `recipe` named `store` or
   `store_<name>` and, if `--store=<name>` (or its absence, for the bare
-  `store` case) resolves to one, calls it with zero arguments. This is
-  a `cmd/crust` + entry-point-resolution concern layered on top of
+  `store` case) resolves to one, calls it with zero arguments via the
+  exported `(*Interpreter).Call` — there's no source-level
+  `CallExpression` for an entry point invoked this way, so `Call` just
+  runs `applyFunction` with a zero-value position. This is a
+  `cmd/crust` + entry-point-resolution concern layered on top of
   `Eval`, not a new `ast`/`parser` concept — `store_part1` is just an
   ordinary named `recipe`, so nothing upstream of this phase needs to
-  change to support it. Still fully unimplemented, since it needs `Eval`
-  to exist first.
+  change to support it.
 
-### Phase 5 — Standard Library (`internal/builtins`)
-- A `Builtin` object wraps a plain Go function:
-  `func(args []object.Object) object.Object`.
-- All builtins are registered once into a `map[string]*object.Builtin`.
-  Identifier evaluation checks the environment chain first, then falls
-  back to this table — so builtins behave like predeclared globals that
-  user code can still shadow.
+### Phase 5 — Standard Library (`internal/builtins`) 🚧
+**Partially built ahead of schedule**, alongside Phase 4 — without at
+least `deliver`, there'd be no way to see the interpreter produce
+output at all. What exists: `Builtin` wraps
+`func(args ...object.Object) object.Object` (variadic, not a slice
+parameter — every builtin in `SPEC.md` §7 has a fixed, small arity, so
+this reads more naturally at each call site than slicing `args`
+manually); `internal/builtins.New(output io.Writer)` builds a fresh
+`map[string]*object.Builtin` per `Interpreter` rather than a
+package-level table, so `deliver`'s destination isn't global mutable
+state. Identifier evaluation checks the environment chain first, then
+falls back to this table — builtins behave like predeclared globals
+that user code can still shadow (confirmed by a test:
+`deliver = recipe(x) {...}` works). A `Builtin`'s `Error` return has no
+position of its own (`internal/builtins` doesn't know about source
+positions at all); `applyFunction` patches the call site's position in
+after the fact if one comes back unset, which is the one place that
+distinction matters.
+
+Implemented now: `deliver`, `slices`, `sauce`, `chars`, `idiv`
+(mentioned in `SPEC.md` §6 as backing `/`'s "integer division is a
+builtin" note, so it landed with the rest even though it's not yet in
+§7's table), and the full Set family
+`gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`.
+**Still not built**: the `strings`/`strconv`/`math`/`sort` adapters
+(split/join/trim/contains/replace, string↔number parsing,
+abs/pow/sqrt/gcd/lcm, list sorting) and file/stdin input — the rest of
+what this phase's own section below describes.
+
 - Most builtins are thin adapters over Go's standard library:
   `strings` (split/join/trim/contains/replace), `strconv`
   (string↔number parsing), `math` (abs/pow/sqrt/gcd/lcm), `sort`
@@ -643,15 +703,28 @@ bullets below describe that remaining, still-planned work.
   keep their standard names on purpose; see `SPEC.md` §7 for why.
 
 ### Phase 6 — Tooling (`cmd/crust`)
-- CLI has two modes: `crust run <file>` (parse + eval one file, exit) and
-  `crust repl` (interactive loop). Kept intentionally minimal — manual
-  flag handling is enough; no need for a CLI framework dependency.
-- `crust run <file> --store=<name>` selects which `store`/`store_<name>`
+- CLI has two modes: `crust run <file>` (parse + eval one file, exit,
+  now real — see Phase 4) and `crust repl` (interactive loop, still a
+  stub). Kept intentionally minimal — manual flag handling is enough;
+  no need for a CLI framework dependency.
+- `crust run <file> [--store=<name>]` (and the bare-file shorthand,
+  `crust <file> [--store=<name>]`) selects which `store`/`store_<name>`
   recipe the file's entry point resolves to (`SPEC.md` §9) — omitted,
-  it selects the bare `store`. Still unimplemented pending Phase 4.
+  it selects the bare `store`, if the file has one; a file with no
+  `store`-family recipe at all just runs top-to-bottom, unaffected by
+  the flag. `parseRunArgs` hand-parses this instead of using
+  `flag.FlagSet`, specifically so the flag can appear before *or* after
+  the file path — Go's stdlib flag parsing stops at the first
+  non-flag-looking argument, which would silently fail to parse
+  `crust run day01.crust --store=part1` (flag after the positional).
 - The REPL reuses the exact same `Lexer` → `Parser` → `Eval` pipeline as
   file execution, holding one persistent `*object.Environment` across
-  lines so variables/functions defined earlier stay in scope.
+  lines so variables/functions defined earlier stay in scope. Still not
+  built — the natural next step now that `Eval` exists, but out of
+  scope for the same turn that built `Eval` itself; the main open
+  design question is how much (if any) multi-line construct support
+  (a `recipe`/`order`/`knead` body spanning several typed lines) a v1
+  needs versus deferring to single-line-only for now.
 - Error messages throughout stay in the pizza theme (tone, not
   mechanism) — the underlying `Error` object/position reporting is the
   same regardless of wording.

@@ -116,53 +116,66 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   list (including `BakeStatement`, added during implementation — it
   wasn't in the original node list).
 
-## Phase 4 — Interpreter / Evaluator
-- [ ] Tree-walking evaluator
+## Phase 4 — Interpreter / Evaluator ✅
+- [x] Tree-walking evaluator (`internal/interpreter`, one recursive
+      `Eval` method dispatching on AST node type)
 - [x] Environment & scoping (function scope only — `recipe` calls create
       a scope, `order`/`knead`/`bake` blocks don't; walk-and-mutate
-      assignment, see SPEC.md §3), closures *(`object.Environment` —
-      the closures piece still needs `Function`/`Eval` to exist before
-      it means anything, but the scoping rule itself is implemented
-      and tested)*
-- [ ] Control flow: conditionals, `knead` (counted + for-each), `bake`,
-      break/continue
-- [ ] Functions: declarations, calls, recursion, closures
-- [x] Composite data: lists, maps, sets *(`object.List`/`Map`/`Set` —
-      indexing/slicing still need `Eval` to exist to be reachable from
-      source, but the underlying types, HashKey scheme, and
-      mutate-in-place semantics are implemented and tested)*
-- [ ] Runtime error handling (panics with source location)
-- [ ] Entry-point resolution (`store`/`store_<name>` recipes, `crust run
-      <file> --store=<name>`) — designed in SPEC.md §9 and
-      ARCHITECTURE.md's Phase 4/6 sections, not yet implemented (needs
-      `Eval` first)
+      assignment, see SPEC.md §3), closures
+- [x] Control flow: conditionals, `knead` (counted + for-each), `bake`,
+      break/continue — `burnt` skips a counted loop's `Post` clause
+      entirely (C-family `break`), `flip` still runs it (C-family
+      `continue`)
+- [x] Functions: declarations, calls, recursion, closures
+- [x] Composite data: lists, maps, sets — indexing, index assignment,
+      map-missing-key-reads-as-nobox, Map's String/Integer-only key
+      restriction, Set's not-indexable restriction, all reachable from
+      source now
+- [x] Runtime error handling — `object.Error` propagates through `Eval`
+      as an ordinary value (not Go panic/recover) with source
+      line/col; `cmd/crust`'s `runFile` also wraps a single `recover()`
+      as a last-resort net for an actual interpreter bug, not the
+      primary mechanism
+- [x] Entry-point resolution (`store`/`store_<name>` recipes, `crust run
+      <file> --store=<name>`) — SPEC.md §9, implemented in
+      `cmd/crust/run.go`
 
-  → `internal/object` was started ahead of schedule — see
-  [ARCHITECTURE.md §5](./docs/ARCHITECTURE.md#5-performance-strategy)
-  for the performance decisions baked into it (singleton
-  Boolean/Null, small-integer cache, reference-type collections,
-  precomputed HashKeys) and the Phase 4 section for what's built vs.
-  still pending (`Function`, `Error`/control-flow signal types, and
-  `Eval` itself all still need Phase 3's `ast` package and/or a
-  decided error-value convention first).
+  → `internal/object` gained `Function`, `Error`, `ReturnValue`, and
+  the `BREAK`/`CONTINUE` singletons to finish what Phase 3-era
+  groundwork had deliberately left out. Several truthiness/coercion
+  rules got pinned down in SPEC.md §6 while implementing this (int/
+  Float as one type for `==` too, not just ordering; division by zero
+  always an Error; no negative indexing; missing Map key reads as
+  `nobox`; `with`/`or` always produce a strict Boolean) — see
+  ARCHITECTURE.md's Phase 4 section for the reasoning behind each.
+  93%+ test coverage in `internal/interpreter`, 100% in
+  `internal/object`/`internal/builtins`.
 
-## Phase 5 — Standard Library (AoC-focused)
+## Phase 5 — Standard Library (AoC-focused) 🚧
 - [ ] Input: read file / stdin, split into lines
-- [ ] Strings: split, join, trim, contains, replace, parse-to-number, `chars`
+- [ ] Strings: split, join, trim, contains, replace, parse-to-number
+- [x] `chars` (string → List of one-character strings)
 - [ ] Math: abs, min, max, pow, gcd, lcm, sqrt (standard names, not themed)
-- [ ] Collections: sort, map/filter/reduce (or equivalent loop sugar),
-      `slices` (length)
-- [ ] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`
-- [ ] Nil-handling: `sauce` (fallback-if-nobox)
-- [ ] Output: `deliver` with formatting
+- [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
+- [ ] Collections: sort, map/filter/reduce (or equivalent loop sugar)
+- [x] `slices` (length of a String/List/Map/Set)
+- [x] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`
+- [x] Nil-handling: `sauce` (fallback-if-nobox)
+- [x] Output: `deliver` *(no formatting verbs yet — space-joined
+      `Inspect()` output plus a newline)*
 
   → Names for the items above are already locked in — see
-  [docs/SPEC.md §7](./docs/SPEC.md#7-standard-library-builtins). This
-  phase is about implementing them, not naming them.
+  [docs/SPEC.md §7](./docs/SPEC.md#7-standard-library-builtins). Most
+  of what's checked off landed ahead of schedule alongside Phase 4 —
+  see ARCHITECTURE.md's Phase 5 section for exactly what's built vs.
+  still pending (`internal/builtins`, not yet the `strings`/`math`/
+  `sort`/input adapters).
 
 ## Phase 6 — Tooling
-- [ ] CLI: `crust run <file>` (still stubbed — needs Phase 4's interpreter)
-- [ ] REPL mode
+- [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter
+      makes this real; the bare-file shorthand and `--store` entry-point
+      selection both work — see SPEC.md §9)
+- [ ] REPL mode — natural next step now that `Eval` exists, not yet built
 - [x] Clear, pizza-themed error messages *(started ahead of schedule)*
 - [x] Colorized `--help` banner (the pizza, customizable via
       `--toppings`/`--no-banner`/`--no-color`) — see

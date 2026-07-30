@@ -381,11 +381,40 @@ per-operator special cases:
   type error rather than an implicit conversion — keeps type mistakes
   visible instead of silently stringifying.
 - **Equality (`==`/`!=`)** compares by value (Lists/Maps/Sets compare
-  their contents, not identity); comparing across types (e.g.
-  `1 == "1"`) is always `thin`, never a type error.
+  their contents, not identity, and ignore order for Sets); comparing
+  across types (e.g. `1 == "1"`) is always `thin`, never a type error.
+  Integer and Float are **one type for this purpose**, the same
+  "number" category ordering (below) already groups them into — `1 ==
+  1.0` is `stuffed`, not `thin`. A Function only equals itself (the
+  same closure), never a separately-defined one with an identical body.
 - **Ordering (`< > <= >=`)** requires both operands to be the same
-  comparable type (number-vs-number or string-vs-string, lexicographic);
-  comparing mismatched types this way *is* a runtime error, unlike `==`.
+  comparable type (number-vs-number, freely mixing Integer/Float, or
+  string-vs-string, lexicographic); comparing mismatched types this way
+  *is* a runtime error, unlike `==`.
+- **Division by zero** (`/`, `%`, or the `idiv` builtin, either operand
+  a Float or both Integers) is always a runtime error — never an
+  implicit `Inf`/`NaN`/silent wraparound.
+- **Indexing is not negative-wrappable.** `list[-1]`/`s[-1]` is an
+  `index out of range` error, the same as any other out-of-bounds
+  index — there's no Python-style "count from the end." Want the last
+  element? Compute the index: `list[slices(list) - 1]`.
+- **A missing Map key reads as `nobox`**, not an error — this is what
+  makes the memoization pattern `cache[n] = cache[n] ?: computeFib(n)`
+  (§5.4) work at all: `?:` needs something to fall through *from* on
+  the very first lookup of a new key.
+- **`with`/`or` always produce a strict Boolean** (`stuffed`/`thin`),
+  never one of the two operand's own values — unlike Python's
+  `and`/`or`, which return whichever operand's value decided the
+  result. `a with b` is exactly "compute `isTruthy(a) && isTruthy(b)`
+  and give me that as a Boolean," not "give me back `a` or `b`." Use
+  `?:` (§5.4) for the "give me back the actual value, falling through
+  on `nobox`" behavior instead — that's what it's for.
+- **A `recipe` that runs off the end without hitting `serve`** — and a
+  bare `serve` with no expression — both evaluate to `nobox`, the same
+  as Python's implicit `None` return. There's no implicit
+  last-expression-as-return-value the way Rust/Ruby have; `serve` (bare
+  or with a value) is the only way a `recipe` produces something other
+  than `nobox`.
 
 ## 7. Standard Library (Builtins)
 
@@ -404,6 +433,7 @@ it's directly tied to the Set type this doc introduces.
 | `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Map, or Set |
 | `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `?:` operator (§5.4), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
+| `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
 | `scrape(set, item)` | `(Set, Any) -> Nil` | removes `item` from `set` in place, no error if absent |
