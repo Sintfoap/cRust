@@ -169,6 +169,42 @@ Rules:
 - Only plain `=` works with unpacking; there's no unpacking form of
   `+=` etc. — that wouldn't have a sensible meaning.
 
+#### Tuple-unpack sugar: `(a, b, ...)`
+
+Writing the right-hand side as a parenthesized, comma-separated group
+switches to a different rule: **every** target — including the last —
+takes its own bare value, and the count must match *exactly*:
+
+```
+a, b = (1, 2)
+// a = 1, b = 2      <- b is a bare Integer here, not [2]
+
+x = 10
+y = 20
+x, y = (y, x)
+// x = 20, y = 10    <- swaps correctly: both sides evaluated before either target is assigned
+
+a, b = (1, 2, 3)      // runtime error: tuple has 3 value(s), need exactly 2
+```
+
+This is **sugar for this one grammar position only** — `(a, b)` isn't a
+general value. It can't be stored in a variable, passed as a function
+argument, put in a List/Map/Set, or used anywhere else an `expression`
+is expected; the parser only recognizes it as the direct right-hand
+side of an unpacking assignment. There's no new value type behind it
+(no `Tuple` alongside List/Map/Set in §2) — `(a, b, ...)` is purely a
+different way of writing the assignment's right-hand side, not a
+literal that produces something you can hold onto.
+
+A single, comma-free parenthesized expression is **not** tuple sugar —
+`a, b = (xs)` means exactly what `a, b = xs` does (ordinary
+grouping, then the plain List-unpack rule above: `b` still ends up
+`[xs[1]]`, a List). Only two or more comma-separated values inside the
+parens switch to exact-arity semantics. This is what makes the two
+forms unambiguous from a single token of lookahead's worth of
+parsing — the parser doesn't have to guess, it just checks whether a
+`,` or `)` comes after the first inner expression.
+
 For-each `knead` loops don't support multiple loop variables yet (e.g.
 unpacking `[key, value]` pairs while iterating a Map). That's a natural
 next question once this lands, but it's deliberately left open for now
@@ -475,7 +511,11 @@ assignStmt     = lvalue assignOp expression ;
 lvalue         = identifier { index } ;
 assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 
-unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
+unpackAssign   = identifier "," identifier { "," identifier } "="
+                 ( expression | tupleSugar ) ;
+tupleSugar     = "(" expression "," expression { "," expression } ")" ;
+                 (* only valid directly here — §3.1's tuple-unpack
+                    sugar, not a general expression production *)
 incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
 
 recipeStmt     = "recipe" [ identifier ] "(" [ paramList ] ")" block ;
@@ -537,6 +577,16 @@ terminator follows the init/post clauses — the parens do that job
 instead. `unpackAssign` is checked before plain `assignStmt` since both
 start with an identifier; the parser only knows which one it's in once
 it sees whether a `,` or an `assignOp` follows.
+
+Note on `unpackAssign`/`tupleSugar`: after `=`, seeing `(` doesn't
+commit to either alternative by itself — `(xs)` (ordinary grouping,
+falls through to plain `expression`) and `(a, b)` (`tupleSugar`) both
+start that way. The parser resolves it with one expression's worth of
+lookahead: parse the first inner expression, then check what follows —
+`,` commits to `tupleSugar` (§3.1's tuple-unpack sugar); a bare `)`
+means it was ordinary grouping all along, and parsing continues as a
+normal `expression` from there (so trailing operators after the `)`,
+e.g. `(x)..y`, still work).
 
 Note on `ternary`: the condition is parsed at `elvis` precedence, one
 level below `ternary` itself, so a bare ternary used as a condition

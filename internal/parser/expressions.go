@@ -22,7 +22,19 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	if leftExp == nil {
 		return nil
 	}
+	return p.parseInfixChain(leftExp, precedence)
+}
 
+// parseInfixChain continues Pratt-parsing infix operators onto an
+// already-parsed left operand, picking up exactly where parseExpression
+// would right after its own prefix step. Factored out so a caller that
+// had to hand-parse its own "left" via a different route (currently
+// just parseUnpackAssignStatement's tuple-sugar detection, SPEC.md
+// §3.1 — it needs to look one expression ahead to tell a `(a, b)`
+// tuple from an ordinary grouped expression before it can commit to
+// either parse path) can still pick up any trailing infix operators
+// the normal way instead of duplicating this loop.
+func (p *Parser) parseInfixChain(leftExp ast.Expression, precedence int) ast.Expression {
 	for precedence < p.peekPrecedence() {
 		infix := p.infixParseFns[p.peekToken.Type]
 		if infix == nil {

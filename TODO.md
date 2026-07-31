@@ -122,6 +122,16 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   list (including `BakeStatement`, added during implementation — it
   wasn't in the original node list).
 
+  → **Added post-Phase-3**: tuple-unpack sugar, `a, b = (x, y)`
+  (`SPEC.md` §3.1) — every target, including the last, gets its own
+  bare value with exact arity required, instead of unpacking's normal
+  "last target always gets a List of everything left over" rule. Valid
+  only as an unpacking assignment's direct right-hand side, not a
+  general value — `(a, b)` elsewhere is still a parse error, same as
+  before. Makes the swap idiom (`x, y = (y, x)`) and fixed-size
+  multi-value returns read naturally without reaching for a List just
+  to immediately unpack it.
+
 ## Phase 4 — Interpreter / Evaluator ✅
 - [x] Tree-walking evaluator (`internal/interpreter`, one recursive
       `Eval` method dispatching on AST node type)

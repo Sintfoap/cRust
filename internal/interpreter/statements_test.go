@@ -157,6 +157,63 @@ func TestUnpackAssignmentRequiresList(t *testing.T) {
 	wantError(t, testEval(t, "a, b = 5"), "cannot unpack")
 }
 
+func TestTupleUnpackBothTargetsAreBareValues(t *testing.T) {
+	input := `
+a, b = (1, 2)
+b
+`
+	// Unlike List-unpack, the last target is a bare value here, not a
+	// one-element List.
+	wantInteger(t, testEval(t, input), 2)
+}
+
+func TestTupleUnpackThreeWay(t *testing.T) {
+	wantInteger(t, testEval(t, "a, b, c = (1, 2, 3)\na + b + c"), 6)
+}
+
+func TestTupleUnpackSwapIdiom(t *testing.T) {
+	input := `
+x = 10
+y = 20
+x, y = (y, x)
+x
+`
+	wantInteger(t, testEval(t, input), 20)
+	input2 := `
+x = 10
+y = 20
+x, y = (y, x)
+y
+`
+	wantInteger(t, testEval(t, input2), 10)
+}
+
+func TestTupleUnpackArityMismatch(t *testing.T) {
+	wantError(t, testEval(t, "a, b = (1, 2, 3)"), "need exactly 2")
+	wantError(t, testEval(t, "a, b, c = (1, 2)"), "need exactly 3")
+}
+
+func TestTupleUnpackErrorInValuePropagates(t *testing.T) {
+	wantError(t, testEval(t, "a, b = (1 / 0, 2)"), "division by zero")
+}
+
+// TestTupleUnpackSingleParenFallsBackToListUnpack confirms
+// `a, b = (xs)` (no comma) is unaffected by tuple-sugar and keeps the
+// ordinary List-unpack semantics — the last target is still a List.
+func TestTupleUnpackSingleParenFallsBackToListUnpack(t *testing.T) {
+	input := `
+xs = [1, 2]
+a, b = (xs)
+b
+`
+	result := testEval(t, input)
+	list, ok := result.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", result)
+	}
+	wantInteger(t, list.Elements[0], 2)
+}
+
 // --- Inc/Dec ----------------------------------------------------------------
 
 func TestIncDecIdentifier(t *testing.T) {

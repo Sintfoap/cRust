@@ -464,6 +464,44 @@ themselves.
   (`isValidLvalue`: only `*Identifier` and `*IndexExpression` qualify),
   rather than given their own grammar branch. The same validation is
   reused for both forms of `incDecStmt` (`x++` and `++x`).
+- **Tuple-unpack sugar** (`a, b = (x, y)`, `SPEC.md` §3.1) — added
+  after `unpackAssign` shipped, once real usage showed its "last target
+  always gets a List" rule (deliberate — see `SPEC.md` §3.1's own
+  rationale) is the wrong behavior for the common case of wanting two
+  or more genuinely independent scalars, most visibly the classic swap
+  idiom (`x, y = (y, x)`). Handled entirely in
+  `parseUnpackAssignStatement`/`parseUnpackValue`
+  (`internal/parser/statements.go`), not by touching the shared
+  `parseGroupedExpression` prefix parselet every other `(...)` in the
+  grammar goes through — deliberately, so `(a, b)` stays a parse error
+  everywhere except this one grammar slot rather than becoming a
+  general expression that merely fails at eval time. One expression's
+  worth of lookahead resolves the ambiguity with ordinary grouping:
+  parse the first inner expression via the normal `parseExpression`,
+  then check what follows — `,` commits to tuple sugar (collect the
+  rest, `expectPeek(RPAREN)`, store as `UnpackAssignStatement`'s new
+  `TupleValues []ast.Expression` field instead of `Value`); a bare `)`
+  means it was just `(xs)`-style grouping all along, so parsing falls
+  back to the pre-existing behavior — including any operators trailing
+  the `)` (`(x)..y` still parses as a Range, not a truncated
+  expression). That fallback reuses `parseExpression`'s own infix loop
+  rather than re-implementing precedence climbing: the loop was factored
+  out into `parseInfixChain(left, precedence)` specifically so this one
+  caller could resume it on a "left" it had to hand-parse itself,
+  instead of duplicating the loop or resorting to lexer/parser-state
+  backtracking (which would've worked too, but needs snapshotting
+  `Lexer`'s otherwise-private fields — copyable as an opaque struct
+  value across the package boundary, but a less direct fix than just
+  sharing the one loop that was already there).
+  `internal/interpreter/statements.go`'s `evalTupleUnpack` gives the two
+  forms genuinely different runtime rules rather than just different
+  parsing: exact arity (a mismatch is a runtime error, not silently
+  padded/truncated) and every target — including the last — gets its
+  own bare value, never the List-wrapped "everything left over" the
+  plain form's last target gets. Every value is evaluated before any
+  target is assigned (same single-pass-then-assign order the plain
+  form already used), which is what makes the swap idiom correct rather
+  than order-dependent.
 - **`knead` dispatch** needs only one token of lookahead, not the
   general expression backtracking `parseSimpleStatement` uses: a `(`
   immediately after `knead` always means `countedHeader`, a bare
