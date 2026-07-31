@@ -39,6 +39,36 @@ func TestListIndexNonInteger(t *testing.T) {
 	wantError(t, testEval(t, `[1, 2]["x"]`), "must be an Integer")
 }
 
+func TestPushAppendsInPlace(t *testing.T) {
+	input := `
+a = [1, 2]
+push(a, 3)
+a
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	if len(list.Elements) != 3 {
+		t.Fatalf("got %d elements, want 3", len(list.Elements))
+	}
+	wantInteger(t, list.Elements[2], 3)
+}
+
+func TestPushMutatesSharedReference(t *testing.T) {
+	input := `
+recipe addOne(list) {
+    push(list, 1)
+}
+a = []
+addOne(a)
+a
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	if len(list.Elements) != 1 {
+		t.Errorf("push through a function call didn't mutate the caller's list: len = %d, want 1", len(list.Elements))
+	}
+}
+
 // --- Map literals and indexing --------------------------------------------
 
 func TestMapLiteral(t *testing.T) {

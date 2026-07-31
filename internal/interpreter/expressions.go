@@ -113,8 +113,11 @@ func (i *Interpreter) evalInfixOperator(tok token.Token, operator string, left, 
 // evalArithmetic implements SPEC.md §6's arithmetic/coercion rules:
 // `+ - *` stay Integer for two Integers, widen to Float if either
 // operand is a Float; `/` always true-divides to a Float regardless of
-// operand types; `%` requires two Integers; `+` between two Strings
-// concatenates, between a String and anything else is a type error.
+// operand types; `%` requires two Integers; `+` between two Strings,
+// two Lists, or two Tuples concatenates (always producing a new
+// value — even for List, which `push` mutates in place instead);
+// between mismatched types among String/List/Tuple, `+` is a type
+// error rather than an implicit conversion.
 func evalArithmetic(tok token.Token, operator string, left, right object.Object) object.Object {
 	if operator == "+" {
 		ls, lIsStr := left.(*object.String)
@@ -123,6 +126,30 @@ func evalArithmetic(tok token.Token, operator string, left, right object.Object)
 			return &object.String{Value: ls.Value + rs.Value}
 		}
 		if lIsStr || rIsStr {
+			return newError(tok, "type error: cannot add %s and %s", left.Type(), right.Type())
+		}
+
+		ll, lIsList := left.(*object.List)
+		rl, rIsList := right.(*object.List)
+		if lIsList && rIsList {
+			combined := make([]object.Object, 0, len(ll.Elements)+len(rl.Elements))
+			combined = append(combined, ll.Elements...)
+			combined = append(combined, rl.Elements...)
+			return object.NewList(combined)
+		}
+		if lIsList || rIsList {
+			return newError(tok, "type error: cannot add %s and %s", left.Type(), right.Type())
+		}
+
+		lt, lIsTuple := left.(*object.Tuple)
+		rt, rIsTuple := right.(*object.Tuple)
+		if lIsTuple && rIsTuple {
+			combined := make([]object.Object, 0, len(lt.Elements)+len(rt.Elements))
+			combined = append(combined, lt.Elements...)
+			combined = append(combined, rt.Elements...)
+			return object.NewTuple(combined)
+		}
+		if lIsTuple || rIsTuple {
 			return newError(tok, "type error: cannot add %s and %s", left.Type(), right.Type())
 		}
 	}

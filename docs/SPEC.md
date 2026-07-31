@@ -99,6 +99,8 @@ sprinkle(seen, [3, 4])     // error: List is not hashable
 
 (1, 2) == (1, 2)           // stuffed -- contents, in order, like List
 (1, 2) == [1, 2]           // thin -- different types never compare equal
+
+(1, 2) + (3, 4)            // (1, 2, 3, 4) -- concatenation, a new Tuple (§5/§6)
 ```
 
 - Written with the same `(`/`)` a grouped expression uses — `(x)` (no
@@ -286,7 +288,7 @@ Reserved for later phases, not yet implemented: a module-import keyword
 
 | Category | Operators | Notes |
 |---|---|---|
-| Arithmetic | `+  -  *  /  %` | `+` also concatenates strings; `/` always true-divides to a Float (§6); `%` requires two Integers |
+| Arithmetic | `+  -  *  /  %` | `+` also concatenates strings, Lists, and Tuples (same-type only, always producing a new value); `/` always true-divides to a Float (§6); `%` requires two Integers |
 | Range | `..  .<` | Integer-only, produces a List — see §5.1 |
 | Unary | `-x`, `hold x` | numeric negate, logical not |
 | Comparison | `==  !=  <  >  <=  >=` | see §6 for cross-type rules |
@@ -443,9 +445,13 @@ per-operator special cases:
   a float widens the result to float. `/` always produces a float
   (Python-3-style true division); integer division is a builtin,
   `idiv(a, b)`, and `%` (modulo) requires two ints.
-- **`+` on strings** concatenates; `+` between a string and a number is a
-  type error rather than an implicit conversion — keeps type mistakes
-  visible instead of silently stringifying.
+- **`+` on strings, Lists, or Tuples** concatenates (same-type only —
+  `+` between two Lists or two Tuples always produces a **new** value,
+  never mutating either operand, same as string `+`; mixing a List with
+  a Tuple, or either with a non-matching type, is a type error). `+`
+  between a string/List/Tuple and something else (e.g. a string and a
+  number) is a type error rather than an implicit conversion — keeps
+  type mistakes visible instead of silently stringifying or coercing.
 - **Equality (`==`/`!=`)** compares by value (Lists/Tuples/Maps/Sets
   compare their contents, not identity — in order for Lists/Tuples,
   ignoring order for Sets); comparing across types (e.g. `1 == "1"`,
@@ -504,6 +510,7 @@ or because it's directly tied to the Set type this doc introduces.
 | `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `?:` operator (§5.4), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
 | `ints(s)` | `(String) -> List` | splits a string of digits into a List of single-digit Integers — the numeric-grid counterpart to `chars`; a non-digit character is a runtime error |
+| `push(list, item)` | `(List, Any) -> Nil` | appends `item` to `list` in place — for a new List instead of mutating, use `+` (§5/§6) |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |

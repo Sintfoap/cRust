@@ -183,9 +183,58 @@ func TestStringPlusNumberIsTypeError(t *testing.T) {
 	wantError(t, testEval(t, `1 + "foo"`), "type error")
 }
 
+func TestListConcatenation(t *testing.T) {
+	result := testEval(t, "[1, 2] + [3, 4]")
+	list := result.(*object.List)
+	if len(list.Elements) != 4 {
+		t.Fatalf("got %d elements, want 4", len(list.Elements))
+	}
+	wantInteger(t, list.Elements[0], 1)
+	wantInteger(t, list.Elements[3], 4)
+}
+
+func TestListConcatenationDoesNotMutateOperands(t *testing.T) {
+	input := `
+a = [1, 2]
+b = [3, 4]
+c = a + b
+a
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	if len(list.Elements) != 2 {
+		t.Errorf("original list a was mutated by +: len = %d, want 2", len(list.Elements))
+	}
+}
+
+func TestListPlusOperatorAssign(t *testing.T) {
+	wantInteger(t, testEval(t, "a = [1]\na += [2]\na[1]"), 2)
+}
+
+func TestListPlusNonListIsTypeError(t *testing.T) {
+	wantError(t, testEval(t, "[1] + 5"), "type error")
+	wantError(t, testEval(t, "5 + [1]"), "type error")
+}
+
+func TestTupleConcatenation(t *testing.T) {
+	result := testEval(t, "(1, 2) + (3, 4)")
+	tup := result.(*object.Tuple)
+	if len(tup.Elements) != 4 {
+		t.Fatalf("got %d elements, want 4", len(tup.Elements))
+	}
+	wantInteger(t, tup.Elements[0], 1)
+	wantInteger(t, tup.Elements[3], 4)
+}
+
+func TestTuplePlusNonTupleIsTypeError(t *testing.T) {
+	wantError(t, testEval(t, "(1, 2) + 5"), "type error")
+	wantError(t, testEval(t, "(1, 2) + [1, 2]"), "type error")
+}
+
 func TestUnsupportedArithmeticOperands(t *testing.T) {
-	wantError(t, testEval(t, "[1] + [2]"), "")
 	wantError(t, testEval(t, "stuffed - thin"), "")
+	wantError(t, testEval(t, "[1] + 5"), "")
+	wantError(t, testEval(t, "(1, 2) + [1, 2]"), "")
 }
 
 // --- Comparison and equality ---------------------------------------------------

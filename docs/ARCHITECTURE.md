@@ -771,16 +771,16 @@ shadow (confirmed by a test: `deliver = recipe(x) {...}` works). A
 `applyFunction` patches the call site's position in after the fact if
 one comes back unset, which is the one place that distinction matters.
 
-Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `idiv`
-(mentioned in `SPEC.md` §6 as backing `/`'s "integer division is a
-builtin" note, so it landed with the rest even though it's not yet in
+Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `push`,
+`idiv` (mentioned in `SPEC.md` §6 as backing `/`'s "integer division is
+a builtin" note, so it landed with the rest even though it's not yet in
 §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
-(`unbox`/`lines`/`trim`), and type conversion
-(`str`/`int`/`float`/`bool`). **Still not built**: general `strings`
-helpers (split/join/contains/replace) and `math`/`sort` adapters
-(abs/pow/sqrt/gcd/lcm, list sorting) — the rest of what this phase's
-own section below describes.
+(`unbox`/`lines`/`trim`), type conversion (`str`/`int`/`float`/`bool`),
+and `+`-as-concatenation extended from strings to Lists and Tuples.
+**Still not built**: general `strings` helpers (split/join/contains/
+replace) and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list
+sorting) — the rest of what this phase's own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
   `strings` (split/join/contains/replace, not yet built), `math`
@@ -824,10 +824,28 @@ own section below describes.
   non-digit character is a runtime error, not silently skipped or
   mapped to its raw code point, matching `int(x)`'s own "malformed
   input is an error, not a guess" stance above.
+- **`push(list, item)` mutates in place; `+` never does.** Both exist
+  because they answer different questions — "add this one item to the
+  List I already have" (`push`, the List counterpart to `sprinkle`'s
+  in-place Set insert) vs. "give me a new List/Tuple that's the
+  concatenation of these two" (`+`, extended in
+  `internal/interpreter/expressions.go`'s `evalArithmetic` from
+  strings — already concatenation-on-`+` — to Lists and Tuples the
+  same way, same-type-only). Keeping `+` non-mutating matters
+  specifically because compound assignment (`a += b`) is implemented
+  generically as `a = evalInfixOperator("+", a, b)`
+  (`internal/interpreter/statements.go`): if `+` mutated its left
+  operand in place, `a += b` would double-apply the change (once via
+  the mutation, once via the rebind) for a List the way it never would
+  for a String. Tuple concatenation needs no extra hashability check
+  the way `evalTupleLiteral` does for a fresh literal — both operands
+  are already-constructed Tuples, so every element was already proven
+  `Hashable` when *they* were built.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
-  (string → List of characters/digits), the Set builtins
+  (string → List of characters/digits), `push` (in-place List append),
+  the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping

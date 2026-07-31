@@ -185,6 +185,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       not a silent stringify/parse)
 - [ ] Math: abs, min, max, pow, gcd, lcm, sqrt (standard names, not themed)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
+- [x] `push` (append to a List in place) and `+` extended to List/List
+      and Tuple/Tuple concatenation (always a new value, never
+      mutating either operand — `push` is the in-place counterpart)
 - [ ] Collections: sort, map/filter/reduce (or equivalent loop sugar)
 - [x] `slices` (length of a String/List/Map/Set)
 - [x] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`

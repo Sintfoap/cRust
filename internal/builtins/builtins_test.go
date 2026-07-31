@@ -75,7 +75,7 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -371,6 +371,43 @@ func TestSprinkleUnhashableItem(t *testing.T) {
 	if !strings.Contains(errObj.Message, "unhashable") {
 		t.Errorf("Message = %q, want it to mention unhashable", errObj.Message)
 	}
+}
+
+func TestPush(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+
+	result := call(t, table, "push", list, object.NewInteger(3))
+	if result != object.NULL {
+		t.Errorf("push(...) = %v, want NULL", result)
+	}
+	if len(list.Elements) != 3 {
+		t.Fatalf("got %d elements, want 3", len(list.Elements))
+	}
+	wantInteger(t, list.Elements[2], 3)
+}
+
+func TestPushMutatesInPlace(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	original := object.NewList([]object.Object{object.NewInteger(1)})
+	alias := original
+
+	call(t, table, "push", original, object.NewInteger(2))
+
+	if len(alias.Elements) != 2 {
+		t.Errorf("push didn't mutate through alias: len = %d, want 2", len(alias.Elements))
+	}
+}
+
+func TestPushWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "push", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestPushWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "push", object.NewList(nil)))
+	wantError(t, call(t, table, "push"))
 }
 
 func TestUnboxNoArgReadsStdin(t *testing.T) {

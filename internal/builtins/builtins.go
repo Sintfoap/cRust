@@ -30,6 +30,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"sauce":    {Fn: sauceFn},
 		"chars":    {Fn: charsFn},
 		"ints":     {Fn: intsFn},
+		"push":     {Fn: pushFn},
 		"idiv":     {Fn: idivFn},
 		"gather":   {Fn: gatherFn},
 		"sprinkle": {Fn: sprinkleFn},
@@ -107,6 +108,23 @@ func sauceFn(args ...object.Object) object.Object {
 		return args[0]
 	}
 	return args[1]
+}
+
+// pushFn is `push(list, item)` (SPEC.md §7) — appends item to list in
+// place, the List counterpart to `sprinkle`'s in-place Set insert.
+// Unlike `+` (List/List concatenation, evalArithmetic — always
+// produces a new List), push mutates the List that's actually passed
+// in, so every other reference to it sees the appended item too.
+func pushFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("push", "2", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("push", 0, "a List", args[0])
+	}
+	list.Elements = append(list.Elements, args[1])
+	return object.NULL
 }
 
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of
