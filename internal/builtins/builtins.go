@@ -34,33 +34,38 @@ type Call func(fn object.Object, args []object.Object) object.Object
 // global state.
 func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builtin {
 	return map[string]*object.Builtin{
-		"deliver":  {Fn: deliverFn(output)},
-		"slices":   {Fn: slicesFn},
-		"sauce":    {Fn: sauceFn},
-		"chars":    {Fn: charsFn},
-		"ints":     {Fn: intsFn},
-		"push":     {Fn: pushFn},
-		"map":      {Fn: mapFn(call)},
-		"min":      {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
-		"max":      {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
-		"combos":   {Fn: combosFn},
-		"idiv":     {Fn: idivFn},
-		"gather":   {Fn: gatherFn},
-		"sprinkle": {Fn: sprinkleFn},
-		"scrape":   {Fn: scrapeFn},
-		"topped":   {Fn: toppedFn},
-		"combine":  {Fn: combineFn},
-		"shared":   {Fn: sharedFn},
-		"strip":    {Fn: stripFn},
-		"unbox":    {Fn: unboxFn(stdin)},
-		"lines":    {Fn: linesFn},
-		"join":     {Fn: joinFn},
-		"split":    {Fn: splitFn},
-		"trim":     {Fn: trimFn},
-		"str":      {Fn: strFn},
-		"int":      {Fn: intFn},
-		"float":    {Fn: floatFn},
-		"bool":     {Fn: boolFn},
+		"deliver":    {Fn: deliverFn(output)},
+		"slices":     {Fn: slicesFn},
+		"sauce":      {Fn: sauceFn},
+		"chars":      {Fn: charsFn},
+		"ints":       {Fn: intsFn},
+		"push":       {Fn: pushFn},
+		"map":        {Fn: mapFn(call)},
+		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
+		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
+		"combos":     {Fn: combosFn},
+		"grid":       {Fn: gridFn},
+		"at":         {Fn: atFn},
+		"setAt":      {Fn: setAtFn},
+		"neighbors4": {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
+		"neighbors8": {Fn: neighborsFn("neighbors8", allOffsets)},
+		"idiv":       {Fn: idivFn},
+		"gather":     {Fn: gatherFn},
+		"sprinkle":   {Fn: sprinkleFn},
+		"scrape":     {Fn: scrapeFn},
+		"topped":     {Fn: toppedFn},
+		"combine":    {Fn: combineFn},
+		"shared":     {Fn: sharedFn},
+		"strip":      {Fn: stripFn},
+		"unbox":      {Fn: unboxFn(stdin)},
+		"lines":      {Fn: linesFn},
+		"join":       {Fn: joinFn},
+		"split":      {Fn: splitFn},
+		"trim":       {Fn: trimFn},
+		"str":        {Fn: strFn},
+		"int":        {Fn: intFn},
+		"float":      {Fn: floatFn},
+		"bool":       {Fn: boolFn},
 	}
 }
 
@@ -340,6 +345,184 @@ func combosFn(args ...object.Object) object.Object {
 		}
 	}
 	return object.NewList(out)
+}
+
+// gridFn is `grid(s)` (SPEC.md §7) — parses a String into a row-major
+// grid: a List of rows, each row itself a List of one-character
+// Strings. The 2D counterpart to `lines` (String -> List of line
+// Strings) and `chars` (one line -> List of one-character Strings)
+// combined into a single call — `grid(unbox(path))` turns a raw
+// AoC-style grid-puzzle input straight into something `at`/`setAt`/
+// `neighbors4`/`neighbors8` can work with. Same line-splitting rule
+// `lines` already uses (handles `\n` and `\r\n`, no trailing blank row
+// for a string that ends in a newline).
+func gridFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("grid", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("grid", 0, "a String", args[0])
+	}
+	var rows []object.Object
+	scanner := bufio.NewScanner(strings.NewReader(s.Value))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		runes := []rune(scanner.Text())
+		row := make([]object.Object, len(runes))
+		for i, r := range runes {
+			row[i] = &object.String{Value: string(r)}
+		}
+		rows = append(rows, object.NewList(row))
+	}
+	return object.NewList(rows)
+}
+
+// gridPos validates pos as a (row, col) Tuple of two Integers — the
+// coordinate representation every grid builtin here shares, chosen
+// specifically because a Tuple is hashable (SPEC.md §2.3), so a
+// position can go straight into a Set (visited cells) or a Map key
+// (distances, costs) with no extra packing. index is the argument
+// position pos was passed at, purely for wrongArgType's error message.
+func gridPos(name string, index int, pos object.Object) (row, col int64, errObj *object.Error) {
+	tup, ok := pos.(*object.Tuple)
+	if !ok || len(tup.Elements) != 2 {
+		return 0, 0, wrongArgType(name, index, "a (row, col) Tuple", pos)
+	}
+	r, ok := tup.Elements[0].(*object.Integer)
+	if !ok {
+		return 0, 0, newError("%s: row must be an Integer, got %s", name, tup.Elements[0].Type())
+	}
+	c, ok := tup.Elements[1].(*object.Integer)
+	if !ok {
+		return 0, 0, newError("%s: col must be an Integer, got %s", name, tup.Elements[1].Type())
+	}
+	return r.Value, c.Value, nil
+}
+
+// gridRowElements accepts either a List or Tuple as one grid row —
+// `grid(s)`'s own output is always List-of-List, but nothing stops
+// user code building a grid out of Tuple rows (e.g. after `map`),
+// so `at` reads through either.
+func gridRowElements(row object.Object) ([]object.Object, bool) {
+	switch r := row.(type) {
+	case *object.List:
+		return r.Elements, true
+	case *object.Tuple:
+		return r.Elements, true
+	default:
+		return nil, false
+	}
+}
+
+// atFn is `at(g, pos)` (SPEC.md §7) — bounds-checked read from a
+// row-major grid (a List of row Lists/Tuples — `grid(s)`'s own output
+// shape) at (row, col). Out-of-range reads as nobox rather than an
+// error, deliberately different from plain `g[row][col]` indexing
+// (which errors via readIndex) — the same reasoning readIndex's own
+// doc comment already gives for a missing Map key reading as nobox
+// instead of erroring: grid code constantly needs to ask "is there a
+// cell here" for a candidate neighbor near an edge, and nobox lets
+// that be a plain equality/`?:` check instead of a hand-written bounds
+// check before every single lookup.
+func atFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("at", "2", len(args))
+	}
+	g, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("at", 0, "a List", args[0])
+	}
+	row, col, errObj := gridPos("at", 1, args[1])
+	if errObj != nil {
+		return errObj
+	}
+	if row < 0 || row >= int64(len(g.Elements)) {
+		return object.NULL
+	}
+	rowElements, ok := gridRowElements(g.Elements[row])
+	if !ok {
+		return newError("at: row %d is %s, not a List or Tuple", row, g.Elements[row].Type())
+	}
+	if col < 0 || col >= int64(len(rowElements)) {
+		return object.NULL
+	}
+	return rowElements[col]
+}
+
+// setAtFn is `setAt(g, pos, value)` (SPEC.md §7) — bounds-checked
+// in-place write into a row-major grid at (row, col), `at`'s mutating
+// counterpart. Unlike `at`, out-of-range is a runtime error here,
+// matching plain `g[row][col] = value` (writeIndex) rather than
+// nobox-on-miss: writing off the edge of a grid is a bug to surface
+// immediately, not a routine "is this cell there" query the way a read
+// so often is. The target row must be a List, not a Tuple — Tuples are
+// immutable (SPEC.md §2.3), so there's no in-place write to make.
+func setAtFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("setAt", "3", len(args))
+	}
+	g, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("setAt", 0, "a List", args[0])
+	}
+	row, col, errObj := gridPos("setAt", 1, args[1])
+	if errObj != nil {
+		return errObj
+	}
+	if row < 0 || row >= int64(len(g.Elements)) {
+		return newError("setAt: row %d out of range", row)
+	}
+	rowList, ok := g.Elements[row].(*object.List)
+	if !ok {
+		return newError("setAt: row %d is %s, not a List (Tuples are immutable)", row, g.Elements[row].Type())
+	}
+	if col < 0 || col >= int64(len(rowList.Elements)) {
+		return newError("setAt: col %d out of range", col)
+	}
+	rowList.Elements[col] = args[2]
+	return object.NULL
+}
+
+// orthogonalOffsets/allOffsets are neighbors4/neighbors8's (dRow, dCol)
+// offsets, each listed in row-major order over the 3x3 neighborhood
+// (top-to-bottom, left-to-right) with (0, 0) — pos itself — skipped;
+// neighbors4 is exactly allOffsets' four non-diagonal entries in that
+// same relative order, so the two functions agree on "which direction
+// comes first" wherever they overlap.
+var orthogonalOffsets = [][2]int64{{-1, 0}, {0, -1}, {0, 1}, {1, 0}}
+var allOffsets = [][2]int64{
+	{-1, -1}, {-1, 0}, {-1, 1},
+	{0, -1}, {0, 1},
+	{1, -1}, {1, 0}, {1, 1},
+}
+
+// neighborsFn builds `neighbors4(pos)` / `neighbors8(pos)` (SPEC.md
+// §7): given a (row, col) Tuple, returns the List of its 4 orthogonal
+// or 8 orthogonal+diagonal neighbor positions, each as a Tuple, with no
+// bounds checking against any particular grid — pos can be any (row,
+// col), including ones that go negative or off some grid's edge, since
+// this is pure coordinate arithmetic. Pair with `at` (which reads
+// out-of-range as nobox rather than erroring) to filter to only the
+// neighbors that actually exist on a given grid.
+func neighborsFn(name string, offsets [][2]int64) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 1 {
+			return wrongArgCount(name, "1", len(args))
+		}
+		row, col, errObj := gridPos(name, 0, args[0])
+		if errObj != nil {
+			return errObj
+		}
+		out := make([]object.Object, len(offsets))
+		for i, off := range offsets {
+			out[i] = object.NewTuple([]object.Object{
+				object.NewInteger(row + off[0]),
+				object.NewInteger(col + off[1]),
+			})
+		}
+		return object.NewList(out)
+	}
 }
 
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of

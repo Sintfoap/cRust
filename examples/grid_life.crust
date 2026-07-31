@@ -1,0 +1,47 @@
+// Game of Life, one generation. Demonstrates the grid utilities
+// (grid, at, setAt, neighbors8) together: parse a grid from text,
+// count live neighbors with a bounds-check-free at() + neighbors8()
+// pair, and build the next generation with setAt(). A 3-cell vertical
+// blinker becomes a 3-cell horizontal blinker after one step.
+
+recipe emptyGrid(rows, cols) {
+    g = []
+    knead r in 0.<rows {
+        row = []
+        knead c in 0.<cols {
+            push(row, ".")
+        }
+        push(g, row)
+    }
+    serve g
+}
+
+recipe countLiveNeighbors(g, pos) {
+    count = 0
+    knead n in neighbors8(pos) {
+        order (at(g, n) == "#") {
+            count += 1
+        }
+    }
+    serve count
+}
+
+recipe step(g) {
+    rows = slices(g)
+    cols = slices(g[0])
+    next = emptyGrid(rows, cols)
+
+    knead r in 0.<rows {
+        knead c in 0.<cols {
+            live = countLiveNeighbors(g, (r, c))
+            cell = at(g, (r, c))
+            alive = (cell == "#" with (live == 2 or live == 3)) or (cell == "." with live == 3)
+            setAt(next, (r, c), alive (| "#" |) ".")
+        }
+    }
+    serve next
+}
+
+g = grid(".#.\n.#.\n.#.")
+deliver(g)
+deliver(step(g))

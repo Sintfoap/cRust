@@ -983,12 +983,69 @@ own section below describes.
   List either — it's a List containing exactly one element, the empty
   Tuple `()`, matching the standard math convention that there's
   exactly one way to choose nothing.
+- **Grid support is five composable functions over plain List-of-List,
+  not a dedicated Grid type.** The request that motivated this was
+  "grid simulation functionality" — broad enough that it was worth
+  asking what shape was actually wanted (a full cellular-automaton
+  stepper vs. just the pieces to write one) before building anything;
+  the answer was utilities only, so a `step(grid, rule)`-style function
+  stayed out of scope. `grid(s)` parses a String into a row-major List
+  of row-Lists of one-character Strings (`lines` + `chars`, combined
+  into one call); `at(g, pos)`/`setAt(g, pos, value)` are bounds-checked
+  read/write; `neighbors4(pos)`/`neighbors8(pos)` give the 4 or 8
+  neighbor positions of a cell. Every position is a `(row, col)` Tuple
+  — chosen specifically because it's hashable (SPEC.md §2.3), so a
+  position can go straight into a `Set` (visited cells, already how
+  `gather`/`sprinkle`/`topped` work) or a `Map` key (distances, costs)
+  with no extra packing, and it composes cleanly with `combos`/`map`
+  now that those exist too.
+  - **`at` reads out-of-range as `nobox`, deliberately breaking from
+    plain `g[row][col]` indexing (which errors via `readIndex`)** — the
+    same reasoning `readIndex`'s own doc comment already gives for a
+    missing Map key reading as `nobox` instead of erroring. Grid code
+    constantly asks "is there a cell here" for a candidate neighbor
+    near an edge; `nobox` turns that into a plain equality/`?:` check
+    instead of a hand-written bounds check before every lookup — e.g.
+    `knead n in neighbors8(pos) { v = at(g, n); order (v == "#") {
+    count += 1 } }` never needs to check `n` is in range first, since
+    `at` already answers "no" as `nobox`, which just isn't `"#"`.
+  - **`setAt` goes the other way: out-of-range is a runtime error**,
+    matching plain `g[row][col] = value` rather than `at`'s nobox-on-
+    miss. Writing off the edge of a grid is a bug to surface
+    immediately (there's no sensible "did I write it or not" query the
+    way a read's existence-check is), so the asymmetry between `at` and
+    `setAt` is intentional, not an oversight. `setAt`'s target row also
+    has to be a `List`, never a `Tuple` — Tuples are immutable, so
+    there's no in-place write to make; grids built by tools that
+    happened to produce Tuple rows (`at` reads through either) can't be
+    mutated with `setAt` without first converting.
+  - **`neighbors4`/`neighbors8` do zero bounds checking against any
+    particular grid** — they're pure `(row, col)` arithmetic, so a
+    neighbor of `(0, 0)` can come back as `(-1, 0)`. That's
+    deliberate: baking a grid parameter into these functions just to
+    filter would make them less composable (what if you're computing
+    neighbors for a Set of visited positions instead of a grid at
+    all?), and the nobox-on-miss behavior above already gives a clean
+    way to filter against a real grid when that's what's wanted. Both
+    functions list their offsets in the same row-major order over the
+    3×3 neighborhood (`neighbors4` is exactly `neighbors8`'s four
+    non-diagonal entries in the same relative order), so the two agree
+    on "which direction comes first" wherever they overlap — arbitrary
+    but worth pinning down once so it's actually documented/testable
+    behavior rather than "whatever the loop happens to produce."
+  - Verified this whole set actually composes into a real simulation,
+    not just individually: a from-scratch Game-of-Life single-step
+    (`countLiveNeighbors` using `neighbors8`+`at`, then a `knead`-based
+    row/col sweep using `setAt`) run against a 3-cell vertical blinker
+    produced the correct horizontal-blinker output in one generation,
+    via a real `crust run` subprocess — not just Go unit tests.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
   `map` (apply a function across a List/Tuple), `min`/`max`, `combos`
-  (n-element combinations), the Set builtins
+  (n-element combinations), `grid`/`at`/`setAt`/`neighbors4`/`neighbors8`
+  (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping

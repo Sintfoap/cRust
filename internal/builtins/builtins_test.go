@@ -109,6 +109,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
+		"grid", "at", "setAt", "neighbors4", "neighbors8",
 	}
 	for _, name := range want {
 		if _, ok := table[name]; !ok {
@@ -710,6 +711,221 @@ func TestCombosNNotInteger(t *testing.T) {
 func TestCombosWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "combos", object.NewList(nil)))
+}
+
+func TestGridParsesRowsAndCols(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "grid", &object.String{Value: "abc\nde\n"}).(*object.List)
+	if len(got.Elements) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got.Elements))
+	}
+	row0 := got.Elements[0].(*object.List)
+	wantString(t, row0.Elements[0], "a")
+	wantString(t, row0.Elements[2], "c")
+	row1 := got.Elements[1].(*object.List)
+	if len(row1.Elements) != 2 {
+		t.Fatalf("got %d cols in row 1, want 2", len(row1.Elements))
+	}
+}
+
+func TestGridNoTrailingBlankRow(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "grid", &object.String{Value: "ab\ncd\n"}).(*object.List)
+	if len(got.Elements) != 2 {
+		t.Errorf("got %d rows, want 2 (no trailing blank row)", len(got.Elements))
+	}
+}
+
+func TestGridWrongArgType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "grid", object.NewInteger(1)))
+}
+
+func TestGridWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "grid"))
+}
+
+func testGrid(t *testing.T, table map[string]*object.Builtin, s string) object.Object {
+	t.Helper()
+	return call(t, table, "grid", &object.String{Value: s})
+}
+
+func TestAtInBounds(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "abc\ndef\nghi")
+	pos := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	wantString(t, call(t, table, "at", g, pos), "f")
+}
+
+func TestAtOutOfBoundsReadsAsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "abc\ndef")
+	cases := []*object.Tuple{
+		object.NewTuple([]object.Object{object.NewInteger(-1), object.NewInteger(0)}),
+		object.NewTuple([]object.Object{object.NewInteger(5), object.NewInteger(0)}),
+		object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(-1)}),
+		object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(5)}),
+	}
+	for _, pos := range cases {
+		got := call(t, table, "at", g, pos)
+		if got != object.NULL {
+			t.Errorf("at(g, %s) = %v, want nobox", pos.Inspect(), got)
+		}
+	}
+}
+
+func TestAtWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	wantError(t, call(t, table, "at", object.NewInteger(1), pos))
+}
+
+func TestAtPosNotATuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	wantError(t, call(t, table, "at", g, object.NewInteger(0)))
+}
+
+func TestAtPosWrongArity(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	pos := object.NewTuple([]object.Object{object.NewInteger(0)})
+	wantError(t, call(t, table, "at", g, pos))
+}
+
+func TestAtPosNonIntegerElements(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	pos := object.NewTuple([]object.Object{&object.String{Value: "0"}, object.NewInteger(0)})
+	wantError(t, call(t, table, "at", g, pos))
+}
+
+func TestAtPosColNonInteger(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), &object.String{Value: "0"}})
+	wantError(t, call(t, table, "at", g, pos))
+}
+
+func TestAtWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	wantError(t, call(t, table, "at", g))
+}
+
+func TestAtRowNotAListOrTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := object.NewList([]object.Object{object.NewInteger(1)})
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	errObj := wantError(t, call(t, table, "at", g, pos))
+	if !strings.Contains(errObj.Message, "not a List or Tuple") {
+		t.Errorf("Message = %q, want it to mention \"not a List or Tuple\"", errObj.Message)
+	}
+}
+
+func TestAtOnTupleRow(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := object.NewList([]object.Object{
+		object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)}),
+	})
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(1)})
+	wantInteger(t, call(t, table, "at", g, pos), 2)
+}
+
+func TestSetAtMutatesInPlace(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab\ncd")
+	pos := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(0)})
+	call(t, table, "setAt", g, pos, &object.String{Value: "Z"})
+	wantString(t, call(t, table, "at", g, pos), "Z")
+}
+
+func TestSetAtOutOfRangeIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	pos := object.NewTuple([]object.Object{object.NewInteger(9), object.NewInteger(0)})
+	wantError(t, call(t, table, "setAt", g, pos, &object.String{Value: "Z"}))
+
+	pos = object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(9)})
+	wantError(t, call(t, table, "setAt", g, pos, &object.String{Value: "Z"}))
+}
+
+func TestSetAtOnTupleRowIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := object.NewList([]object.Object{
+		object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)}),
+	})
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	errObj := wantError(t, call(t, table, "setAt", g, pos, object.NewInteger(9)))
+	if !strings.Contains(errObj.Message, "immutable") {
+		t.Errorf("Message = %q, want it to mention immutability", errObj.Message)
+	}
+}
+
+func TestSetAtWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	wantError(t, call(t, table, "setAt", object.NewInteger(1), pos, object.NewInteger(9)))
+}
+
+func TestSetAtPosNotATuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	wantError(t, call(t, table, "setAt", g, object.NewInteger(0), object.NewInteger(9)))
+}
+
+func TestSetAtWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "ab")
+	wantError(t, call(t, table, "setAt", g))
+}
+
+func TestNeighbors4(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	pos := object.NewTuple([]object.Object{object.NewInteger(2), object.NewInteger(2)})
+	got := call(t, table, "neighbors4", pos).(*object.List)
+	want := [][2]int64{{1, 2}, {2, 1}, {2, 3}, {3, 2}}
+	if len(got.Elements) != len(want) {
+		t.Fatalf("got %d neighbors, want %d", len(got.Elements), len(want))
+	}
+	for i, w := range want {
+		wantTupleOfInts(t, got.Elements[i], w[0], w[1])
+	}
+}
+
+func TestNeighbors8(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	pos := object.NewTuple([]object.Object{object.NewInteger(2), object.NewInteger(2)})
+	got := call(t, table, "neighbors8", pos).(*object.List)
+	if len(got.Elements) != 8 {
+		t.Fatalf("got %d neighbors, want 8", len(got.Elements))
+	}
+	want := [][2]int64{{1, 1}, {1, 2}, {1, 3}, {2, 1}, {2, 3}, {3, 1}, {3, 2}, {3, 3}}
+	for i, w := range want {
+		wantTupleOfInts(t, got.Elements[i], w[0], w[1])
+	}
+}
+
+func TestNeighborsAtNegativeOrigin(t *testing.T) {
+	// Pure coordinate arithmetic -- no bounds checking, so negative
+	// positions come back unfiltered (pair with `at`'s nobox-on-miss to
+	// filter against a real grid).
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	got := call(t, table, "neighbors4", pos).(*object.List)
+	wantTupleOfInts(t, got.Elements[0], -1, 0)
+}
+
+func TestNeighborsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "neighbors4"))
+	wantError(t, call(t, table, "neighbors8"))
+}
+
+func TestNeighborsPosNotATuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "neighbors4", object.NewInteger(1)))
 }
 
 func TestUnboxNoArgReadsStdin(t *testing.T) {

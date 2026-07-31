@@ -194,6 +194,13 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `combos(list, n)` — every n-element combination (not permutation)
       of list's elements, each as a Tuple; generalizes to any n instead
       of hardcoding pairs/triples
+- [x] Grid utilities: `grid(s)` (parse into row-major List of List of
+      chars), `at(g, pos)`/`setAt(g, pos, value)` (bounds-checked
+      read/write, `at` reads out-of-range as nobox), `neighbors4(pos)`/
+      `neighbors8(pos)` (orthogonal / +diagonal offsets, no bounds
+      checking). Coordinates are `(row, col)` Tuples throughout — no
+      dedicated Grid type, just composable functions over List-of-List
+      plus the existing Tuple/Set/Map machinery
 - [ ] Math: abs, pow, gcd, lcm, sqrt (standard names, not themed)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
 - [x] `push` (append to a List in place) and `+` extended to List/List
