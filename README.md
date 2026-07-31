@@ -108,9 +108,18 @@ crust parse examples/hello.crust
 
 ```
 nix run github:Sintfoap/cRust -- --version
-nix build github:Sintfoap/cRust      # ./result/bin/crust
-nix develop github:Sintfoap/cRust    # dev shell with Go on PATH
+nix build github:Sintfoap/cRust           # ./result/bin/crust
+nix develop github:Sintfoap/cRust         # dev shell with Go on PATH, for hacking on cRust itself
+nix develop github:Sintfoap/cRust#crust   # dev shell with just the `crust` CLI on PATH, for using it
 ```
+
+`nix profile add github:Sintfoap/cRust` also works, but needs the
+resulting `~/.nix-profile/bin` on your `PATH` — if `crust` isn't found
+afterward, that's almost always why. `nix develop .#crust` (run from
+inside a clone of this repo, or any local flake with `crust.url =
+"github:Sintfoap/cRust"` in its inputs and `crust.packages.${system}.default`
+in a devShell) sidesteps that entirely: no profile, no PATH changes,
+`crust` is just there for the shell session.
 
 Works from NixOS, Nix-on-WSL, or Nix on any other Linux/macOS system.
 

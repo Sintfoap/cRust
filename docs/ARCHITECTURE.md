@@ -90,23 +90,48 @@ standard practice to avoid import cycles in a Go interpreter.
   - `meta.mainProgram = "crust"` plus an explicit `apps.default` (via
     `flake-utils.lib.mkApp`) covers both older and newer Nix versions'
     ways of resolving what `nix run` should execute.
-  - A `devShells.default` with `pkgs.go` is included as the standard,
-    low-cost companion to a Go flake — lets `nix develop` give a
-    hacking environment without needing Go installed globally.
-  - **Not yet verified end-to-end**: this dev environment's network
-    policy blocks `nixos.org` (confirmed via the proxy status endpoint),
-    so Nix itself couldn't be installed here to test `nix build`/
-    `nix run` against the real thing. The flake follows well-established
-    `buildGoModule` + `flake-utils` conventions, but it should be run
-    through `nix flake check` on a real Nix install before being
-    trusted blindly.
-  - No `flake.lock` is committed yet, for the same reason: locking
-    requires Nix to actually resolve and hash `nixpkgs`/`flake-utils`
-    against real network access. `nix run`/`nix build` still work
-    without one (Nix resolves an ephemeral lock on the fly), but running
-    `nix flake lock` once on a real machine and committing the result
-    is what makes future runs reproducible instead of floating on
-    whatever `nixos-unstable` currently points to.
+  - Two `devShells`, for two different audiences: `devShells.default`
+    (`pkgs.go` only) is for hacking on cRust's own source — you'd use
+    `go run`/`go build` directly while working in this repo, not the
+    packaged binary. `devShells.crust` (`self.packages.${system}.default`)
+    is for *using* cRust — writing/running `.crust` files, e.g. AoC
+    solutions — without needing a separate workspace flake or a global
+    PATH change: `nix develop .#crust` (or
+    `nix develop github:Sintfoap/cRust#crust` from outside a clone)
+    just puts the built `crust` CLI on PATH for the shell session. Added
+    specifically because `nix profile add`'s alternative — installing
+    into a persistent profile — turned out to have a real, non-obvious
+    failure mode in practice (see the next bullet).
+  - **`nix profile add`/`install` needs the profile's `bin/` directory
+    on your shell's `PATH`, and that's easy to have silently missing**
+    — confirmed against a real user's setup, not hypothetical: `nix
+    profile add github:Sintfoap/cRust` completed with no error and the
+    binary genuinely existed at the resolved store path, but `crust`
+    still weren't found, because neither their shell's `PATH` nor any
+    of their shell rc files mentioned `~/.nix-profile/bin` (or the
+    newer `~/.local/state/nix/profile/bin` equivalent) at all — running
+    `nix profile add` repeatedly while troubleshooting also silently
+    created several redundant profile entries (`cRust`, `cRust-1`,
+    `cRust-2`, ...) rather than erroring or being a no-op, since Nix
+    doesn't dedupe by identical source on `profile add`. None of this
+    is a flake bug — it's what motivated adding `devShells.crust` as
+    the recommended path for "just let me run `crust`" instead.
+  - `nix run`/`nix build`/`nix develop` have since been confirmed
+    working end-to-end by a real user on a real Nix install (Nix-on-WSL)
+    — this environment's own network policy still blocks `nixos.org`
+    directly (confirmed via the proxy status endpoint, `cache.nixos.org`
+    itself *is* reachable), so `devShells.crust` above was reviewed
+    carefully by hand against the already-working `apps.default`
+    pattern in the same file (identical `self.packages.${system}.default`
+    reference) rather than independently exercised with a live `nix
+    develop .#crust` run here.
+  - `flake.lock` is committed (added directly by a user with real Nix
+    access, since it couldn't be generated in this environment) —
+    `nix flake update` on a real machine is what refreshes it going
+    forward; `.gitattributes`' `eol=lf` setting exists specifically
+    because of line-ending damage a previous `flake.lock` update
+    accidentally introduced repo-wide (see the Phase 0 git history for
+    that cleanup).
 - `cmd/crust/main.go` exists now, ahead of Phase 6, with a genuine but
   minimal CLI surface: `--version`, `--help`/`-h`, and `run`/`repl`
   subcommands that print "not implemented yet" and exit 1 rather than

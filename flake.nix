@@ -39,8 +39,23 @@
           drv = self.packages.${system}.default;
         };
 
+        # For hacking on cRust's own source — Go toolchain only, not the
+        # built `crust` binary itself (you'd use `go run`/`go build`
+        # directly while working in this repo, not the packaged CLI).
         devShells.default = pkgs.mkShell {
           packages = [ pkgs.go ];
+        };
+
+        # For *using* cRust — e.g. writing/running AoC solutions — without
+        # needing a separate workspace flake or touching your shell's
+        # global PATH: `nix develop .#crust` drops you into a shell with
+        # just the built `crust` CLI on PATH.
+        devShells.crust = pkgs.mkShell {
+          packages = [ self.packages.${system}.default ];
+
+          shellHook = ''
+            echo "$(crust --version) ready — try: crust --help"
+          '';
         };
       });
 }
