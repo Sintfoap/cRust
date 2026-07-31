@@ -220,7 +220,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       (keyword/builtin/literal-type docs), diagnostics
       (`textDocument/publishDiagnostics` from lexer ILLEGAL tokens and
       `internal/parser`'s structured `ParseError`/`ParseErrors()`),
-      and real scope-aware `textDocument/definition`/`references`/
+      and real scope-aware `textDocument/definition` (aliased for
+      `typeDefinition` too — cRust has no separate type-declaration
+      site to distinguish it from a plain declaration)/`references`/
       `rename`/`documentSymbol`/`completion` (`internal/lsp/symbols.go`
       — a `fileIndex` built by walking the parsed AST once per
       request, resolving names through cRust's actual function-scope

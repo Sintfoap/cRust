@@ -83,7 +83,16 @@ func (s *Server) handle(msg rpcMessage, logw io.Writer) bool {
 		s.handleDidClose(msg, logw)
 	case "textDocument/hover":
 		s.handleHover(msg, logw)
-	case "textDocument/definition":
+	case "textDocument/definition", "textDocument/typeDefinition":
+		// cRust has no separate type-declaration syntax to jump to (no
+		// classes/structs — just recipes and the builtin value kinds),
+		// so there's no meaningful difference between "where was this
+		// declared" and "where was this value's type declared." Rather
+		// than answering typeDefinition with a "not supported" error
+		// (which is what a client sees when it asks a real declared
+		// capability doesn't cover), alias it straight to definition —
+		// the same practical choice a number of real language servers
+		// for dynamically-typed languages make.
 		s.handleDefinition(msg, logw)
 	case "textDocument/references":
 		s.handleReferences(msg, logw)
@@ -135,6 +144,7 @@ func (s *Server) handleInitialize(msg rpcMessage) {
 			HoverProvider:          true,
 			PositionEncoding:       s.encoding,
 			DefinitionProvider:     true,
+			TypeDefinitionProvider: true,
 			ReferencesProvider:     true,
 			DocumentSymbolProvider: true,
 			CompletionProvider:     &completionOptions{},

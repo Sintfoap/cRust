@@ -185,9 +185,9 @@ func TestServerSessionRichFeatures(t *testing.T) {
 	if err := json.Unmarshal(msgs[0].Result, &initResult); err != nil {
 		t.Fatalf("unmarshal initialize result: %s", err)
 	}
-	if !initResult.Capabilities.DefinitionProvider || !initResult.Capabilities.ReferencesProvider ||
-		!initResult.Capabilities.DocumentSymbolProvider || initResult.Capabilities.CompletionProvider == nil ||
-		!initResult.Capabilities.RenameProvider {
+	if !initResult.Capabilities.DefinitionProvider || !initResult.Capabilities.TypeDefinitionProvider ||
+		!initResult.Capabilities.ReferencesProvider || !initResult.Capabilities.DocumentSymbolProvider ||
+		initResult.Capabilities.CompletionProvider == nil || !initResult.Capabilities.RenameProvider {
 		t.Errorf("initialize result missing a rich-feature capability: %+v", initResult.Capabilities)
 	}
 
@@ -233,6 +233,50 @@ func TestServerSessionRichFeatures(t *testing.T) {
 	}
 	if len(edit.Changes[uri]) != 2 {
 		t.Errorf("len(edit.Changes[uri]) = %d, want 2", len(edit.Changes[uri]))
+	}
+}
+
+// TestServerTypeDefinitionAliasesDefinition confirms
+// textDocument/typeDefinition doesn't error out (the real bug report
+// this aliasing fixes — Neovim's default <leader>D keymap sends this
+// method, and a server that doesn't handle it at all gets "method not
+// supported" back) and, since cRust has no separate type-declaration
+// site to point at, returns exactly what textDocument/definition would.
+func TestServerTypeDefinitionAliasesDefinition(t *testing.T) {
+	src := "total = 1\ndeliver(total)\n"
+	pos := map[string]any{"line": 1, "character": 9} // "total" inside deliver(...)
+
+	var input bytes.Buffer
+	input.Write(clientMessage(t, "textDocument/didOpen", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "languageId": "crust", "version": 1, "text": src},
+	}))
+	input.Write(clientMessage(t, "textDocument/definition", 1, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": pos,
+	}))
+	input.Write(clientMessage(t, "textDocument/typeDefinition", 2, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": pos,
+	}))
+	input.Write(clientMessage(t, "exit", nil, nil))
+
+	var output bytes.Buffer
+	s := NewServer()
+	if err := s.Run(&input, &output, io.Discard); err != nil {
+		t.Fatalf("Run: %s", err)
+	}
+	msgs := decodeServerMessages(t, output.Bytes())
+	if len(msgs) != 3 { // publishDiagnostics, definition, typeDefinition
+		t.Fatalf("got %d messages, want 3: %+v", len(msgs), msgs)
+	}
+
+	var defResult, typeDefResult Location
+	if err := json.Unmarshal(msgs[1].Result, &defResult); err != nil {
+		t.Fatalf("unmarshal definition result: %s", err)
+	}
+	if err := json.Unmarshal(msgs[2].Result, &typeDefResult); err != nil {
+		t.Fatalf("unmarshal typeDefinition result: %s", err)
+	}
+	if defResult != typeDefResult {
+		t.Errorf("typeDefinition = %+v, want it to match definition = %+v", typeDefResult, defResult)
 	}
 }
 

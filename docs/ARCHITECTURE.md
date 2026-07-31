@@ -1032,6 +1032,24 @@ what this phase's own section below describes.
       parameters; a nested recipe's body correctly resolving a name
       declared only in its enclosing recipe) that a plain
       same-name-string search would get wrong.
+    - **`textDocument/typeDefinition`** is aliased straight to the
+      same handler as `textDocument/definition` rather than left
+      unhandled. This is the direct fix for the bug report that
+      started this whole group of features: Neovim's stock
+      `LspAttach` keymaps bind `<leader>D` to
+      `vim.lsp.buf.type_definition` unconditionally for every
+      attaching client, and a server with no handler at all for that
+      method makes Neovim report "method ... not supported by any of
+      the servers registered for the current buffer" the moment
+      someone presses it. cRust has no separate type-declaration
+      syntax to point at in the first place (no classes/structs —
+      just recipes and the builtin value kinds), so there's no
+      meaningful distinction between "where was this declared" and
+      "where was this value's type declared" to preserve by
+      implementing the two differently; aliasing is the same
+      practical choice a number of real servers for dynamically-typed
+      languages make, rather than either leaving the method
+      unhandled or building a second, redundant resolution path.
   - Not built: incremental (as opposed to full) document sync, and
     code actions — listed as possible follow-on work in `TODO.md`.
 

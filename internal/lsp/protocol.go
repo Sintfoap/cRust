@@ -221,6 +221,7 @@ type serverCapabilities struct {
 	HoverProvider          bool               `json:"hoverProvider"`
 	PositionEncoding       string             `json:"positionEncoding"`
 	DefinitionProvider     bool               `json:"definitionProvider"`
+	TypeDefinitionProvider bool               `json:"typeDefinitionProvider"`
 	ReferencesProvider     bool               `json:"referencesProvider"`
 	DocumentSymbolProvider bool               `json:"documentSymbolProvider"`
 	CompletionProvider     *completionOptions `json:"completionProvider,omitempty"`
