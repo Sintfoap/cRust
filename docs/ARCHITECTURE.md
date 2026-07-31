@@ -887,6 +887,85 @@ what this phase's own section below describes.
     — not every conflict tree-sitter reports needs a resolution rule;
     some mean the grammar itself has an actual redundancy worth
     removing.
+- **Language server** (`internal/lsp`, wired up as `crust lsp`) — hover
+  and diagnostics over JSON-RPC 2.0 on stdio, hand-rolled against the
+  spec rather than built on a third-party LSP library. That's a
+  deliberate consequence of this project's zero-Go-dependency policy
+  (see §3's Nix section — `vendorHash = null` in `flake.nix` only stays
+  valid with no third-party modules to vendor), not a rejection of
+  existing LSP libraries on their own merits.
+  - **Subcommand, not a separate binary.** `crust lsp` reuses the
+    existing `cmd/crust` build/distribution path (the Nix flake's
+    `packages.default`, `nix develop .#crust`, etc.) with zero changes
+    — a `crust-lsp` binary would need its own build target, its own
+    place in the flake, and its own install story for exactly the same
+    functionality.
+  - **Transport** (`transport.go`): `Content-Length`-framed JSON-RPC
+    over `io.Reader`/`io.Writer`, matching LSP's base protocol exactly.
+    `Server.Run` reads until EOF or an `"exit"` notification; one
+    malformed message logs to `stderr` (LSP reserves `stdout` for
+    protocol traffic only) and the session keeps going, rather than
+    the whole server dying on one bad message.
+  - **Diagnostics** (`diagnostics.go`): lexes and parses the document
+    fresh on every `didOpen`/`didChange` — no incremental
+    re-lex/re-parse, the same "start over each time" approach
+    `crust tokens`/`crust parse` already use, since AoC-sized `.crust`
+    files make that cheap enough not to matter. Sources errors from two
+    places: every lexer `ILLEGAL` token, and `internal/parser`'s new
+    structured `ParseError`/`ParseErrors()` (added specifically for
+    this — `parser.Errors() []string` already existed for the CLI's
+    `crust parse`, but a pre-formatted `"line %d:%d: msg"` string is
+    useless to a caller that needs a real `Range`). A lexer `ILLEGAL`
+    token almost always cascades into a parser error at that exact same
+    position too (the parser has no prefix-parse function for
+    `ILLEGAL`); `computeDiagnostics` drops any `ParseError` landing on a
+    position already reported as `ILLEGAL`, so a single bad character
+    doesn't show up as two confusing, redundant diagnostics.
+  - **Hover** (`hover.go`): deliberately shallow — static lookup tables
+    mirroring `SPEC.md` §4 (keywords) and §7 (builtins), plus a
+    one-line type note for `INT`/`FLOAT`/`STRING` literal tokens.
+    Finds the token under the cursor by lexing fresh and walking
+    forward to the last token starting at or before the requested
+    column on that line (cRust tokens never span multiple lines, which
+    is what makes this a single-line walk instead of needing a real
+    token index). No type inference over the surrounding expression, no
+    evaluating user code as a side effect of hovering — both explicitly
+    out of scope, since either would need a much deeper static-analysis
+    pass this project doesn't have a use case to justify yet.
+  - **Position encoding** (`position.go`): negotiated in `initialize`
+    rather than hardcoded, because `internal/lexer`'s `Col` field is a
+    rune (code point) index — which lines up exactly with LSP's
+    `"utf-32"` `PositionEncodingKind` and *not* with `"utf-16"` (LSP's
+    documented default absent negotiation) or `"utf-8"`, both of which
+    need a real per-rune width calculation (`unicode/utf16`'s
+    `RuneLen`, or `unicode/utf8`'s `RuneLen`) to convert correctly for
+    any line containing non-ASCII text — plausible in a cRust string
+    literal even if never in the keyword/operator vocabulary itself.
+    `negotiateEncoding` follows the spec precisely: the client lists
+    `capabilities.general.positionEncodings` in its own preference
+    order, and the server picks the first one it supports, rather than
+    always preferring whichever encoding is cheapest for the server to
+    produce.
+  - **Verified against a real subprocess**, not just Go's own test
+    suite: `go build -o crust ./cmd/crust`, then a real Python harness
+    spawned `crust lsp` and drove it through
+    `initialize`/`initialized`/`didOpen` (a file with a deliberate
+    illegal `@` character)/`hover`/`shutdown`/`exit` over actual
+    stdin/stdout pipes, confirming byte-for-byte correct
+    `Content-Length` framing, a `publishDiagnostics` notification for
+    the bad character, and a correct hover response for `deliver` —
+    the same "don't just trust the code, run it against something
+    real" discipline this project applied to the Vim/VSCode/tree-sitter
+    highlighting work above. `internal/lsp`'s own Go tests
+    (`lsp_test.go`) build on the same idea in-process: real
+    `bytes.Buffer`s framed exactly like wire traffic, decoded back with
+    the package's own `readMessage`, rather than calling handler
+    methods directly and skipping the transport layer entirely.
+  - Not built: `textDocument/completion`, go-to-definition, rename, and
+    incremental (as opposed to full) document sync — all listed as
+    possible follow-on work in `TODO.md`, since `internal/lsp` now
+    exists as a base to extend rather than something to build from
+    scratch.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
@@ -924,8 +1003,10 @@ months ahead of the event instead of the week before.
 | Nil-coalescing spelling | Conventional Elvis `?:`, `sauce()` builtin unchanged | Frees the half-pizza pair for ternary; `?:` is a well-known convention so it needs no introduction, and has no bracket-matching downside |
 | CI platform coverage | Linux only, no matrix | Go's stdlib is portable and this project has no OS-specific code; a full macOS/Windows CI matrix would cost real minutes to catch a bug that's very unlikely to exist |
 | Distribution | Build from source (`go build`/`go run`); no release workflow yet | Nothing worth shipping to non-developers at Phase 0/1; a release workflow is cheap to add later and premature now |
-| CLI shape | `main()` → `run(args, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; the same shape carries forward into Phase 6's real `run`/`repl` |
+| CLI shape | `main()` → `run(args, stdin, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout`/`os.Stdin` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; `stdin` was added specifically for `crust lsp`, the first subcommand that actually reads it |
 | Nix packaging | `flake.nix` via `buildGoModule`, no `flake.lock` committed yet | Builds from source, so it's consistent with "no release workflow" rather than a separate distribution channel; the lock file needs a real Nix install (network access this dev environment doesn't have) to generate correctly |
+| LSP implementation | Hand-rolled JSON-RPC/LSP in `internal/lsp`, no third-party LSP library | Keeps the zero-Go-dependency policy intact, which is what keeps `flake.nix`'s `vendorHash = null` valid; the protocol subset `crust lsp` actually needs (lifecycle, hover, diagnostics) is small enough that this doesn't cost much |
+| LSP distribution | A `crust lsp` subcommand, not a separate `crust-lsp` binary | Reuses the existing build/package/Nix-flake path entirely — no new binary to build, version, or install |
 | Banner colors | 24-bit true-color ANSI, no 256-color fallback tier | Matches `assets/banner.png`'s hex palette exactly; a decorative help-screen banner degrading ungracefully on an ancient terminal isn't worth a second color-rendering path |
 | TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Keeps the project's dependency count at zero, which is what keeps the Nix flake's `vendorHash = null` valid — not worth breaking for isatty detection |
 

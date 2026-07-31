@@ -15,8 +15,10 @@ AST (`internal/ast`, `internal/parser`), and now a real result
 standard library (`internal/builtins`: `deliver`, `slices`, `sauce`,
 `chars`, `idiv`, and the Set family) built alongside it. `crust run
 <file.crust>` (and the bare-file shorthand) both work end to end,
-closures and all — see [Building](#building) below. See
-[TODO.md](./TODO.md) for the roadmap and milestones,
+closures and all — see [Building](#building) below. `crust lsp` adds
+editor hover + diagnostics on top (`internal/lsp`, JSON-RPC over
+stdio) — see [Language server](#language-server-hover--diagnostics)
+below. See [TODO.md](./TODO.md) for the roadmap and milestones,
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
 behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
@@ -132,3 +134,32 @@ users who want more accurate, parser-driven highlighting instead of
 the regex-based Vim syntax file (the same kind `nvim-treesitter`-style
 tooling is built on) can use [`editors/tree-sitter-crust`](./editors/tree-sitter-crust)
 instead — a real grammar, not a token-pattern list.
+
+### Language server (hover + diagnostics)
+
+`crust lsp` starts a language server on stdin/stdout — hover
+documentation for keywords, builtins, and literals, plus diagnostics
+(lex/parse errors) published as you type. It speaks plain JSON-RPC 2.0
+over stdio, so any LSP client can launch `crust lsp` as the command;
+for Neovim specifically, `vim.lsp.start()` needs no plugin beyond what
+you likely already have:
+
+```lua
+vim.filetype.add({ extension = { crust = "crust" } })
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "crust",
+  callback = function(args)
+    vim.lsp.start({
+      name = "crust_ls",
+      cmd = { "crust", "lsp" },
+      root_dir = vim.fs.root(args.buf, { ".git", "flake.nix" }) or vim.fn.getcwd(),
+    })
+  end,
+})
+```
+
+Drop that in `lua/config/autocmds.lua` (or wherever your config keeps
+general autocommands) and make sure `crust` itself is on `PATH` (see
+[With Nix](#with-nix) above). No LSP server registration/Mason install
+needed — `crust` *is* the language server.

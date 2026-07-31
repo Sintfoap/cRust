@@ -59,6 +59,16 @@ var precedences = map[token.Type]int{
 	token.LBRACKET:  INDEX,
 }
 
+// ParseError is one parse error with the position it occurred at —
+// structured, unlike Errors()'s pre-formatted strings, for callers that
+// need real Line/Col rather than a message to re-parse (internal/lsp's
+// diagnostics, most notably).
+type ParseError struct {
+	Line    int
+	Col     int
+	Message string
+}
+
 // Parser holds a two-token lookahead window (curToken/peekToken) over a
 // Lexer and the parse function tables the Pratt core dispatches
 // through. curToken is always the last token consumed by whatever parse
@@ -70,7 +80,7 @@ type Parser struct {
 	curToken  token.Token
 	peekToken token.Token
 
-	errors []string
+	errors []ParseError
 
 	prefixParseFns map[token.Type]prefixParseFn
 	infixParseFns  map[token.Type]infixParseFn
@@ -78,7 +88,7 @@ type Parser struct {
 
 // New returns a Parser ready to call ParseProgram on l's token stream.
 func New(l *lexer.Lexer) *Parser {
-	p := &Parser{l: l, errors: []string{}}
+	p := &Parser{l: l, errors: []ParseError{}}
 
 	p.prefixParseFns = make(map[token.Type]prefixParseFn)
 	p.registerPrefix(token.IDENT, p.parseIdentifier)
@@ -127,8 +137,21 @@ func New(l *lexer.Lexer) *Parser {
 func (p *Parser) registerPrefix(t token.Type, fn prefixParseFn) { p.prefixParseFns[t] = fn }
 func (p *Parser) registerInfix(t token.Type, fn infixParseFn)   { p.infixParseFns[t] = fn }
 
-// Errors returns every parse error collected so far, in source order.
-func (p *Parser) Errors() []string { return p.errors }
+// Errors returns every parse error collected so far, in source order,
+// formatted as "line %d:%d: %s" strings.
+func (p *Parser) Errors() []string {
+	errs := make([]string, len(p.errors))
+	for i, e := range p.errors {
+		errs[i] = fmt.Sprintf("line %d:%d: %s", e.Line, e.Col, e.Message)
+	}
+	return errs
+}
+
+// ParseErrors returns every parse error collected so far, in source
+// order, with structured positions rather than pre-formatted strings —
+// for callers (internal/lsp's diagnostics, most notably) that need real
+// Line/Col rather than a message to re-parse.
+func (p *Parser) ParseErrors() []ParseError { return p.errors }
 
 func (p *Parser) nextToken() {
 	p.curToken = p.peekToken
@@ -165,12 +188,20 @@ func (p *Parser) curPrecedence() int {
 }
 
 func (p *Parser) errorf(format string, args ...any) {
-	p.errors = append(p.errors, fmt.Sprintf("line %d:%d: %s", p.curToken.Line, p.curToken.Col, fmt.Sprintf(format, args...)))
+	p.errors = append(p.errors, ParseError{
+		Line:    p.curToken.Line,
+		Col:     p.curToken.Col,
+		Message: fmt.Sprintf(format, args...),
+	})
 }
 
 func (p *Parser) peekError(t token.Type) {
-	p.errors = append(p.errors, fmt.Sprintf("line %d:%d: expected next token to be %s, got %s (%q) instead",
-		p.peekToken.Line, p.peekToken.Col, t, p.peekToken.Type, p.peekToken.Literal))
+	p.errors = append(p.errors, ParseError{
+		Line: p.peekToken.Line,
+		Col:  p.peekToken.Col,
+		Message: fmt.Sprintf("expected next token to be %s, got %s (%q) instead",
+			t, p.peekToken.Type, p.peekToken.Literal),
+	})
 }
 
 func (p *Parser) noPrefixParseFnError(t token.Type) {

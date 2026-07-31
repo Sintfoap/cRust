@@ -20,6 +20,7 @@ const usageBody = `Usage:
   crust repl                               start an interactive REPL
   crust tokens <file.crust>                print the lexer's token stream and exit
   crust parse <file.crust>                 print the parsed AST and exit
+  crust lsp                                start a language server on stdin/stdout
   crust --version                          print the version
   crust --help | -h                        show this help
 
@@ -37,13 +38,14 @@ Examples:
   crust day01.crust --store=part2   run its store_part2 entry point
   crust tokens day01.crust          debug: see how it lexes
   crust parse day01.crust           debug: see how it parses
+  crust lsp                         debug: run the language server by hand
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
 `
 
 func main() {
 	colorDefault := os.Getenv("NO_COLOR") == "" && isTerminal(os.Stdout)
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, colorDefault))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, colorDefault))
 }
 
 func isTerminal(f *os.File) bool {
@@ -54,7 +56,7 @@ func isTerminal(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-func run(args []string, stdout, stderr io.Writer, colorDefault bool) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault bool) int {
 	fs := flag.NewFlagSet("crust", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -128,6 +130,8 @@ func run(args []string, stdout, stderr io.Writer, colorDefault bool) int {
 			return 1
 		}
 		return runParse(rest[1], stdout, stderr)
+	case "lsp":
+		return runLSP(stdin, stdout, stderr)
 	default:
 		// Bare-file shorthand: `crust foo.crust [--store=<name>]`
 		// behaves like `crust run foo.crust [--store=<name>]`.

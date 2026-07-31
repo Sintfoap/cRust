@@ -2,11 +2,34 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunLSP(t *testing.T) {
+	// A minimal real session: initialize then exit, framed exactly the
+	// way a real client would send it — exercises `crust lsp`'s wiring
+	// through run(), not just internal/lsp's own tests.
+	init := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+	exit := `{"jsonrpc":"2.0","method":"exit"}`
+	var stdin bytes.Buffer
+	for _, body := range []string{init, exit} {
+		fmt.Fprintf(&stdin, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"lsp"}, &stdin, &stdout, &stderr, false)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"hoverProvider":true`) {
+		t.Errorf("stdout = %q, want an initialize response advertising hover support", stdout.String())
+	}
+}
 
 func TestRun(t *testing.T) {
 	tests := []struct {
@@ -143,7 +166,7 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run(tt.args, &stdout, &stderr, tt.colorDefault)
+			code := run(tt.args, strings.NewReader(""), &stdout, &stderr, tt.colorDefault)
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d", code, tt.wantCode)
@@ -159,7 +182,7 @@ func TestRun(t *testing.T) {
 
 	t.Run("no-color flag actually suppresses escapes", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		run([]string{"--no-color", "--help"}, &stdout, &stderr, true)
+		run([]string{"--no-color", "--help"}, strings.NewReader(""), &stdout, &stderr, true)
 		if strings.Contains(stdout.String(), "\x1b[") {
 			t.Errorf("expected no ANSI escapes with --no-color, got: %q", stdout.String())
 		}
@@ -167,7 +190,7 @@ func TestRun(t *testing.T) {
 
 	t.Run("no-banner actually removes the pizza", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		run([]string{"--no-banner", "--help"}, &stdout, &stderr, false)
+		run([]string{"--no-banner", "--help"}, strings.NewReader(""), &stdout, &stderr, false)
 		if strings.Contains(stdout.String(), "@@@@@#########@@@@@") {
 			t.Errorf("expected no pizza art with --no-banner, got: %q", stdout.String())
 		}
