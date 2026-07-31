@@ -188,6 +188,12 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       `examples/*.crust` file caught a real lexer bug — see the Phase 2
       line-continuation entry below)*
 - [ ] (Stretch) editor syntax highlighting (TextMate grammar / tree-sitter)
+- [ ] (Stretch) autocompletion (editor/LSP-level — keywords, builtins,
+      and locally-scoped names at minimum)
+- [ ] (Stretch) debugger (breakpoints + step execution over
+      `internal/interpreter`'s `Eval`; a source-mapped stepper is a much
+      bigger lift than the REPL above, since `Eval` isn't currently
+      structured to pause mid-tree-walk)
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter
