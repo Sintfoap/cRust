@@ -39,6 +39,8 @@ var builtinDocs = map[string]string{
 	"ints":     "`ints(s) -> List` / `ints(list) -> List` — ints(s) splits a string of digits into single-digit Integers; ints(list) parses each String element as a full Integer (e.g. `ints(split(line))`).",
 	"push":     "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
 	"map":      "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
+	"min":      "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
+	"max":      "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"idiv":     "`idiv(a, b) -> Integer` — integer (floor) division; `/` always true-divides to a Float.",
 	"gather":   "`gather(list) -> Set` — collects a List into a Set, dropping duplicates.",
 	"sprinkle": "`sprinkle(set, item)` — adds item to set in place.",

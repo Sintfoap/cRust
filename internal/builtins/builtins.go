@@ -41,6 +41,8 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"ints":     {Fn: intsFn},
 		"push":     {Fn: pushFn},
 		"map":      {Fn: mapFn(call)},
+		"min":      {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
+		"max":      {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
 		"idiv":     {Fn: idivFn},
 		"gather":   {Fn: gatherFn},
 		"sprinkle": {Fn: sprinkleFn},
@@ -177,6 +179,92 @@ func mapFn(call Call) object.BuiltinFunction {
 			out[i] = result
 		}
 		return object.NewList(out)
+	}
+}
+
+// numericValue reports v's value as a float64 if v is an Integer or
+// Float, mirroring internal/interpreter's own helper of the same name
+// (interpreter.go) so min/max order numbers exactly the way `<`/`>` do
+// (SPEC.md §6: Integer/Float freely mixed as one "number" category).
+// Duplicated by hand rather than imported — internal/builtins can't
+// import internal/interpreter (see the Call type's doc comment).
+func numericValue(obj object.Object) (float64, bool) {
+	switch v := obj.(type) {
+	case *object.Integer:
+		return float64(v.Value), true
+	case *object.Float:
+		return v.Value, true
+	default:
+		return 0, false
+	}
+}
+
+// compareTwo orders a and b the same way `<`/`>` do (SPEC.md §6):
+// number-vs-number (Integer/Float mixed freely) or string-vs-string.
+// Returns a negative/zero/positive int (a<b / a==b / a>b), or an Error
+// for any other pairing, including number-vs-string.
+func compareTwo(name string, a, b object.Object) (int, *object.Error) {
+	if af, ok := numericValue(a); ok {
+		if bf, ok := numericValue(b); ok {
+			switch {
+			case af < bf:
+				return -1, nil
+			case af > bf:
+				return 1, nil
+			default:
+				return 0, nil
+			}
+		}
+	}
+	if as, ok := a.(*object.String); ok {
+		if bs, ok := b.(*object.String); ok {
+			return strings.Compare(as.Value, bs.Value), nil
+		}
+	}
+	return 0, newError("%s: cannot compare %s and %s", name, a.Type(), b.Type())
+}
+
+// minMaxFn builds `min(...)` / `max(...)` (SPEC.md §7). Accepts either
+// 2+ direct arguments (min(a, b, c)) or a single List/Tuple (min(xs)) —
+// the same two-shape convention map/ints already established for
+// "operate on either an iterable or its unpacked elements". want(cmp)
+// decides which side wins a comparison: cmp is elem-compared-to-best,
+// so `cmp < 0` (elem is smaller) picks min, `cmp > 0` picks max. Returns
+// the winning element itself, not a converted copy, so `max(1, 2.5)`
+// gives back the actual Float 2.5, not a widened Integer.
+func minMaxFn(name string, want func(cmp int) bool) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		var elements []object.Object
+		switch {
+		case len(args) == 1:
+			switch v := args[0].(type) {
+			case *object.List:
+				elements = v.Elements
+			case *object.Tuple:
+				elements = v.Elements
+			default:
+				return wrongArgType(name, 0, "a List, Tuple, or 2+ arguments", args[0])
+			}
+			if len(elements) == 0 {
+				return newError("%s: %s is empty", name, args[0].Type())
+			}
+		case len(args) >= 2:
+			elements = args
+		default:
+			return wrongArgCount(name, "a List/Tuple, or 2+ values", len(args))
+		}
+
+		best := elements[0]
+		for _, elem := range elements[1:] {
+			cmp, errObj := compareTwo(name, elem, best)
+			if errObj != nil {
+				return errObj
+			}
+			if want(cmp) {
+				best = elem
+			}
+		}
+		return best
 	}
 }
 

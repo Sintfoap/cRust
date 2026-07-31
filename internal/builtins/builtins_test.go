@@ -90,7 +90,7 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -535,6 +535,78 @@ func TestMapWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "map", object.NewList(nil)))
 	wantError(t, call(t, table, "map"))
+}
+
+func TestMinMaxOfDirectArgs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "min", object.NewInteger(3), object.NewInteger(1), object.NewInteger(2)), 1)
+	wantInteger(t, call(t, table, "max", object.NewInteger(3), object.NewInteger(1), object.NewInteger(2)), 3)
+}
+
+func TestMinMaxOfList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(3), object.NewInteger(1), object.NewInteger(2)})
+	wantInteger(t, call(t, table, "min", list), 1)
+	wantInteger(t, call(t, table, "max", list), 3)
+}
+
+func TestMinMaxOfTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(3), object.NewInteger(1), object.NewInteger(2)})
+	wantInteger(t, call(t, table, "min", tup), 1)
+	wantInteger(t, call(t, table, "max", tup), 3)
+}
+
+func TestMinMaxMixesIntAndFloat(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "max", object.NewInteger(1), &object.Float{Value: 2.5})
+	wantFloat(t, got, 2.5)
+}
+
+func TestMinMaxOfStrings(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantString(t, call(t, table, "min", &object.String{Value: "banana"}, &object.String{Value: "apple"}), "apple")
+	wantString(t, call(t, table, "max", &object.String{Value: "banana"}, &object.String{Value: "apple"}), "banana")
+}
+
+func TestMinMaxReturnsOriginalElement(t *testing.T) {
+	// The winning element itself comes back, not a converted copy.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	f := &object.Float{Value: 2.5}
+	got := call(t, table, "max", object.NewInteger(1), f)
+	if got != object.Object(f) {
+		t.Errorf("got %v (%T), want the exact same Float value back", got, got)
+	}
+}
+
+func TestMinMaxEmptyListIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "min", object.NewList(nil)))
+	wantError(t, call(t, table, "max", object.NewList(nil)))
+}
+
+func TestMinMaxSingleArgWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "min", object.NewInteger(1)))
+}
+
+func TestMinMaxNoArgsIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "min"))
+}
+
+func TestMinMaxEqualElements(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "min", object.NewInteger(2), object.NewInteger(2)), 2)
+	wantInteger(t, call(t, table, "max", object.NewInteger(2), object.NewInteger(2)), 2)
+}
+
+func TestMinMaxMismatchedTypesIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	errObj := wantError(t, call(t, table, "min", object.NewInteger(1), &object.String{Value: "x"}))
+	if !strings.Contains(errObj.Message, "cannot compare") {
+		t.Errorf("Message = %q, want it to mention \"cannot compare\"", errObj.Message)
+	}
 }
 
 func TestUnboxNoArgReadsStdin(t *testing.T) {

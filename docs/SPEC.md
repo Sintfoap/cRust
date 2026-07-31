@@ -493,15 +493,15 @@ per-operator special cases:
 ## 7. Standard Library (Builtins)
 
 Draft — this list covers what's already implied by §2–§6 plus input and
-type conversion; the rest of Phase 5 (general string helpers — split,
-join, trim, contains, replace — and math/collection coverage) fleshes
-this out later. Math functions (`abs`, `min`, `max`, `pow`, `sqrt`,
-`gcd`, `lcm`) are expected to keep their standard names — they're
-universal vocabulary, and forcing a pizza pun onto them would cost
-clarity for no gain; `str`/`int`/`float`/`bool` (type conversion, below)
-are named on that same principle. Everything else below is genuinely
-part of the pizza theme, either because the pun was too good to pass up
-or because it's directly tied to the Set type this doc introduces.
+type conversion; the rest of Phase 5 (general string helpers —
+contains, replace — and further math/collection coverage) fleshes this
+out later. Math functions (`min`, `max`, and eventually `abs`, `pow`,
+`sqrt`, `gcd`, `lcm`) keep their standard names — they're universal
+vocabulary, and forcing a pizza pun onto them would cost clarity for no
+gain; `str`/`int`/`float`/`bool` (type conversion, below) are named on
+that same principle. Everything else below is genuinely part of the
+pizza theme, either because the pun was too good to pass up or because
+it's directly tied to the Set type this doc introduces.
 
 | Builtin | Signature | Does |
 |---|---|---|
@@ -512,6 +512,8 @@ or because it's directly tied to the Set type this doc introduces.
 | `ints(s)` / `ints(list)` | `(String) -> List` / `(List) -> List` | `ints(s)` splits a string of digits into a List of single-digit Integers — the numeric-grid counterpart to `chars`; a non-digit character is a runtime error. `ints(list)` instead parses each String element of `list` as a full (possibly multi-digit) Integer, the same way `int(x)` parses a String — so `ints(split(line))` turns a line of numbers straight into a List of Integers |
 | `map(iterable, fn)` | `(List \| Tuple, Function) -> List` | applies `fn` to every element of a List or Tuple, in order, collecting the results into a new List; `fn` can be a recipe or another builtin. Chaining more than one transform per element is already possible by passing a lambda that does both (`map(xs, recipe(x) { serve g(f(x)) })`) — `map` only takes one function, not a list of them |
 | `push(list, item)` | `(List, Any) -> Nil` | appends `item` to `list` in place — for a new List instead of mutating, use `+` (§5/§6) |
+| `min(a, b, ...)` / `min(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | smallest of 2+ direct arguments, or of a List/Tuple's elements — same ordering as `<` (§6): numbers (Integer/Float freely mixed) or Strings, never a mix of both. Returns the winning element itself, unconverted |
+| `max(a, b, ...)` / `max(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | largest of 2+ direct arguments, or of a List/Tuple's elements — same rules as `min` |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |

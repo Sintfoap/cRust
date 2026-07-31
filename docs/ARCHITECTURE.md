@@ -912,11 +912,28 @@ own section below describes.
   a lambda composing two steps like `ints(split(line))`) is covered by
   `internal/interpreter`'s own test suite instead, where a real `Call`
   is naturally available.
+- **`min`/`max` accept two shapes** — `min(a, b, ...)` (2+ direct
+  arguments) or `min(list)` (a single List/Tuple) — the same
+  "iterable-or-its-unpacked-elements" convention `map`/`ints` already
+  established, rather than picking just one. Ordering reuses exactly
+  the categories `internal/interpreter/expressions.go`'s `evalComparison`
+  already defines for `<`/`>` (SPEC.md §6): numbers with Integer/Float
+  freely mixed, or String-vs-String, never a cross-category comparison.
+  That logic can't be imported directly — same one-way dependency
+  restriction as `map`'s `Call` type above — so `numericValue` and a
+  local `compareTwo` helper duplicate just enough of it by hand inside
+  `internal/builtins`, rather than pulling in the whole operator
+  dispatch. The winning element is returned as-is, not converted, so
+  `max(1, 2.5)` gives back the actual `Float` value `2.5` rather than a
+  widened copy — same "no implicit coercion" stance as everywhere else
+  (SPEC.md §6). An empty List/Tuple is a runtime error (`min([])` has no
+  answer), and comparing across categories (`min(1, "x")`) is too, the
+  same way `1 < "x"` already is.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
-  `map` (apply a function across a List/Tuple), the Set builtins
+  `map` (apply a function across a List/Tuple), `min`/`max`, the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping

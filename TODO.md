@@ -188,7 +188,10 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       implicit coercion (SPEC.md §6 already rules that out for
       operators: `+` between a String and a number stays a type error,
       not a silent stringify/parse)
-- [ ] Math: abs, min, max, pow, gcd, lcm, sqrt (standard names, not themed)
+- [x] `min`/`max` (2+ direct args or a single List/Tuple; numbers freely
+      mixed Integer/Float, or Strings — same ordering as `<`; returns
+      the winning element itself, unconverted)
+- [ ] Math: abs, pow, gcd, lcm, sqrt (standard names, not themed)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
 - [x] `push` (append to a List in place) and `+` extended to List/List
       and Tuple/Tuple concatenation (always a new value, never
