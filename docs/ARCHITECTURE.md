@@ -787,6 +787,81 @@ what this phase's own section below describes.
     neither engine has by default; both READMEs call this out
     explicitly rather than let someone discover it and assume it's a
     bug in the highlighting.
+- **Tree-sitter grammar for Neovim** (`editors/tree-sitter-crust`) — a
+  real CFG (`grammar.js`), not a token-pattern list like the two
+  regex-based grammars above; this is what gives Neovim
+  parser-driven highlighting (also the foundation `nvim-treesitter`
+  builds incremental selection and structural text objects on, though
+  only highlighting is provided here). Written for **accurate
+  highlighting**, not as a second validating implementation of the
+  language — it deliberately doesn't model `SPEC.md` §8's
+  `terminator = NEWLINE | ";"` precisely, treating newlines as
+  insignificant whitespace instead of a real statement terminator
+  (modeling that exactly needs an external scanner tracking
+  significance, the way `tree-sitter-python` tracks indentation — real
+  work, out of proportion to what highlighting needs). `;` is still
+  handled explicitly as an optional separator, so semicolon-joined
+  one-liners still parse correctly; only the newline half of the rule
+  is simplified away, and it doesn't cost anything in practice — every
+  real file under `examples/` still parses with zero `ERROR`/`MISSING`
+  nodes, one statement per line, same as always.
+  - Verified in layers, same testing discipline as the two regex
+    grammars above: `tree-sitter generate` produces no unresolved
+    conflicts; `tree-sitter test` passes all 23 cases in
+    `test/corpus` (every operator's precedence/associativity, both
+    `knead` header forms, the block-vs-map-literal disambiguation,
+    `serve` followed by a map literal vs. a separate following block,
+    semicolon one-liners); every real `examples/*.crust` file parses
+    clean; the highlight query's pattern-matching was checked with
+    `tree-sitter query`, and its *resolved* (post-override) output
+    with `tree-sitter highlight --html` against genuinely overlapping
+    cases (a declared function's name correctly overrides the generic
+    `@variable` fallback, a builtin call overrides both `@variable`
+    and `@function.call`); the generated `src/parser.c` was actually
+    compiled to a `.so` (`cc -shared -fPIC`) and confirmed via `nm -D`
+    to export `tree_sitter_crust`, the exact symbol Neovim's built-in
+    loader looks up via `dlsym`. **Not verified**: an actual Neovim
+    instance loading that `.so` and rendering colors — there's no
+    Neovim binary in the environment this was built in, so that one
+    link in the chain rests on every earlier, independently-verified
+    link being right rather than being exercised directly itself.
+  - **A second match-priority surprise, in the opposite direction from
+    the Vim syntax file's bug above** — worth recording next to that
+    one specifically because the "obvious" fix for one is wrong for the
+    other, and this project already got bitten by exactly that
+    confusion once in the same session: tree-sitter query files (like
+    TextMate grammars, unlike Vim's `syn match`) resolve two patterns
+    matching the *same node* by letting the *later*-listed pattern win.
+    `queries/highlights.scm` lists the generic `(identifier) @variable`
+    fallback *first* and every more specific override (`@function` for
+    a declared name, `@function.builtin` for a builtin call,
+    `@variable.parameter` for a parameter) *after* it, for exactly that
+    reason — confirmed correct via the `tree-sitter highlight`
+    resolved-output check above, not assumed from having just fixed the
+    Vim file's opposite-direction version of this same category of bug.
+  - `grammar.js` needed a handful of explicit `conflicts` declarations
+    tree-sitter's GLR engine couldn't resolve on its own — found by
+    running `tree-sitter generate` and reading its conflict reports,
+    not anticipated in advance: `block` vs. a bare `map_literal`
+    statement (the same statement-position ambiguity the Vim/VSCode
+    grammars don't have to resolve, since they're not real parsers);
+    `serve` followed immediately by `{` (is that `serve <map-literal>`,
+    or a bare `serve` followed by a separate block statement? — resolved
+    toward the former, matching how the real interpreter treats
+    anything after `serve` other than a terminator as its value); and
+    `_lvalue` vs. a bare identifier expression at `identifier ++`/
+    `identifier =` (same "is this the start of an assignment target or
+    an expression statement" ambiguity `internal/parser` needs explicit
+    lookahead for, which tree-sitter's GLR parsing handles by exploring
+    both and pruning instead). One redundant grammar rule (`recipe`
+    declarations were reachable both as a direct top-level `_statement`
+    alternative and, separately, via `_simple_statement → _expression`,
+    since `function_literal` was already one of `_expression`'s
+    alternatives) caused a conflict that was fixed by deleting the
+    redundant alternative rather than adding another `conflicts` entry
+    — not every conflict tree-sitter reports needs a resolution rule;
+    some mean the grammar itself has an actual redundancy worth
+    removing.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

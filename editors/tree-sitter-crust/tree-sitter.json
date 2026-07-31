@@ -1,0 +1,18 @@
+{
+  "grammars": [
+    {
+      "name": "crust",
+      "camelcase": "Crust",
+      "scope": "source.crust",
+      "path": ".",
+      "file-types": ["crust"],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "cRust grammar for tree-sitter",
+    "repository": "https://github.com/Sintfoap/cRust"
+  }
+}

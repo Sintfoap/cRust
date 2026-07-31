@@ -194,10 +194,22 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       `vscode-textmate`/`vscode-oniguruma`, the same engine VSCode
       itself uses), not just read off the docs — see
       [ARCHITECTURE.md](./docs/ARCHITECTURE.md) Phase 6 notes for two
-      real bugs that surfaced only under that testing. A from-scratch
-      Tree-sitter grammar (more accurate, parser-driven highlighting,
-      but a genuinely separate project — its own grammar.js, generated
-      C parser, build tooling) is a further stretch, not attempted here.
+      real bugs that surfaced only under that testing.
+- [x] (Stretch) Tree-sitter grammar for Neovim — `editors/tree-sitter-crust`,
+      a real CFG (`grammar.js`) plus a `queries/highlights.scm` highlight
+      query, more accurate than the regex-based Vim syntax file above
+      (parser-driven, not pattern-matched). 23/23 corpus tests pass,
+      every real `examples/*.crust` file parses with zero
+      `ERROR`/`MISSING` nodes, and the generated parser was actually
+      compiled to a `.so` and confirmed to export the symbol Neovim's
+      loader looks for — see
+      [ARCHITECTURE.md](./docs/ARCHITECTURE.md) Phase 6 notes for what
+      was and wasn't possible to verify without a real Neovim binary in
+      the build environment, and for a grammar-vs-grammar priority-
+      resolution surprise (opposite direction from the Vim syntax file's
+      own bug above) that only showed up once the highlight query was
+      tested against the real tokenizer rather than read off the query
+      file.
 - [ ] (Stretch) autocompletion (editor/LSP-level — keywords, builtins,
       and locally-scoped names at minimum)
 - [ ] (Stretch) debugger (breakpoints + step execution over

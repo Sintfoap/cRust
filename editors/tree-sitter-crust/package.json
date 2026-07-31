@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-crust",
+  "version": "0.1.0",
+  "description": "cRust grammar for tree-sitter",
+  "main": "bindings/node",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sintfoap/cRust"
+  },
+  "keywords": ["parser", "lexer", "crust"],
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.11"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.crust",
+      "file-types": ["crust"],
+      "highlights": "queries/highlights.scm"
+    }
+  ]
+}

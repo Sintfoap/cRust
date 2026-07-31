@@ -1,0 +1,273 @@
+==================
+Bare block at statement start is a block, not a map literal
+==================
+
+{
+    x = 1
+}
+
+---
+
+(program
+  (block
+    (assignment
+      target: (identifier)
+      value: (integer_literal))))
+
+==================
+Map literal in expression position
+==================
+
+m = {"a": 1}
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (map_literal
+      (pair
+        key: (string_literal)
+        value: (integer_literal)))))
+
+==================
+knead counted header
+==================
+
+knead (i = 0; i < 10; i++) {
+    deliver(i)
+}
+
+---
+
+(program
+  (knead_statement
+    (counted_header
+      init: (assignment
+        target: (identifier)
+        value: (integer_literal))
+      condition: (binary_expression
+        left: (identifier)
+        right: (integer_literal))
+      post: (inc_dec_statement
+        target: (identifier)))
+    body: (block
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list
+          (identifier))))))
+
+==================
+knead for-each header
+==================
+
+knead item in xs {
+    deliver(item)
+}
+
+---
+
+(program
+  (knead_statement
+    (for_each_header
+      variable: (identifier)
+      collection: (identifier))
+    body: (block
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list
+          (identifier))))))
+
+==================
+Unpacking assignment
+==================
+
+a, b = xs
+
+---
+
+(program
+  (unpack_assignment
+    target: (identifier)
+    target: (identifier)
+    value: (identifier)))
+
+==================
+Inc/dec statement, postfix and prefix
+==================
+
+x++
+++x
+
+---
+
+(program
+  (inc_dec_statement
+    target: (identifier))
+  (inc_dec_statement
+    target: (identifier)))
+
+==================
+Set literal
+==================
+
+s = toppings{1, 2, 3}
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (set_literal
+      (integer_literal)
+      (integer_literal)
+      (integer_literal))))
+
+==================
+order/combo/special
+==================
+
+order (a) {
+    serve 1
+} combo (b) {
+    serve 2
+} special {
+    serve 3
+}
+
+---
+
+(program
+  (order_statement
+    condition: (identifier)
+    consequence: (block
+      (serve_statement
+        value: (integer_literal)))
+    (combo_clause
+      condition: (identifier)
+      body: (block
+        (serve_statement
+          value: (integer_literal))))
+    alternative: (block
+      (serve_statement
+        value: (integer_literal)))))
+
+==================
+bake loop
+==================
+
+bake (i < 10) {
+    i++
+}
+
+---
+
+(program
+  (bake_statement
+    condition: (binary_expression
+      left: (identifier)
+      right: (integer_literal))
+    body: (block
+      (inc_dec_statement
+        target: (identifier)))))
+
+==================
+Named and anonymous recipe
+==================
+
+recipe add(a, b) {
+    serve a + b
+}
+apply = recipe(x) { serve x * 2 }
+
+---
+
+(program
+  (function_literal
+    name: (identifier)
+    parameters: (parameter_list
+      (identifier)
+      (identifier))
+    body: (block
+      (serve_statement
+        value: (binary_expression
+          left: (identifier)
+          right: (identifier)))))
+  (assignment
+    target: (identifier)
+    value: (function_literal
+      parameters: (parameter_list
+        (identifier))
+      body: (block
+        (serve_statement
+          value: (binary_expression
+            left: (identifier)
+            right: (integer_literal)))))))
+
+==================
+Compound assignment and index assignment
+==================
+
+x += 1
+xs[0] = 1
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (integer_literal))
+  (assignment
+    target: (index_expression
+      object: (identifier)
+      index: (integer_literal))
+    value: (integer_literal)))
+
+==================
+serve with a map literal value (not confused with a following block)
+==================
+
+recipe f() {
+    serve {"a": 1}
+}
+
+---
+
+(program
+  (function_literal
+    name: (identifier)
+    body: (block
+      (serve_statement
+        value: (map_literal
+          (pair
+            key: (string_literal)
+            value: (integer_literal)))))))
+
+==================
+burnt and flip
+==================
+
+burnt
+flip
+
+---
+
+(program
+  (burnt_statement)
+  (flip_statement))
+
+==================
+Semicolon-separated statements on one line
+==================
+
+x = 1; y = 2
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (integer_literal))
+  (assignment
+    target: (identifier)
+    value: (integer_literal)))

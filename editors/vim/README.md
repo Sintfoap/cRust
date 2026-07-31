@@ -3,12 +3,14 @@
 Traditional regex-based Vim syntax files (`syntax/crust.vim`,
 `ftdetect/crust.vim`, `ftplugin/crust.vim`). These work **identically in
 Vim and Neovim** — this is the same runtimepath mechanism both editors
-support, so there's no separate Neovim-only Tree-sitter grammar here.
-(A Tree-sitter grammar would give more accurate, parser-driven
-highlighting instead of regex heuristics, but it's a genuinely separate
-project — its own grammar.js, generated C parser, and build tooling —
-tracked as a further stretch goal in [TODO.md](../../TODO.md) rather
-than attempted here.)
+support. If you're on Neovim specifically and want more accurate,
+parser-driven highlighting instead of regex heuristics (the foundation
+`nvim-treesitter`-style tooling is built on), see
+[`../tree-sitter-crust`](../tree-sitter-crust) instead — a real CFG,
+not a token-pattern list like this directory. This directory still
+works fine on its own either way, and is the simpler option if you
+don't already have a C toolchain set up for compiling Tree-sitter
+parsers.
 
 Highlights every keyword, builtin, literal, and operator in
 [`docs/SPEC.md`](../../docs/SPEC.md) §4/§5/§7, including the

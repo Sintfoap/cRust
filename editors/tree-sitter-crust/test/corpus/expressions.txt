@@ -1,0 +1,154 @@
+==================
+Arithmetic precedence: product binds tighter than sum
+==================
+
+x = 1 + 2 * 3
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (binary_expression
+      left: (integer_literal)
+      right: (binary_expression
+        left: (integer_literal)
+        right: (integer_literal)))))
+
+==================
+Logical precedence: with binds tighter than or
+==================
+
+y = a with b or c
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (binary_expression
+      left: (binary_expression
+        left: (identifier)
+        right: (identifier))
+      right: (identifier))))
+
+==================
+Elvis is right-associative
+==================
+
+z = a ?: b ?: c
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (elvis_expression
+      left: (identifier)
+      right: (elvis_expression
+        left: (identifier)
+        right: (identifier)))))
+
+==================
+Chained ternary is right-associative (else-if ladder)
+==================
+
+w = a (| b |) c (| d |) e
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (ternary_expression
+      condition: (identifier)
+      consequence: (identifier)
+      alternative: (ternary_expression
+        condition: (identifier)
+        consequence: (identifier)
+        alternative: (identifier)))))
+
+==================
+Unary binds tighter than sum
+==================
+
+q = -x + 1
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (binary_expression
+      left: (unary_expression
+        operand: (identifier))
+      right: (integer_literal))))
+
+==================
+Range expression
+==================
+
+r = 1..5
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (range_expression
+      start: (integer_literal)
+      end: (integer_literal))))
+
+==================
+Call and index chain
+==================
+
+x = f(1, 2)[0]
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (index_expression
+      object: (call_expression
+        function: (identifier)
+        arguments: (argument_list
+          (integer_literal)
+          (integer_literal)))
+      index: (integer_literal))))
+
+==================
+String literal with escapes
+==================
+
+s = "hi\nthere"
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (string_literal
+      (escape_sequence))))
+
+==================
+Boolean and nil literals
+==================
+
+a = stuffed
+b = thin
+c = nobox
+
+---
+
+(program
+  (assignment
+    target: (identifier)
+    value: (boolean_literal))
+  (assignment
+    target: (identifier)
+    value: (boolean_literal))
+  (assignment
+    target: (identifier)
+    value: (nil_literal)))

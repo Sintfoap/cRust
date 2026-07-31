@@ -118,4 +118,8 @@ Works from NixOS, Nix-on-WSL, or Nix on any other Linux/macOS system.
 
 Vim/Neovim and VSCode both have working syntax highlighting for
 `.crust` files — see [`editors/vim`](./editors/vim) and
-[`editors/vscode`](./editors/vscode) for install instructions.
+[`editors/vscode`](./editors/vscode) for install instructions. Neovim
+users who want more accurate, parser-driven highlighting instead of
+the regex-based Vim syntax file (the same kind `nvim-treesitter`-style
+tooling is built on) can use [`editors/tree-sitter-crust`](./editors/tree-sitter-crust)
+instead — a real grammar, not a token-pattern list.
