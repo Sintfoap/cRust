@@ -43,6 +43,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"map":      {Fn: mapFn(call)},
 		"min":      {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":      {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
+		"combos":   {Fn: combosFn},
 		"idiv":     {Fn: idivFn},
 		"gather":   {Fn: gatherFn},
 		"sprinkle": {Fn: sprinkleFn},
@@ -266,6 +267,79 @@ func minMaxFn(name string, want func(cmp int) bool) object.BuiltinFunction {
 		}
 		return best
 	}
+}
+
+// combosFn is `combos(list, n)` (SPEC.md §7) — every n-element
+// combination of list's elements (List or Tuple), each returned as a
+// Tuple, in lexicographic order of position. Combinations, not
+// permutations: within one group, order doesn't matter and no element
+// is picked twice, matching the standard "n choose k" idea (Python's
+// itertools.combinations is the same shape) -- e.g. combos(xs, 2) is
+// every distinct pair, combos(xs, 3) every distinct triple, and so on
+// for any n. n > slices(list) isn't an error, just zero combinations —
+// there aren't any, the same way asking for more items than exist
+// isn't a special case worth its own error. n < 0 is a genuine error;
+// there's no such thing as a negative-size combination. Every source
+// element must be Hashable, the same requirement evalTupleLiteral
+// enforces for an ordinary (a, b) literal (object/tuple.go's HashKey
+// never has to handle a non-Hashable element) — checked once up front
+// against the source elements rather than per generated combination,
+// since the same elements are reused across all of them.
+func combosFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("combos", "2", len(args))
+	}
+	var elements []object.Object
+	switch v := args[0].(type) {
+	case *object.List:
+		elements = v.Elements
+	case *object.Tuple:
+		elements = v.Elements
+	default:
+		return wrongArgType("combos", 0, "a List or Tuple", args[0])
+	}
+	nObj, ok := args[1].(*object.Integer)
+	if !ok {
+		return wrongArgType("combos", 1, "an Integer", args[1])
+	}
+	n := int(nObj.Value)
+	if n < 0 {
+		return newError("combos: n must be non-negative, got %d", n)
+	}
+	for _, elem := range elements {
+		if _, ok := elem.(object.Hashable); !ok {
+			return newError("combos: unhashable type %s cannot be a Tuple element", elem.Type())
+		}
+	}
+	if n > len(elements) {
+		return object.NewList(nil)
+	}
+
+	var out []object.Object
+	indices := make([]int, n)
+	for i := range indices {
+		indices[i] = i
+	}
+	for {
+		group := make([]object.Object, n)
+		for i, idx := range indices {
+			group[i] = elements[idx]
+		}
+		out = append(out, object.NewTuple(group))
+
+		i := n - 1
+		for i >= 0 && indices[i] == len(elements)-n+i {
+			i--
+		}
+		if i < 0 {
+			break
+		}
+		indices[i]++
+		for j := i + 1; j < n; j++ {
+			indices[j] = indices[j-1] + 1
+		}
+	}
+	return object.NewList(out)
 }
 
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of

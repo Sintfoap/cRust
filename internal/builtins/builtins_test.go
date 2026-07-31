@@ -87,10 +87,26 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 	}
 }
 
+// wantTupleOfInts asserts got is a *object.Tuple holding exactly want,
+// in order.
+func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
+	t.Helper()
+	tup, ok := got.(*object.Tuple)
+	if !ok {
+		t.Fatalf("got %T (%v), want *object.Tuple", got, got)
+	}
+	if len(tup.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(tup.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, tup.Elements[i], w)
+	}
+}
+
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -607,6 +623,93 @@ func TestMinMaxMismatchedTypesIsError(t *testing.T) {
 	if !strings.Contains(errObj.Message, "cannot compare") {
 		t.Errorf("Message = %q, want it to mention \"cannot compare\"", errObj.Message)
 	}
+}
+
+func TestCombosOfPairs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	got := call(t, table, "combos", list, object.NewInteger(2)).(*object.List)
+	if len(got.Elements) != 3 {
+		t.Fatalf("got %d combinations, want 3", len(got.Elements))
+	}
+	wantTupleOfInts(t, got.Elements[0], 1, 2)
+	wantTupleOfInts(t, got.Elements[1], 1, 3)
+	wantTupleOfInts(t, got.Elements[2], 2, 3)
+}
+
+func TestCombosOfTriples(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3), object.NewInteger(4)})
+	got := call(t, table, "combos", list, object.NewInteger(3)).(*object.List)
+	want := [][]int64{{1, 2, 3}, {1, 2, 4}, {1, 3, 4}, {2, 3, 4}}
+	if len(got.Elements) != len(want) {
+		t.Fatalf("got %d combinations, want %d", len(got.Elements), len(want))
+	}
+	for i, w := range want {
+		wantTupleOfInts(t, got.Elements[i], w...)
+	}
+}
+
+func TestCombosOfTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	got := call(t, table, "combos", tup, object.NewInteger(2)).(*object.List)
+	if len(got.Elements) != 3 {
+		t.Fatalf("got %d combinations, want 3", len(got.Elements))
+	}
+}
+
+func TestCombosZero(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "combos", list, object.NewInteger(0)).(*object.List)
+	if len(got.Elements) != 1 {
+		t.Fatalf("got %d combinations, want 1 (the empty combination)", len(got.Elements))
+	}
+	wantTupleOfInts(t, got.Elements[0])
+}
+
+func TestCombosNGreaterThanLength(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "combos", list, object.NewInteger(5)).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d combinations, want 0", len(got.Elements))
+	}
+}
+
+func TestCombosNegativeNIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "combos", list, object.NewInteger(-1)))
+	if !strings.Contains(errObj.Message, "non-negative") {
+		t.Errorf("Message = %q, want it to mention \"non-negative\"", errObj.Message)
+	}
+}
+
+func TestCombosUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewList(nil)})
+	errObj := wantError(t, call(t, table, "combos", list, object.NewInteger(1)))
+	if !strings.Contains(errObj.Message, "unhashable") {
+		t.Errorf("Message = %q, want it to mention \"unhashable\"", errObj.Message)
+	}
+}
+
+func TestCombosWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "combos", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestCombosNNotInteger(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "combos", list, &object.String{Value: "2"}))
+}
+
+func TestCombosWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "combos", object.NewList(nil)))
 }
 
 func TestUnboxNoArgReadsStdin(t *testing.T) {

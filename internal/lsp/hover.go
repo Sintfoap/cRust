@@ -41,6 +41,7 @@ var builtinDocs = map[string]string{
 	"map":      "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
 	"min":      "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":      "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
+	"combos":   "`combos(list, n) -> List` — every n-element combination of list's elements, each as a Tuple (order within a group doesn't matter, no repeats). combos(xs, 2) is every pair, combos(xs, 3) every triple, etc.",
 	"idiv":     "`idiv(a, b) -> Integer` — integer (floor) division; `/` always true-divides to a Float.",
 	"gather":   "`gather(list) -> Set` — collects a List into a Set, dropping duplicates.",
 	"sprinkle": "`sprinkle(set, item)` — adds item to set in place.",

@@ -191,6 +191,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `min`/`max` (2+ direct args or a single List/Tuple; numbers freely
       mixed Integer/Float, or Strings — same ordering as `<`; returns
       the winning element itself, unconverted)
+- [x] `combos(list, n)` — every n-element combination (not permutation)
+      of list's elements, each as a Tuple; generalizes to any n instead
+      of hardcoding pairs/triples
 - [ ] Math: abs, pow, gcd, lcm, sqrt (standard names, not themed)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
 - [x] `push` (append to a List in place) and `+` extended to List/List

@@ -514,6 +514,7 @@ it's directly tied to the Set type this doc introduces.
 | `push(list, item)` | `(List, Any) -> Nil` | appends `item` to `list` in place — for a new List instead of mutating, use `+` (§5/§6) |
 | `min(a, b, ...)` / `min(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | smallest of 2+ direct arguments, or of a List/Tuple's elements — same ordering as `<` (§6): numbers (Integer/Float freely mixed) or Strings, never a mix of both. Returns the winning element itself, unconverted |
 | `max(a, b, ...)` / `max(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | largest of 2+ direct arguments, or of a List/Tuple's elements — same rules as `min` |
+| `combos(list, n)` | `(List \| Tuple, Integer) -> List` | every n-element combination of `list`'s elements, each as a Tuple, in lexicographic order of position — order within a group doesn't matter and no element is reused within one group ("n choose k", not permutations). `combos(xs, 2)` is every pair, `combos(xs, 3)` every triple, and so on for any `n`. `n` greater than `slices(list)` gives an empty List (not an error); `n < 0` is an error. Every element of `list` must be Hashable, same as an ordinary `(a, b)` Tuple literal |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |

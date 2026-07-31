@@ -929,11 +929,35 @@ own section below describes.
   (SPEC.md §6). An empty List/Tuple is a runtime error (`min([])` has no
   answer), and comparing across categories (`min(1, "x")`) is too, the
   same way `1 < "x"` already is.
+- **`combos(list, n)` generalizes to any n instead of shipping separate
+  `pairs`/`triples` functions** — the request that motivated it was
+  specifically "every combination of n elements," and hardcoding a
+  couple of small cases would just mean writing this same
+  odometer-style index-advance loop again the day someone needs `n=4`.
+  Combinations, not permutations: `combos([1,2,3], 2)` is `[(1,2),
+  (1,3), (2,3)]`, never `(2,1)` as well — matching `itertools.combinations`
+  in Python, a well-known-enough shape that it didn't need its own
+  design discussion beyond confirming "every element used at most once,
+  order within a group doesn't matter." Each combination comes back as
+  a Tuple (fixed-size, hashable — useful as a Set element or Map key,
+  e.g. deduplicating pairs already seen), which means every source
+  element has to satisfy the same Hashable requirement
+  `evalTupleLiteral` already enforces for a literal `(a, b)` — checked
+  once against the source List/Tuple up front, not per generated
+  combination, since the same elements recur across every group. `n`
+  bigger than the source's length isn't an error, just an empty result
+  (there aren't that many elements to pick from); `n < 0` is, since
+  there's no such thing as a negative-size group. `n == 0` is the one
+  edge worth calling out explicitly: it's not an error and not an empty
+  List either — it's a List containing exactly one element, the empty
+  Tuple `()`, matching the standard math convention that there's
+  exactly one way to choose nothing.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
-  `map` (apply a function across a List/Tuple), `min`/`max`, the Set builtins
+  `map` (apply a function across a List/Tuple), `min`/`max`, `combos`
+  (n-element combinations), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping
