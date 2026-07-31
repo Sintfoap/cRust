@@ -1,10 +1,35 @@
 package lsp
 
 import (
+	"io"
+	"strings"
 	"testing"
 
+	"github.com/Sintfoap/cRust/internal/builtins"
 	"github.com/Sintfoap/cRust/internal/token"
 )
+
+// TestBuiltinDocsCoversEveryRealBuiltin guards against exactly the bug
+// that motivated this test: builtinDocs is a hand-maintained copy of
+// internal/builtins' own table, and every builtin added there since
+// this package was first built (ints, push, unbox, lines, join, split,
+// trim, str, int, float, bool) had silently gone undocumented in hover
+// and completion until this was caught and fixed. Comparing directly
+// against builtins.New()'s real key set — not another hand-maintained
+// list — is what makes this catch the next one automatically.
+func TestBuiltinDocsCoversEveryRealBuiltin(t *testing.T) {
+	real := builtins.New(io.Discard, strings.NewReader(""))
+	for name := range real {
+		if _, ok := builtinDocs[name]; !ok {
+			t.Errorf("builtinDocs is missing %q — every builtins.New() entry needs a hover/completion doc", name)
+		}
+	}
+	for name := range builtinDocs {
+		if _, ok := real[name]; !ok {
+			t.Errorf("builtinDocs has %q, which builtins.New() no longer registers — stale entry", name)
+		}
+	}
+}
 
 func TestHoverKeyword(t *testing.T) {
 	text := "recipe foo() {\n}\n"

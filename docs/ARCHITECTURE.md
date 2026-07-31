@@ -776,14 +776,14 @@ Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `push`,
 a builtin" note, so it landed with the rest even though it's not yet in
 §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
-(`unbox`/`lines`/`split`/`trim`), type conversion
+(`unbox`/`lines`/`split`/`join`/`trim`), type conversion
 (`str`/`int`/`float`/`bool`), and `+`-as-concatenation extended from
-strings to Lists and Tuples. **Still not built**: `join`/`contains`/
-`replace` and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list
-sorting) — the rest of what this phase's own section below describes.
+strings to Lists and Tuples. **Still not built**: `contains`/`replace`
+and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list sorting) — the
+rest of what this phase's own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
-  `strings` (join/contains/replace, not yet built), `math`
+  `strings` (contains/replace, not yet built), `math`
   (abs/pow/sqrt/gcd/lcm, not yet built), `sort` (list sorting, not yet
   built). `unbox` wraps `os.ReadFile` (with a path argument) or reads
   the injected `stdin io.Reader` directly (no argument) — same-shaped
@@ -812,6 +812,13 @@ sorting) — the rest of what this phase's own section below describes.
   owns "split into individual characters" and having two builtins
   quietly do the same thing under different names would be confusing,
   not convenient.
+- **`join(list, sep)` is `split`'s counterpart**, wrapping
+  `strings.Join`, and deliberately doesn't call `str()` on non-String
+  elements itself — `join(someInts, ", ")` is a runtime error naming
+  the offending index and type, not a silent stringify. Same
+  "conversion is always explicit" stance as the `str`/`int`/`float`/
+  `bool` note below, just enforced at a second call site instead of
+  only inside `+`.
 - **Type conversion is explicit-only, by design, not by omission.**
   `SPEC.md` §6 already states operators never implicitly convert
   between types (`+` between a String and a number is a type error);
@@ -860,7 +867,7 @@ sorting) — the rest of what this phase's own section below describes.
   (string → List of characters/digits), `push` (in-place List append),
   the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
-  `unbox`/`lines`/`split`/`trim` (input), and `str`/`int`/`float`/`bool`
+  `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping
   `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more
@@ -1077,6 +1084,21 @@ sorting) — the rest of what this phase's own section below describes.
     evaluating user code as a side effect of hovering — both explicitly
     out of scope, since either would need a much deeper static-analysis
     pass this project doesn't have a use case to justify yet.
+    - **Real bug, caught by a real user**: `builtinDocs` is a
+      hand-maintained copy of `internal/builtins`' own table, and nine
+      builtins added to `internal/builtins` after this package was
+      first built (`ints`, `push`, `unbox`, `lines`, `split`, `join`,
+      `trim`, `str`/`int`/`float`/`bool`) had silently gone
+      undocumented in both hover and completion (`completionsAt`
+      reuses the same map) — `crust` itself worked fine, but hovering
+      or autocompleting any of them in an editor showed nothing. Fixed
+      by syncing the table, and by a new test
+      (`TestBuiltinDocsCoversEveryRealBuiltin`, `hover_test.go`) that
+      diffs `builtinDocs`'s keys against `builtins.New()`'s real
+      key set directly — not another hand-maintained list, which
+      would only move the staleness risk rather than remove it — so
+      the next builtin added anywhere in `internal/builtins` fails
+      this test immediately instead of silently shipping undocumented.
   - **Position encoding** (`position.go`): negotiated in `initialize`
     rather than hardcoded, because `internal/lexer`'s `Col` field is a
     rune (code point) index — which lines up exactly with LSP's

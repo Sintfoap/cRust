@@ -41,6 +41,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"strip":    {Fn: stripFn},
 		"unbox":    {Fn: unboxFn(stdin)},
 		"lines":    {Fn: linesFn},
+		"join":     {Fn: joinFn},
 		"split":    {Fn: splitFn},
 		"trim":     {Fn: trimFn},
 		"str":      {Fn: strFn},
@@ -369,6 +370,35 @@ func linesFn(args ...object.Object) object.Object {
 		out = append(out, &object.String{Value: scanner.Text()})
 	}
 	return object.NewList(out)
+}
+
+// joinFn is `join(list, sep)` (SPEC.md §7) — the natural counterpart
+// to `split`: joins a List of Strings with sep between each. Every
+// element must already be a String — this doesn't call str() on
+// non-String elements, matching SPEC.md §6's "type conversion is
+// always explicit" rule; convert with str() first if that's what's
+// wanted (e.g. joining a List of Integers).
+func joinFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("join", "2", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("join", 0, "a List", args[0])
+	}
+	sep, ok := args[1].(*object.String)
+	if !ok {
+		return wrongArgType("join", 1, "a String", args[1])
+	}
+	parts := make([]string, len(list.Elements))
+	for idx, elem := range list.Elements {
+		s, ok := elem.(*object.String)
+		if !ok {
+			return newError("join: element %d is %s, not a String (use str() to convert first)", idx, elem.Type())
+		}
+		parts[idx] = s.Value
+	}
+	return &object.String{Value: strings.Join(parts, sep.Value)}
 }
 
 // splitFn is `split(s)` / `split(s, delim)` (SPEC.md §7). With one

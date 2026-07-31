@@ -75,7 +75,7 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -484,6 +484,53 @@ func wantStringList(t *testing.T, got object.Object, want []string) {
 	for i, w := range want {
 		wantString(t, list.Elements[i], w)
 	}
+}
+
+func TestJoin(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	list := object.NewList([]object.Object{
+		&object.String{Value: "a"}, &object.String{Value: "b"}, &object.String{Value: "c"},
+	})
+	wantString(t, call(t, table, "join", list, &object.String{Value: ", "}), "a, b, c")
+}
+
+func TestJoinEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantString(t, call(t, table, "join", object.NewList(nil), &object.String{Value: ","}), "")
+}
+
+func TestJoinSingleElement(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	list := object.NewList([]object.Object{&object.String{Value: "only"}})
+	wantString(t, call(t, table, "join", list, &object.String{Value: ","}), "only")
+}
+
+func TestJoinRoundTripsWithSplit(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	split := call(t, table, "split", &object.String{Value: "a,b,c"}, &object.String{Value: ","})
+	joined := call(t, table, "join", split, &object.String{Value: ","})
+	wantString(t, joined, "a,b,c")
+}
+
+func TestJoinNonStringElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	list := object.NewList([]object.Object{&object.String{Value: "a"}, object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "join", list, &object.String{Value: ","}))
+	if !strings.Contains(errObj.Message, "str()") {
+		t.Errorf("Message = %q, want it to mention str()", errObj.Message)
+	}
+}
+
+func TestJoinWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "join", object.NewInteger(1), &object.String{Value: ","}))
+	wantError(t, call(t, table, "join", object.NewList(nil), object.NewInteger(1)))
+}
+
+func TestJoinWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "join", object.NewList(nil)))
+	wantError(t, call(t, table, "join"))
 }
 
 func TestSplitNoDelimCollapsesWhitespace(t *testing.T) {

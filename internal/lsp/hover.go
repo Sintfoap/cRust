@@ -33,9 +33,11 @@ var keywordDocs = map[token.Type]string{
 // builtinDocs mirrors SPEC.md §7's standard library table.
 var builtinDocs = map[string]string{
 	"deliver":  "`deliver(values...)` — print: send output out.",
-	"slices":   "`slices(x) -> Integer` — length/count of a String, List, Map, or Set.",
+	"slices":   "`slices(x) -> Integer` — length/count of a String, List, Tuple, Map, or Set.",
 	"sauce":    "`sauce(value, fallback) -> Any` — value unless it's nobox, in which case fallback. Same job as the `?:` operator.",
 	"chars":    "`chars(s) -> List` — splits a string into a List of one-character strings.",
+	"ints":     "`ints(s) -> List` — splits a string of digits into a List of single-digit Integers. Digit-grid counterpart to `chars`; a non-digit character is a runtime error.",
+	"push":     "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
 	"idiv":     "`idiv(a, b) -> Integer` — integer (floor) division; `/` always true-divides to a Float.",
 	"gather":   "`gather(list) -> Set` — collects a List into a Set, dropping duplicates.",
 	"sprinkle": "`sprinkle(set, item)` — adds item to set in place.",
@@ -43,7 +45,16 @@ var builtinDocs = map[string]string{
 	"topped":   "`topped(set, item) -> Boolean` — membership test: is item in set?",
 	"combine":  "`combine(a, b) -> Set` — union.",
 	"shared":   "`shared(a, b) -> Set` — intersection.",
-	"strip":    "`strip(a, b) -> Set` — difference: items in a not in b.",
+	"strip":    "`strip(a, b) -> Set` — difference: items in a not in b. (For String trimming, see `trim`.)",
+	"unbox":    "`unbox() -> String` / `unbox(path) -> String` — reads all of stdin, or a whole file at path.",
+	"lines":    "`lines(s) -> List` — splits s into a List of lines (`\\n`/`\\r\\n`; no trailing blank entry).",
+	"join":     "`join(list, sep) -> String` — joins a List of Strings with sep between each. Counterpart to `split`; elements must already be Strings (use `str()` first otherwise).",
+	"split":    "`split(s) -> List` / `split(s, delim) -> List` — split(s) splits on runs of whitespace; split(s, delim) splits on the literal delim, preserving empty entries. delim can't be \"\" (use `chars`).",
+	"trim":     "`trim(s) -> String` — removes leading/trailing whitespace. (For Set difference, see `strip`.)",
+	"str":      "`str(x) -> String` — converts any value to its String form (same text `deliver` would print).",
+	"int":      "`int(x) -> Integer` — parses a String (base-10) or truncates a Float toward zero; an Integer passes through unchanged.",
+	"float":    "`float(x) -> Float` — parses a String or widens an Integer; a Float passes through unchanged.",
+	"bool":     "`bool(x) -> Boolean` — normalizes any value to a strict Boolean using cRust's truthiness rule (only `thin`/`nobox` are falsy).",
 }
 
 // hoverDoc returns hover text for tok, if any: keyword docs, builtin

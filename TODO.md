@@ -178,7 +178,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       which is Set difference, to avoid a name collision)
 - [x] `split` (`split(s)` whitespace-collapsing, `split(s, delim)`
       literal delimiter — CSV-style, preserves empty entries)
-- [ ] Strings: join, contains, replace
+- [x] `join` (List of Strings + separator → String, `split`'s counterpart)
+- [ ] Strings: contains, replace
 - [x] `chars` (string → List of one-character strings)
 - [x] `ints` (string of digits → List of single-digit Integers)
 - [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no
