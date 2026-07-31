@@ -75,6 +75,29 @@ func TestEnvironmentSetCreatesLocalWhenNoOuterBindingExists(t *testing.T) {
 	}
 }
 
+// TestEnvironmentDeclareShadowsExistingOuterBinding is Declare's whole
+// reason to exist: unlike Set (TestEnvironmentSetMutatesExistingOuterBinding
+// above), it must NOT walk out and mutate an outer binding that shares
+// the name — it always creates/overwrites a binding in the *current*
+// Environment only. This is what keeps a recipe call's parameters
+// isolated even when a parameter happens to share a name with a global.
+func TestEnvironmentDeclareShadowsExistingOuterBinding(t *testing.T) {
+	outer := NewEnvironment()
+	outer.Set("g", NewInteger(1))
+	inner := NewEnclosedEnvironment(outer)
+
+	inner.Declare("g", NewInteger(999))
+
+	outerVal, _ := outer.Get("g")
+	if outerVal.(*Integer).Value != 1 {
+		t.Errorf("outer's g = %v, want 1 (Declare must not leak into an enclosing scope)", outerVal)
+	}
+	innerVal, _ := inner.Get("g")
+	if innerVal.(*Integer).Value != 999 {
+		t.Errorf("inner's g = %v, want 999", innerVal)
+	}
+}
+
 // TestEnvironmentClosureMutation mirrors SPEC.md §3's example almost
 // exactly: a function updating a variable captured from its defining
 // scope, with no global/nonlocal keyword.

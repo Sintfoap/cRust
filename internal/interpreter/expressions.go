@@ -347,9 +347,16 @@ func (i *Interpreter) evalExpressions(exps []ast.Expression, env *object.Environ
 // *object.Builtin) with args. A user Function's call extends its
 // *captured* Env, not the caller's — that's what makes closures work
 // (SPEC.md §3) — and unwraps the body's result the same way every
-// block-completion path does. A Builtin error's position is unset
-// until here, since internal/builtins knows nothing about source
-// positions; this is the one place that patches it in.
+// block-completion path does. Parameters bind via Declare, not Set:
+// each call's extEnv is fresh (object.NewEnclosedEnvironment), and
+// Declare is what actually keeps it isolated — using Set here would
+// walk out to fn.Env looking for an existing same-named binding (e.g.
+// a global with the same name as a parameter) and silently overwrite
+// it instead of shadowing it, since Set can't tell "this is a brand
+// new parameter slot" apart from "this is an ordinary reassignment."
+// A Builtin error's position is unset until here, since
+// internal/builtins knows nothing about source positions; this is the
+// one place that patches it in.
 func (i *Interpreter) applyFunction(tok token.Token, fn object.Object, args []object.Object) object.Object {
 	switch fn := fn.(type) {
 	case *object.Function:
@@ -358,7 +365,7 @@ func (i *Interpreter) applyFunction(tok token.Token, fn object.Object, args []ob
 		}
 		extEnv := object.NewEnclosedEnvironment(fn.Env)
 		for idx, param := range fn.Parameters {
-			extEnv.Set(param.Value, args[idx])
+			extEnv.Declare(param.Value, args[idx])
 		}
 		result := i.Eval(fn.Body, extEnv)
 		return unwrapReturnValue(result)

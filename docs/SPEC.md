@@ -185,6 +185,25 @@ recipe bump() {
 }
 ```
 
+**Parameters are the one exception to the walk-up rule**: a `recipe`'s
+parameters are always fresh bindings in that call's own new scope, even
+if a variable of the same name already exists somewhere outward (the
+global scope, most commonly). A parameter shadows; it never aliases:
+
+```
+g = 1
+recipe touch(g) {
+    g = 999   // reassigns the *parameter* g, not the outer one
+}
+touch(g)
+g   // still 1
+```
+
+If parameters followed the same walk-up rule ordinary assignment does,
+calling a function would risk silently overwriting any same-named
+variable in every enclosing scope up to global — the opposite of what
+"pass an argument" should ever mean.
+
 Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`) follows the same rule
 and is sugar for `x = x OP expr`. See §5 for the full operator list.
 

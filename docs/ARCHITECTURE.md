@@ -636,15 +636,46 @@ way to see the interpreter do anything at all.
   and three internal control-flow signals never exposed to user code:
   `ReturnValue` (wraps a value bubbling up through nested blocks) and
   the `BREAK`/`CONTINUE` singletons for loop control.
-- **Environment** (`object.Environment`): unchanged from the ahead-of-
-  schedule Phase 4 groundwork — `Get`/`Set` implement `SPEC.md` §3's
-  scoping rule exactly as designed, no changes needed once `Eval`
-  actually started using it.
+- **Environment** (`object.Environment`): `Get`/`Set` are unchanged from
+  the ahead-of-schedule Phase 4 groundwork and implement `SPEC.md` §3's
+  scoping rule exactly as designed — `Set` walks outer scopes looking
+  for an existing binding to mutate, which is what makes closures
+  mutate a captured variable and loop accumulators work with no
+  `global`/`nonlocal` keyword. A third method, `Declare`, was added
+  later (found via a real bug — see below) specifically for the one
+  case that must *never* walk outward: binding a recipe's parameters.
 - **Only `recipe` calls create a new `Environment`** —
   `NewEnclosedEnvironment(outer)` runs on function call (in
   `applyFunction`), *not* on `order`/`combo`/`special`/`knead`/`bake`
   block entry, which all evaluate directly via the shared
   `evalBlockStatement` in whatever `Environment` the caller passed in.
+  - **Real bug, found while writing the grid-simulation example
+    (`examples/grid_life.crust`)**: `applyFunction` originally bound
+    each parameter with `extEnv.Set(param.Value, args[idx])`. `Set`'s
+    whole job is walking outer scopes to find and mutate an existing
+    binding — exactly right for a closure reassigning a variable it
+    captured, but for a *parameter* it meant a recipe whose parameter
+    happened to share a name with an outer (often global) variable
+    would silently overwrite that outer variable the moment the
+    parameter got reassigned inside the function body. Minimal repro:
+    `recipe touch(g) { g = 999 }` `g = 1` `touch(g)` `deliver(g)`
+    printed `999`, not `1` — but only when `g` lived in global scope;
+    the same call from inside another recipe's own local scope
+    (nothing named `g` anywhere in the outer chain) worked correctly by
+    accident, since `Set` had nothing existing to find and fell through
+    to creating a fresh local. That inconsistency (works when nested,
+    breaks at global scope) is what made it a real, surprising bug
+    rather than a documented restriction. Fixed by adding
+    `Environment.Declare(name, value)` — an unconditional local bind,
+    no outer walk, ever — and switching `applyFunction`'s parameter
+    loop to use it; every other `Set` call site (`knead`'s loop
+    variable, plain assignment, unpack targets) is untouched, since
+    those all correctly operate on an existing, non-fresh scope where
+    the walk-and-mutate rule is exactly what SPEC.md §3 asks for.
+    Regression-tested at both layers: `object.TestEnvironmentDeclareShadowsExistingOuterBinding`
+    isolates `Declare` itself, and
+    `interpreter.TestParameterShadowsSameNamedOuterVariable` reproduces
+    the original global-scope failure end-to-end.
 - **Block evaluation is the one place control-flow signals get
   caught.** `evalBlockStatement` runs a block's statements in sequence
   and stops the moment one evaluates to `Error`, `ReturnValue`,

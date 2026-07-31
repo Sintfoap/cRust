@@ -46,6 +46,24 @@ func (e *Environment) Set(name string, value Object) {
 	e.store[name] = value
 }
 
+// Declare binds name directly in this Environment, never walking to an
+// outer scope even if name is already bound there — the opposite of
+// Set's "find and mutate" rule above. This is what a recipe call's
+// parameter binding needs: each call gets its own fresh enclosed
+// Environment (NewEnclosedEnvironment, applyFunction) specifically so
+// arguments can't collide with anything in an outer scope, and using
+// Set for that binding would silently defeat the whole point of that
+// isolation — a global (or any enclosing) variable that happens to
+// share a parameter's name would get overwritten by the call instead
+// of correctly being shadowed by it. Everywhere else that binds a name
+// (knead's loop variable, plain assignment, unpack targets) does so
+// directly in an existing, non-fresh scope and is supposed to walk up
+// via Set — see NewEnclosedEnvironment's doc comment for why only
+// recipe calls get a new Environment at all.
+func (e *Environment) Declare(name string, value Object) {
+	e.store[name] = value
+}
+
 // assignExisting updates name's binding in place if it exists anywhere
 // in the chain, reporting whether it found one.
 func (e *Environment) assignExisting(name string, value Object) bool {

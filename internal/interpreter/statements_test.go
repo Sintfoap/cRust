@@ -68,6 +68,31 @@ tally
 	wantInteger(t, testEval(t, input), 3)
 }
 
+// TestParameterShadowsSameNamedOuterVariable is a regression test for a
+// real scoping bug: a recipe's parameter binding used to go through
+// Environment.Set, which walks outer scopes looking for an existing
+// binding to mutate (exactly what TestClosureMutatesCapturedVariable
+// above relies on for a *free* variable). Applied to a *parameter*
+// instead, that meant calling a function whose parameter happened to
+// share a name with an existing outer (e.g. global) variable would
+// silently overwrite that outer variable on every reassignment inside
+// the function body — found while writing a grid-simulation example
+// where a recipe parameter and a top-level variable were both named
+// `g`. Parameters must always bind fresh in the call's own local
+// scope (object.Environment.Declare now), never alias an outer
+// variable just because the names collide.
+func TestParameterShadowsSameNamedOuterVariable(t *testing.T) {
+	input := `
+recipe touch(g) {
+    g = 999
+}
+g = 1
+touch(g)
+g
+`
+	wantInteger(t, testEval(t, input), 1)
+}
+
 func TestIndexAssignment(t *testing.T) {
 	wantInteger(t, testEval(t, "xs = [1, 2, 3]\nxs[1] = 99\nxs[1]"), 99)
 }
