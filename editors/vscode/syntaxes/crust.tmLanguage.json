@@ -1,0 +1,127 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "cRust",
+  "scopeName": "source.crust",
+  "fileTypes": ["crust"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#function-declaration" },
+    { "include": "#keywords" },
+    { "include": "#booleans" },
+    { "include": "#nil" },
+    { "include": "#logical-keywords" },
+    { "include": "#builtins" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.crust",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.crust",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.crust",
+          "match": "\\\\[\\\\\"ntr]"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.crust",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.crust",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.crust",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "function-declaration": {
+      "comment": "recipe <name>(...) — the name gets entity.name.function so it's colored distinctly from a plain call; an anonymous `recipe(...)` falls through to the plain #keywords rule below instead, since there's no name here to capture.",
+      "match": "\\b(recipe)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "storage.type.function.crust" },
+        "2": { "name": "entity.name.function.crust" }
+      }
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.crust",
+          "match": "\\b(order|combo|special)\\b"
+        },
+        {
+          "name": "keyword.control.loop.crust",
+          "match": "\\b(knead|bake)\\b"
+        },
+        {
+          "name": "keyword.control.crust",
+          "match": "\\b(serve|burnt|flip|in)\\b"
+        },
+        {
+          "name": "storage.type.function.crust",
+          "match": "\\brecipe\\b"
+        },
+        {
+          "name": "storage.type.crust",
+          "match": "\\btoppings\\b"
+        }
+      ]
+    },
+    "booleans": {
+      "name": "constant.language.boolean.crust",
+      "match": "\\b(stuffed|thin)\\b"
+    },
+    "nil": {
+      "name": "constant.language.null.crust",
+      "match": "\\bnobox\\b"
+    },
+    "logical-keywords": {
+      "name": "keyword.operator.logical.crust",
+      "match": "\\b(with|or|hold)\\b"
+    },
+    "builtins": {
+      "name": "support.function.builtin.crust",
+      "match": "\\b(deliver|slices|sauce|chars|idiv|gather|sprinkle|scrape|topped|combine|shared|strip)\\b(?=\\s*\\()"
+    },
+    "operators": {
+      "comment": "Order matters within this list: longer/more-specific tokens must come before shorter ones that share a prefix (e.g. '(|' before '(', '/=' before '/') since TextMate tries each pattern in list order at a given scan position and the first match wins.",
+      "patterns": [
+        { "name": "keyword.operator.ternary.crust", "match": "\\(\\||\\|\\)" },
+        { "name": "keyword.operator.elvis.crust", "match": "\\?:" },
+        { "name": "keyword.operator.range.crust", "match": "\\.\\.|\\.<" },
+        { "name": "keyword.operator.increment.crust", "match": "\\+\\+|--" },
+        { "name": "keyword.operator.assignment.compound.crust", "match": "[+\\-*/%]=" },
+        { "name": "keyword.operator.comparison.crust", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.assignment.crust", "match": "=" },
+        { "name": "keyword.operator.arithmetic.crust", "match": "[+\\-*/%]" }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.section.block.crust", "match": "[{}]" },
+        { "name": "punctuation.section.parens.crust", "match": "[()]" },
+        { "name": "punctuation.section.brackets.crust", "match": "[\\[\\]]" },
+        { "name": "punctuation.separator.comma.crust", "match": "," },
+        { "name": "punctuation.separator.colon.crust", "match": ":" },
+        { "name": "punctuation.terminator.statement.crust", "match": ";" }
+      ]
+    }
+  }
+}

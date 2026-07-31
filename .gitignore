@@ -4,6 +4,7 @@
 *.exe
 *.test
 *.out
+*.vsix
 
 # Nix build output symlinks
 /result

@@ -728,6 +728,65 @@ what this phase's own section below describes.
 - Error messages throughout stay in the pizza theme (tone, not
   mechanism) — the underlying `Error` object/position reporting is the
   same regardless of wording.
+- **Editor syntax highlighting** (`editors/`) — Vim/Neovim
+  (`editors/vim`: `syntax/crust.vim`, `ftdetect/crust.vim`,
+  `ftplugin/crust.vim`) and VSCode (`editors/vscode`: a TextMate
+  grammar plus a minimal extension manifest). Both are regex-based
+  (Vim's own syntax matching; TextMate scope patterns for VSCode) —
+  neither editor's *default* highlighting path needs a real parser, and
+  writing one (a Tree-sitter grammar, which Neovim can also consume) is
+  substantial, separate-project-sized work tracked as a further stretch
+  in `TODO.md` rather than attempted here. Both files were verified
+  against the real tokenizer, not just read off the docs: the Vim
+  syntax file against an actual headless Vim instance
+  (`vim -Nu NONE -es`, checking `synID()` at specific columns of a test
+  file exercising every token category); the VSCode grammar against
+  `vscode-textmate` + `vscode-oniguruma` — the exact same tokenizer
+  engine VSCode itself runs, driven from a small Node harness rather
+  than eyeballing the grammar JSON.
+  - **Two real bugs only surfaced under that testing**, both about
+    match-priority ordering, and in *opposite* directions between the
+    two engines — worth recording since the "obvious" fix for one is
+    wrong for the other:
+    1. Vim resolves two syntax items that could both start matching at
+       the same buffer position by picking whichever was **defined
+       last** in the syntax file (`:help syn-priority`). The `//` line
+       comment rule was defined *before* the arithmetic-operator rule
+       (which includes bare `/` for division), so `crustOperator`'s
+       single-character `/` match silently won at a comment's opening
+       `//`, and the comment span never got claimed at all — not just
+       miscolored, entirely unrecognized. Fixed by moving the comment
+       rule to be the *last* one defined in the file, specifically so
+       it wins that tie-break. The same "last-defined-wins" rule also
+       bit the number literals: `crustFloat` needs to be defined
+       *after* `crustInteger`, or `5.5` shows only its leading `5` as
+       an Integer instead of the whole thing as a Float.
+    2. TextMate/VSCode grammars go the other way: the tokenizer tries
+       each pattern in a `patterns` array **in list order** at the
+       current scan position and takes the first one that matches, so
+       the equivalent fix there is to list `comments` *first* — which
+       is what this grammar already did, and testing confirmed it
+       needed no change. Both `syntax/crust.vim` and
+       `syntaxes/crust.tmLanguage.json` now carry an inline comment
+       explaining which direction their own engine's priority rule
+       runs, specifically so this doesn't get silently un-fixed by
+       someone applying the other engine's mental model while editing.
+  - `deliver`/`slices`/and the rest of the builtins (`SPEC.md` §7) only
+    highlight as builtins when actually called (a `(?=\s*\()`
+    lookahead in the VSCode grammar; ordinary `syn keyword` in Vim,
+    which doesn't have an equivalent lookahead concept but doesn't need
+    one — an identifier just being *named* `deliver` elsewhere, e.g.
+    `deliver = recipe(x) {...}` shadowing it per `SPEC.md` §4, isn't
+    something Vim's simpler keyword matching would get wrong either
+    way). Confirmed the VSCode side specifically, since that grammar's
+    lookahead is the part that could plausibly have been written wrong.
+  - `(|`/`|)`'s literal-paren cosmetic limitation (`SPEC.md` §5.3's own
+    note) applies to both editors' *generic* bracket-matching the same
+    way it would to any editor — nothing in either syntax file
+    resolves it, since doing so would need real grammar awareness
+    neither engine has by default; both READMEs call this out
+    explicitly rather than let someone discover it and assume it's a
+    bug in the highlighting.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

@@ -1,0 +1,33 @@
+{
+  "name": "crust-language",
+  "displayName": "cRust",
+  "description": "Syntax highlighting for cRust, a pizza-themed language for Advent of Code",
+  "version": "0.1.0",
+  "publisher": "Sintfoap",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sintfoap/cRust"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "crust",
+        "aliases": ["cRust", "crust"],
+        "extensions": [".crust"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "crust",
+        "scopeName": "source.crust",
+        "path": "./syntaxes/crust.tmLanguage.json"
+      }
+    ]
+  }
+}

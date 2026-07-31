@@ -187,7 +187,17 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       *(started ahead of schedule; running it against every
       `examples/*.crust` file caught a real lexer bug — see the Phase 2
       line-continuation entry below)*
-- [ ] (Stretch) editor syntax highlighting (TextMate grammar / tree-sitter)
+- [x] (Stretch) editor syntax highlighting — Vim/Neovim (`editors/vim`,
+      traditional regex syntax file, works unmodified in both) and
+      VSCode (`editors/vscode`, TextMate grammar). Both verified
+      against the real tokenizers (a live Vim instance;
+      `vscode-textmate`/`vscode-oniguruma`, the same engine VSCode
+      itself uses), not just read off the docs — see
+      [ARCHITECTURE.md](./docs/ARCHITECTURE.md) Phase 6 notes for two
+      real bugs that surfaced only under that testing. A from-scratch
+      Tree-sitter grammar (more accurate, parser-driven highlighting,
+      but a genuinely separate project — its own grammar.js, generated
+      C parser, build tooling) is a further stretch, not attempted here.
 - [ ] (Stretch) autocompletion (editor/LSP-level — keywords, builtins,
       and locally-scoped names at minimum)
 - [ ] (Stretch) debugger (breakpoints + step execution over

@@ -113,3 +113,9 @@ nix develop github:Sintfoap/cRust    # dev shell with Go on PATH
 ```
 
 Works from NixOS, Nix-on-WSL, or Nix on any other Linux/macOS system.
+
+### Editor syntax highlighting
+
+Vim/Neovim and VSCode both have working syntax highlighting for
+`.crust` files — see [`editors/vim`](./editors/vim) and
+[`editors/vscode`](./editors/vscode) for install instructions.
