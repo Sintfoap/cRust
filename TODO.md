@@ -217,22 +217,32 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       tested against the real tokenizer rather than read off the query
       file.
 - [x] (Stretch) Language server (`internal/lsp`, `crust lsp`) — hover
-      (keyword/builtin/literal-type docs) and diagnostics
+      (keyword/builtin/literal-type docs), diagnostics
       (`textDocument/publishDiagnostics` from lexer ILLEGAL tokens and
-      `internal/parser`'s new structured `ParseError`/`ParseErrors()`),
-      speaking JSON-RPC 2.0 over stdio, hand-rolled against the spec
-      rather than built on a third-party LSP library (keeps the
-      zero-Go-dependency policy — see ARCHITECTURE.md's Nix section —
-      intact). Position-encoding negotiation (`utf-8`/`utf-16`/`utf-32`,
-      per `capabilities.general.positionEncodings`) implemented and
-      tested rather than hardcoding one, since internal/lexer's
-      rune-indexed columns don't line up with any encoding but
-      `utf-32` by default. Verified against a real subprocess (not just
-      Go unit tests) — see ARCHITECTURE.md's Phase 6 notes.
-- [ ] (Stretch) autocompletion (editor/LSP-level — keywords, builtins,
-      and locally-scoped names at minimum) — `internal/lsp` exists now
-      (above), so this would extend the same server rather than start
-      from scratch
+      `internal/parser`'s structured `ParseError`/`ParseErrors()`),
+      and real scope-aware `textDocument/definition`/`references`/
+      `rename`/`documentSymbol`/`completion` (`internal/lsp/symbols.go`
+      — a `fileIndex` built by walking the parsed AST once per
+      request, resolving names through cRust's actual function-scope
+      nesting, not a same-name text search: two functions with
+      identically-named parameters correctly resolve to two different
+      declarations). Speaks JSON-RPC 2.0 over stdio, hand-rolled
+      against the spec rather than built on a third-party LSP library
+      (keeps the zero-Go-dependency policy — see ARCHITECTURE.md's Nix
+      section — intact). Position-encoding negotiation
+      (`utf-8`/`utf-16`/`utf-32`, per
+      `capabilities.general.positionEncodings`) implemented and tested
+      rather than hardcoding one, since internal/lexer's rune-indexed
+      columns don't line up with any encoding but `utf-32` by default.
+      Verified against a real subprocess (not just Go unit tests) —
+      see ARCHITECTURE.md's Phase 6 notes, including the real-user
+      report (Neovim's generic `<leader>D`/`typeDefinition` keymap
+      hitting an unimplemented method) that prompted the definition/
+      references/rename/documentSymbol/completion work in the first
+      place.
+- [ ] (Stretch) Further LSP: incremental (as opposed to full) document
+      sync, code actions — `internal/lsp` exists now (above) as a base
+      to extend rather than something to build from scratch
 - [ ] (Stretch) debugger (breakpoints + step execution over
       `internal/interpreter`'s `Eval`; a source-mapped stepper is a much
       bigger lift than the REPL above, since `Eval` isn't currently

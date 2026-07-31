@@ -44,3 +44,18 @@ func TestLookupIdent(t *testing.T) {
 		})
 	}
 }
+
+func TestKeywords(t *testing.T) {
+	kws := Keywords()
+	if len(kws) == 0 {
+		t.Fatal("Keywords() returned an empty map")
+	}
+	for spelling, want := range kws {
+		if got := LookupIdent(spelling); got != want {
+			t.Errorf("Keywords()[%q] = %v, but LookupIdent(%q) = %v", spelling, want, spelling, got)
+		}
+	}
+	if kws["recipe"] != RECIPE {
+		t.Errorf(`Keywords()["recipe"] = %v, want RECIPE`, kws["recipe"])
+	}
+}

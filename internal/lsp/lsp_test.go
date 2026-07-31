@@ -136,12 +136,112 @@ func TestServerSession(t *testing.T) {
 	}
 }
 
+// TestServerSessionRichFeatures drives definition, references,
+// documentSymbol, completion, and rename through Server.Run over real
+// byte streams — the same "actual wire bytes in, actual wire bytes
+// out" discipline as TestServerSession, extended to every method added
+// after the initial hover+diagnostics server.
+func TestServerSessionRichFeatures(t *testing.T) {
+	src := "recipe helper(x) {\n    serve x * 2\n}\n\ntotal = helper(5)\ndeliver(total)\n"
+	// "helper" call site: line 4 (0-indexed), right after "total = ".
+	helperCallPos := map[string]any{"line": 4, "character": 8}
+
+	var input bytes.Buffer
+	input.Write(clientMessage(t, "initialize", 1, map[string]any{"capabilities": map[string]any{}}))
+	input.Write(clientMessage(t, "textDocument/didOpen", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "languageId": "crust", "version": 1, "text": src},
+	}))
+	input.Write(clientMessage(t, "textDocument/definition", 2, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": helperCallPos,
+	}))
+	input.Write(clientMessage(t, "textDocument/references", 3, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": helperCallPos,
+		"context": map[string]any{"includeDeclaration": true},
+	}))
+	input.Write(clientMessage(t, "textDocument/documentSymbol", 4, map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+	}))
+	input.Write(clientMessage(t, "textDocument/completion", 5, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": map[string]any{"line": 0, "character": 0},
+	}))
+	input.Write(clientMessage(t, "textDocument/rename", 6, map[string]any{
+		"textDocument": map[string]any{"uri": uri}, "position": helperCallPos, "newName": "compute",
+	}))
+	input.Write(clientMessage(t, "exit", nil, nil))
+
+	var output bytes.Buffer
+	s := NewServer()
+	if err := s.Run(&input, &output, io.Discard); err != nil {
+		t.Fatalf("Run: %s", err)
+	}
+	msgs := decodeServerMessages(t, output.Bytes())
+	// initialize response, publishDiagnostics (from didOpen), then one
+	// response per request.
+	if len(msgs) != 7 {
+		t.Fatalf("got %d messages, want 7: %+v", len(msgs), msgs)
+	}
+
+	var initResult initializeResult
+	if err := json.Unmarshal(msgs[0].Result, &initResult); err != nil {
+		t.Fatalf("unmarshal initialize result: %s", err)
+	}
+	if !initResult.Capabilities.DefinitionProvider || !initResult.Capabilities.ReferencesProvider ||
+		!initResult.Capabilities.DocumentSymbolProvider || initResult.Capabilities.CompletionProvider == nil ||
+		!initResult.Capabilities.RenameProvider {
+		t.Errorf("initialize result missing a rich-feature capability: %+v", initResult.Capabilities)
+	}
+
+	if msgs[1].Method != "textDocument/publishDiagnostics" {
+		t.Fatalf("msgs[1].Method = %q, want textDocument/publishDiagnostics", msgs[1].Method)
+	}
+
+	var loc Location
+	if err := json.Unmarshal(msgs[2].Result, &loc); err != nil {
+		t.Fatalf("unmarshal definition result: %s", err)
+	}
+	if loc.Range.Start != (Position{Line: 0, Character: 7}) {
+		t.Errorf("definition = %+v, want helper's declaration at 0:7", loc.Range.Start)
+	}
+
+	var refs []Location
+	if err := json.Unmarshal(msgs[3].Result, &refs); err != nil {
+		t.Fatalf("unmarshal references result: %s", err)
+	}
+	if len(refs) != 2 {
+		t.Errorf("len(refs) = %d, want 2 (declaration + call site)", len(refs))
+	}
+
+	var syms []DocumentSymbol
+	if err := json.Unmarshal(msgs[4].Result, &syms); err != nil {
+		t.Fatalf("unmarshal documentSymbol result: %s", err)
+	}
+	if len(syms) != 1 || syms[0].Name != "helper" {
+		t.Errorf("syms = %+v, want just helper", syms)
+	}
+
+	var items []CompletionItem
+	if err := json.Unmarshal(msgs[5].Result, &items); err != nil {
+		t.Fatalf("unmarshal completion result: %s", err)
+	}
+	if len(items) == 0 {
+		t.Error("completion result is empty")
+	}
+
+	var edit WorkspaceEdit
+	if err := json.Unmarshal(msgs[6].Result, &edit); err != nil {
+		t.Fatalf("unmarshal rename result: %s", err)
+	}
+	if len(edit.Changes[uri]) != 2 {
+		t.Errorf("len(edit.Changes[uri]) = %d, want 2", len(edit.Changes[uri]))
+	}
+}
+
 // TestServerUnknownMethod confirms a request for an unhandled method
 // gets a proper JSON-RPC method-not-found error response rather than
 // being silently dropped or crashing the session.
 func TestServerUnknownMethod(t *testing.T) {
 	var input bytes.Buffer
-	input.Write(clientMessage(t, "textDocument/definition", 1, map[string]any{}))
+	input.Write(clientMessage(t, "textDocument/codeAction", 1, map[string]any{}))
 	input.Write(clientMessage(t, "exit", nil, nil))
 
 	var output bytes.Buffer

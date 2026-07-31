@@ -81,10 +81,15 @@ type didCloseParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 }
 
-type hoverParams struct {
+// textDocumentPositionParams is the common shape of every request that
+// targets one cursor position in one document — hover, definition,
+// references, rename, completion.
+type textDocumentPositionParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
 }
+
+type hoverParams = textDocumentPositionParams
 
 type markupContent struct {
 	Kind  string `json:"kind"`
@@ -94,6 +99,87 @@ type markupContent struct {
 type hoverResult struct {
 	Contents markupContent `json:"contents"`
 }
+
+// Location is an LSP Location: a Range within a specific document —
+// what textDocument/definition and textDocument/references respond
+// with.
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
+}
+
+type referenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type referenceParams struct {
+	textDocumentPositionParams
+	Context referenceContext `json:"context"`
+}
+
+type documentSymbolParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+}
+
+// SymbolKind values this package uses (LSP SymbolKind enum) — only
+// Function, since recipes are the only thing documentSymbol reports.
+const symbolKindFunction = 12
+
+// DocumentSymbol is one entry in a textDocument/documentSymbol
+// response. Range and SelectionRange are the same span here (the
+// recipe name's token) rather than the whole declaration — internal/ast
+// doesn't carry a block's closing-brace position, so there's no cheap
+// way to report the full body span; editors still get correct
+// outline/go-to-symbol behavior from the name span alone.
+type DocumentSymbol struct {
+	Name           string `json:"name"`
+	Kind           int    `json:"kind"`
+	Range          Range  `json:"range"`
+	SelectionRange Range  `json:"selectionRange"`
+}
+
+type renameParams struct {
+	textDocumentPositionParams
+	NewName string `json:"newName"`
+}
+
+// TextEdit is one LSP TextEdit: replace Range's text with NewText.
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// WorkspaceEdit is what textDocument/rename responds with — Changes
+// maps a document URI to the edits to apply there. Every rename this
+// package performs stays within one document, so Changes never has
+// more than one key.
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes,omitempty"`
+}
+
+type completionParams = textDocumentPositionParams
+
+// CompletionItemKind values this package uses (LSP CompletionItemKind
+// enum).
+const (
+	completionKindFunction = 3
+	completionKindVariable = 6
+	completionKindKeyword  = 14
+)
+
+// CompletionItem is one suggestion in a textDocument/completion
+// response.
+type CompletionItem struct {
+	Label  string `json:"label"`
+	Kind   int    `json:"kind,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// completionOptions is LSP's CompletionOptions — completionProvider
+// must be this shape, not a bare boolean, per spec. Empty: this
+// package doesn't support completion-item resolve or trigger
+// characters beyond the client's own defaults.
+type completionOptions struct{}
 
 // Diagnostic severities (LSP DiagnosticSeverity). Only SeverityError is
 // used today — lex/parse failures are unambiguous errors, not
@@ -131,9 +217,14 @@ type initializeParams struct {
 }
 
 type serverCapabilities struct {
-	TextDocumentSync int    `json:"textDocumentSync"`
-	HoverProvider    bool   `json:"hoverProvider"`
-	PositionEncoding string `json:"positionEncoding"`
+	TextDocumentSync       int                `json:"textDocumentSync"`
+	HoverProvider          bool               `json:"hoverProvider"`
+	PositionEncoding       string             `json:"positionEncoding"`
+	DefinitionProvider     bool               `json:"definitionProvider"`
+	ReferencesProvider     bool               `json:"referencesProvider"`
+	DocumentSymbolProvider bool               `json:"documentSymbolProvider"`
+	CompletionProvider     *completionOptions `json:"completionProvider,omitempty"`
+	RenameProvider         bool               `json:"renameProvider"`
 }
 
 type initializeResult struct {

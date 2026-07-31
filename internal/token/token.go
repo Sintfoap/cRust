@@ -127,3 +127,13 @@ func LookupIdent(ident string) Type {
 	}
 	return IDENT
 }
+
+// Keywords returns the spelling -> Type table LookupIdent uses,
+// for callers (internal/lsp's completion, most notably) that need
+// every reserved word's actual source spelling rather than just being
+// able to test one candidate string. Returns the package's own map
+// directly rather than a defensive copy — internal/token has no
+// mutating API for it, so there's nothing for a caller to corrupt.
+func Keywords() map[string]Type {
+	return keywords
+}

@@ -135,14 +135,18 @@ the regex-based Vim syntax file (the same kind `nvim-treesitter`-style
 tooling is built on) can use [`editors/tree-sitter-crust`](./editors/tree-sitter-crust)
 instead — a real grammar, not a token-pattern list.
 
-### Language server (hover + diagnostics)
+### Language server
 
-`crust lsp` starts a language server on stdin/stdout — hover
-documentation for keywords, builtins, and literals, plus diagnostics
-(lex/parse errors) published as you type. It speaks plain JSON-RPC 2.0
-over stdio, so any LSP client can launch `crust lsp` as the command;
-for Neovim specifically, `vim.lsp.start()` needs no plugin beyond what
-you likely already have:
+`crust lsp` starts a language server on stdin/stdout: hover docs for
+keywords/builtins/literals, live diagnostics (lex/parse errors), go-to-
+definition, find-references, rename, document symbols (recipe
+outline), and completion (keywords, builtins, and every declared name
+in the file) — all resolved through cRust's real function-scope
+nesting (SPEC.md §3), not plain text matching, so two functions with
+identically-named parameters correctly resolve to two different
+declarations. It speaks plain JSON-RPC 2.0 over stdio, so any LSP
+client can launch `crust lsp` as the command; for Neovim specifically,
+`vim.lsp.start()` needs no plugin beyond what you likely already have:
 
 ```lua
 vim.filetype.add({ extension = { crust = "crust" } })

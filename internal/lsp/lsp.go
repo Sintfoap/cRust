@@ -83,6 +83,16 @@ func (s *Server) handle(msg rpcMessage, logw io.Writer) bool {
 		s.handleDidClose(msg, logw)
 	case "textDocument/hover":
 		s.handleHover(msg, logw)
+	case "textDocument/definition":
+		s.handleDefinition(msg, logw)
+	case "textDocument/references":
+		s.handleReferences(msg, logw)
+	case "textDocument/documentSymbol":
+		s.handleDocumentSymbol(msg, logw)
+	case "textDocument/completion":
+		s.handleCompletion(msg, logw)
+	case "textDocument/rename":
+		s.handleRename(msg, logw)
 	default:
 		if len(msg.ID) > 0 {
 			s.respondError(msg.ID, errMethodNotFound, fmt.Sprintf("method not found: %s", msg.Method))
@@ -121,9 +131,14 @@ func (s *Server) handleInitialize(msg rpcMessage) {
 
 	s.respondResult(msg.ID, initializeResult{
 		Capabilities: serverCapabilities{
-			TextDocumentSync: textDocumentSyncKindFull,
-			HoverProvider:    true,
-			PositionEncoding: s.encoding,
+			TextDocumentSync:       textDocumentSyncKindFull,
+			HoverProvider:          true,
+			PositionEncoding:       s.encoding,
+			DefinitionProvider:     true,
+			ReferencesProvider:     true,
+			DocumentSymbolProvider: true,
+			CompletionProvider:     &completionOptions{},
+			RenameProvider:         true,
 		},
 	})
 }
@@ -181,6 +196,77 @@ func (s *Server) handleHover(msg rpcMessage, logw io.Writer) {
 		return
 	}
 	s.respondResult(msg.ID, hoverAt(text, params.Position, s.encoding))
+}
+
+func (s *Server) handleDefinition(msg rpcMessage, logw io.Writer) {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, definitionAt(text, params.Position, s.encoding, params.TextDocument.URI))
+}
+
+func (s *Server) handleReferences(msg rpcMessage, logw io.Writer) {
+	var params referenceParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	locs := referencesAt(text, params.Position, s.encoding, params.TextDocument.URI, params.Context.IncludeDeclaration)
+	s.respondResult(msg.ID, locs)
+}
+
+func (s *Server) handleDocumentSymbol(msg rpcMessage, logw io.Writer) {
+	var params documentSymbolParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, documentSymbols(text, s.encoding))
+}
+
+func (s *Server) handleCompletion(msg rpcMessage, logw io.Writer) {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, completionsAt(text))
+}
+
+func (s *Server) handleRename(msg rpcMessage, logw io.Writer) {
+	var params renameParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, renameAt(text, params.Position, s.encoding, params.TextDocument.URI, params.NewName))
 }
 
 func (s *Server) publishDiagnostics(uri string) {

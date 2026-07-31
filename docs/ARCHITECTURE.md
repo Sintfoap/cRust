@@ -961,11 +961,79 @@ what this phase's own section below describes.
     `bytes.Buffer`s framed exactly like wire traffic, decoded back with
     the package's own `readMessage`, rather than calling handler
     methods directly and skipping the transport layer entirely.
-  - Not built: `textDocument/completion`, go-to-definition, rename, and
-    incremental (as opposed to full) document sync — all listed as
-    possible follow-on work in `TODO.md`, since `internal/lsp` now
-    exists as a base to extend rather than something to build from
-    scratch.
+  - **Definition, references, rename, documentSymbol, and completion**
+    (`symbols.go`, `definition.go`) extend the same server with real
+    scope-aware name resolution, added after a real user hit
+    Neovim's generic `<leader>D` (`vim.lsp.buf.type_definition`)
+    keymap against `crust_ls` and got "method not supported" — the
+    right fix wasn't `typeDefinition` (cRust is dynamically typed, so
+    there's no static type-declaration site to jump to) but a genuine
+    `textDocument/definition`, which then made the rest of this group
+    a natural, low-incremental-cost extension. `symbols.go` walks the
+    parsed AST once per request into a `fileIndex`: every identifier
+    occurrence, tagged as a declaration (recipe name, parameter,
+    assignment/unpack target, for-each loop variable) or a plain
+    reference, each carrying which lexical scope it belongs to.
+    Scoping mirrors `internal/interpreter`'s real model exactly
+    (SPEC.md §3 — only `recipe` calls get their own scope;
+    `order`/`knead`/`bake` blocks share the enclosing one, and a
+    recipe's own name is declared in its *enclosing* scope, not
+    inside itself, matching how the interpreter's `Environment.Set`
+    actually binds it) — scopes form a parent chain for closures, so
+    `resolve(name, scope)` walks outward exactly the way a real
+    closure lookup would, converging on the nearest enclosing
+    declaration rather than a same-name text match. This is real
+    lexical resolution, not the "deliberately shallow" scope hover.go
+    and completion below stay within — a same-named parameter in two
+    unrelated functions correctly resolves to two different
+    declarations, and `textDocument/references`/`rename` only touch
+    the one actually being asked about.
+    - **`textDocument/definition`**/**`references`**: find the
+      identifier token exactly under the cursor (`identTokenAt` — a
+      stricter span-containment match than hover's lenient
+      "nearest token at or before the cursor," since jumping
+      somewhere unintended is worse here than hover simply doing
+      nothing), resolve it via the scope chain, and for references
+      return every occurrence whose *own* resolution lands on that
+      same declaration.
+    - **`textDocument/rename`**: identical resolution to references,
+      turned into a `WorkspaceEdit` — one `TextEdit` per occurrence,
+      always including the declaration site (a rename that left the
+      declaration untouched wouldn't be a rename).
+    - **`textDocument/documentSymbol`**: every recipe declaration,
+      `SymbolKind.Function`. `Range` and `SelectionRange` are both
+      just the name's own token span rather than the whole
+      declaration — `internal/ast`'s `BlockStatement` doesn't carry
+      its closing `}`'s position, so there's no cheap way to report a
+      full body span; outline/go-to-symbol behavior doesn't need more
+      than the name span to work correctly.
+    - **`textDocument/completion`**: keywords (from
+      `internal/token`'s own keyword table, now exported as
+      `Keywords()` specifically so this didn't need a second
+      hand-maintained copy of the spelling list) + builtins (the same
+      `builtinDocs` table hover.go already had) + every declared name
+      in the whole document. Deliberately **not** resolved against the
+      cursor's actual lexical scope, unlike definition/references/
+      rename above — `internal/ast` has no block-end position to
+      determine "which scope is this blank cursor position inside,"
+      the way it does for an *existing* identifier's own scope
+      (recorded naturally while walking the tree). Whole-document
+      scoping is occasionally over-inclusive (offering a name that's
+      technically out of scope at the cursor) but never hides a real
+      completion, which is the safer direction to be wrong in for a
+      suggestion list.
+    - Verified against the real subprocess harness described above,
+      extended to definition/references/documentSymbol/completion/
+      rename in the same run: confirmed byte-for-byte correct
+      `Location`/`WorkspaceEdit`/`DocumentSymbol`/`CompletionItem`
+      JSON shapes, not just that Go's own JSON marshaling round-trips
+      — plus `internal/lsp`'s Go test suite gained real closure- and
+      shadowing-specific cases (two functions with identically-named
+      parameters; a nested recipe's body correctly resolving a name
+      declared only in its enclosing recipe) that a plain
+      same-name-string search would get wrong.
+  - Not built: incremental (as opposed to full) document sync, and
+    code actions — listed as possible follow-on work in `TODO.md`.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
