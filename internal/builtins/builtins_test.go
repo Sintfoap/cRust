@@ -75,7 +75,7 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -172,6 +172,49 @@ func TestChars(t *testing.T) {
 func TestCharsWrongType(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "chars", object.NewInteger(1)))
+}
+
+func TestInts(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	got := call(t, table, "ints", &object.String{Value: "1029"})
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	want := []int64{1, 0, 2, 9}
+	if len(list.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(list.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, list.Elements[i], w)
+	}
+}
+
+func TestIntsEmptyString(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	got := call(t, table, "ints", &object.String{Value: ""}).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d elements, want 0", len(got.Elements))
+	}
+}
+
+func TestIntsNonDigit(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	errObj := wantError(t, call(t, table, "ints", &object.String{Value: "12a4"}))
+	if !strings.Contains(errObj.Message, "not a digit") {
+		t.Errorf("Message = %q, want it to mention not a digit", errObj.Message)
+	}
+}
+
+func TestIntsWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "ints", object.NewInteger(1)))
+}
+
+func TestIntsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "ints"))
+	wantError(t, call(t, table, "ints", object.NewInteger(1), object.NewInteger(2)))
 }
 
 func TestIdiv(t *testing.T) {

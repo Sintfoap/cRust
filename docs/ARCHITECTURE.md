@@ -704,7 +704,7 @@ shadow (confirmed by a test: `deliver = recipe(x) {...}` works). A
 `applyFunction` patches the call site's position in after the fact if
 one comes back unset, which is the one place that distinction matters.
 
-Implemented now: `deliver`, `slices`, `sauce`, `chars`, `idiv`
+Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `idiv`
 (mentioned in `SPEC.md` §6 as backing `/`'s "integer division is a
 builtin" note, so it landed with the rest even though it's not yet in
 §7's table), the full Set family
@@ -747,13 +747,24 @@ own section below describes.
   already use (`SPEC.md` §6) as a value instead of only a branch
   decision, so nothing about "what counts as falsy" needed two separate
   definitions to keep in sync.
+- **`ints(s)` is `chars(s)`'s digit-grid counterpart**, added once real
+  usage made clear `chars` alone doesn't cover the common AoC shape of
+  a line of digits meant to be summed/compared/walked as numbers
+  (heightmaps, calorie-digit puzzles) — splitting into single-character
+  Strings and then having to `int()` each one individually was the
+  alternative, and `ints` just does that in one call. Same one-rune-
+  at-a-time split as `chars`, but each rune must be `'0'`-`'9'` — a
+  non-digit character is a runtime error, not silently skipped or
+  mapped to its raw code point, matching `int(x)`'s own "malformed
+  input is an error, not a guess" stance above.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
-  `value` or a `fallback` if `value` is `nobox`), `chars` (string → List
-  of characters), the Set builtins `gather`/`sprinkle`/`scrape`/
-  `topped`/`combine`/`shared`/`strip`, `unbox`/`lines`/`trim` (input),
-  and `str`/`int`/`float`/`bool` (conversion). These names were chosen
-  specifically because dropping `topping`/`sauce` as declaration
+  `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
+  (string → List of characters/digits), the Set builtins
+  `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
+  `unbox`/`lines`/`trim` (input), and `str`/`int`/`float`/`bool`
+  (conversion). These names were chosen specifically because dropping
+  `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more
   useful as functions — `sauce` in particular reuses the "base layer
   under everything else" metaphor for a fallback value; `unbox` extends

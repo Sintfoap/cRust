@@ -435,6 +435,7 @@ or because it's directly tied to the Set type this doc introduces.
 | `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Map, or Set |
 | `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `?:` operator (§5.4), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
+| `ints(s)` | `(String) -> List` | splits a string of digits into a List of single-digit Integers — the numeric-grid counterpart to `chars`; a non-digit character is a runtime error |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |

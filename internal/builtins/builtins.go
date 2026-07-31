@@ -29,6 +29,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"slices":   {Fn: slicesFn},
 		"sauce":    {Fn: sauceFn},
 		"chars":    {Fn: charsFn},
+		"ints":     {Fn: intsFn},
 		"idiv":     {Fn: idivFn},
 		"gather":   {Fn: gatherFn},
 		"sprinkle": {Fn: sprinkleFn},
@@ -120,6 +121,31 @@ func charsFn(args ...object.Object) object.Object {
 	out := make([]object.Object, len(runes))
 	for i, r := range runes {
 		out[i] = &object.String{Value: string(r)}
+	}
+	return object.NewList(out)
+}
+
+// intsFn is `ints(s)` (SPEC.md §7) — splits a String into a List of
+// single-digit Integers, one per character: the numeric-grid
+// counterpart to `chars`, which does the same split but keeps each
+// character as a one-rune String instead of parsing it. Every rune
+// must be a decimal digit ('0'-'9') — a non-digit character is a
+// runtime error, not silently skipped or mapped to some other value.
+func intsFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("ints", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("ints", 0, "a String", args[0])
+	}
+	runes := []rune(s.Value)
+	out := make([]object.Object, len(runes))
+	for i, r := range runes {
+		if r < '0' || r > '9' {
+			return newError("ints: %q is not a digit", string(r))
+		}
+		out[i] = object.NewInteger(int64(r - '0'))
 	}
 	return object.NewList(out)
 }

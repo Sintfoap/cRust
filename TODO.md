@@ -164,6 +164,7 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       which is Set difference, to avoid a name collision)
 - [ ] Strings: split, join, contains, replace
 - [x] `chars` (string → List of one-character strings)
+- [x] `ints` (string of digits → List of single-digit Integers)
 - [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no
       implicit coercion (SPEC.md §6 already rules that out for
       operators: `+` between a String and a number stays a type error,
