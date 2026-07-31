@@ -75,7 +75,7 @@ func wantFloat(t *testing.T, got object.Object, want float64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
@@ -470,6 +470,81 @@ func TestLines(t *testing.T) {
 func TestLinesWrongType(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "lines", object.NewInteger(1)))
+}
+
+func wantStringList(t *testing.T, got object.Object, want []string) {
+	t.Helper()
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	if len(list.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d: %v", len(list.Elements), len(want), list.Inspect())
+	}
+	for i, w := range want {
+		wantString(t, list.Elements[i], w)
+	}
+}
+
+func TestSplitNoDelimCollapsesWhitespace(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"single spaces", "1 2 3", []string{"1", "2", "3"}},
+		{"irregular spacing", "  1   2\t3  ", []string{"1", "2", "3"}},
+		{"newlines too", "a\nb\nc", []string{"a", "b", "c"}},
+		{"all whitespace", "   ", []string{}},
+		{"empty", "", []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantStringList(t, call(t, table, "split", &object.String{Value: tt.input}), tt.want)
+		})
+	}
+}
+
+func TestSplitWithDelim(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	tests := []struct {
+		name  string
+		input string
+		delim string
+		want  []string
+	}{
+		{"comma", "a,b,c", ",", []string{"a", "b", "c"}},
+		{"preserves empty entries", "a,,b", ",", []string{"a", "", "b"}},
+		{"multi-char delim", "a::b::c", "::", []string{"a", "b", "c"}},
+		{"delim not found", "abc", ",", []string{"abc"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := call(t, table, "split", &object.String{Value: tt.input}, &object.String{Value: tt.delim})
+			wantStringList(t, result, tt.want)
+		})
+	}
+}
+
+func TestSplitEmptyDelimIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	errObj := wantError(t, call(t, table, "split", &object.String{Value: "abc"}, &object.String{Value: ""}))
+	if !strings.Contains(errObj.Message, "chars") {
+		t.Errorf("Message = %q, want it to point at chars(s)", errObj.Message)
+	}
+}
+
+func TestSplitWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "split", object.NewInteger(1)))
+	wantError(t, call(t, table, "split", &object.String{Value: "a"}, object.NewInteger(1)))
+}
+
+func TestSplitWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "split"))
+	wantError(t, call(t, table, "split", &object.String{Value: "a"}, &object.String{Value: "b"}, &object.String{Value: "c"}))
 }
 
 func TestTrim(t *testing.T) {

@@ -776,14 +776,14 @@ Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `push`,
 a builtin" note, so it landed with the rest even though it's not yet in
 §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
-(`unbox`/`lines`/`trim`), type conversion (`str`/`int`/`float`/`bool`),
-and `+`-as-concatenation extended from strings to Lists and Tuples.
-**Still not built**: general `strings` helpers (split/join/contains/
-replace) and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list
+(`unbox`/`lines`/`split`/`trim`), type conversion
+(`str`/`int`/`float`/`bool`), and `+`-as-concatenation extended from
+strings to Lists and Tuples. **Still not built**: `join`/`contains`/
+`replace` and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list
 sorting) — the rest of what this phase's own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
-  `strings` (split/join/contains/replace, not yet built), `math`
+  `strings` (join/contains/replace, not yet built), `math`
   (abs/pow/sqrt/gcd/lcm, not yet built), `sort` (list sorting, not yet
   built). `unbox` wraps `os.ReadFile` (with a path argument) or reads
   the injected `stdin io.Reader` directly (no argument) — same-shaped
@@ -799,6 +799,19 @@ sorting) — the rest of what this phase's own section below describes.
   in §7, and overloading one name across two unrelated operations
   (whitespace trimming vs. Set difference) would have been confusing
   regardless of which one got there first.
+- **`split` overloads on arity rather than needing two names** — the
+  same `unbox()`/`unbox(path)` pattern. `split(s)` wraps
+  `strings.Fields` (runs of whitespace, no empty entries — the "just
+  give me the words" behavior most languages' no-argument split has);
+  `split(s, delim)` wraps `strings.Split` (literal delimiter,
+  preserving empty entries between consecutive delimiters, so
+  `"a,,b"` on `","` is 3 elements, not 2 — real CSV-style parsing needs
+  that, unlike the whitespace form). An empty `delim` is a runtime
+  error rather than falling through to `strings.Split`'s own
+  per-rune-boundary behavior for that case, since `chars(s)` already
+  owns "split into individual characters" and having two builtins
+  quietly do the same thing under different names would be confusing,
+  not convenient.
 - **Type conversion is explicit-only, by design, not by omission.**
   `SPEC.md` §6 already states operators never implicitly convert
   between types (`+` between a String and a number is a type error);
@@ -847,7 +860,7 @@ sorting) — the rest of what this phase's own section below describes.
   (string → List of characters/digits), `push` (in-place List append),
   the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
-  `unbox`/`lines`/`trim` (input), and `str`/`int`/`float`/`bool`
+  `unbox`/`lines`/`split`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping
   `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more

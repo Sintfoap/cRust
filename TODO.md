@@ -176,7 +176,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       as a String) + `lines(s)` (split into a List of lines)
 - [x] `trim` (leading/trailing whitespace — kept distinct from `strip`,
       which is Set difference, to avoid a name collision)
-- [ ] Strings: split, join, contains, replace
+- [x] `split` (`split(s)` whitespace-collapsing, `split(s, delim)`
+      literal delimiter — CSV-style, preserves empty entries)
+- [ ] Strings: join, contains, replace
 - [x] `chars` (string → List of one-character strings)
 - [x] `ints` (string of digits → List of single-digit Integers)
 - [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no

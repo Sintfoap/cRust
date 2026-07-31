@@ -41,6 +41,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"strip":    {Fn: stripFn},
 		"unbox":    {Fn: unboxFn(stdin)},
 		"lines":    {Fn: linesFn},
+		"split":    {Fn: splitFn},
 		"trim":     {Fn: trimFn},
 		"str":      {Fn: strFn},
 		"int":      {Fn: intFn},
@@ -368,6 +369,52 @@ func linesFn(args ...object.Object) object.Object {
 		out = append(out, &object.String{Value: scanner.Text()})
 	}
 	return object.NewList(out)
+}
+
+// splitFn is `split(s)` / `split(s, delim)` (SPEC.md §7). With one
+// argument, splits on runs of whitespace — leading/trailing/repeated
+// whitespace produces no empty entries, the same "just give me the
+// words" behavior most languages' no-argument split has, handy for
+// AoC input lines with irregular spacing. With a delim argument,
+// splits on that literal string instead, preserving empty entries
+// between consecutive delimiters ("a,,b" on "," is ["a", "", "b"], not
+// ["a", "b"]) — a real CSV-style split, not whitespace-collapsing. An
+// empty delim is a runtime error: the rune-by-rune behavior that
+// would otherwise imply already has a name, chars(s).
+func splitFn(args ...object.Object) object.Object {
+	switch len(args) {
+	case 1:
+		s, ok := args[0].(*object.String)
+		if !ok {
+			return wrongArgType("split", 0, "a String", args[0])
+		}
+		fields := strings.Fields(s.Value)
+		out := make([]object.Object, len(fields))
+		for i, f := range fields {
+			out[i] = &object.String{Value: f}
+		}
+		return object.NewList(out)
+	case 2:
+		s, ok := args[0].(*object.String)
+		if !ok {
+			return wrongArgType("split", 0, "a String", args[0])
+		}
+		delim, ok := args[1].(*object.String)
+		if !ok {
+			return wrongArgType("split", 1, "a String", args[1])
+		}
+		if delim.Value == "" {
+			return newError("split: delimiter cannot be empty (use chars(s) to split into individual characters)")
+		}
+		parts := strings.Split(s.Value, delim.Value)
+		out := make([]object.Object, len(parts))
+		for i, p := range parts {
+			out[i] = &object.String{Value: p}
+		}
+		return object.NewList(out)
+	default:
+		return wrongArgCount("split", "1 or 2", len(args))
+	}
 }
 
 // trimFn is `trim(s)` (SPEC.md §7) — removes leading/trailing
