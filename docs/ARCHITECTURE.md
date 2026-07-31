@@ -772,15 +772,16 @@ shadow (confirmed by a test: `deliver = recipe(x) {...}` works). A
 one comes back unset, which is the one place that distinction matters.
 
 Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `push`,
-`idiv` (mentioned in `SPEC.md` §6 as backing `/`'s "integer division is
-a builtin" note, so it landed with the rest even though it's not yet in
-§7's table), the full Set family
+`map`, `idiv` (mentioned in `SPEC.md` §6 as backing `/`'s "integer
+division is a builtin" note, so it landed with the rest even though
+it's not yet in §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
 (`unbox`/`lines`/`split`/`join`/`trim`), type conversion
 (`str`/`int`/`float`/`bool`), and `+`-as-concatenation extended from
-strings to Lists and Tuples. **Still not built**: `contains`/`replace`
-and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm, list sorting) — the
-rest of what this phase's own section below describes.
+strings to Lists and Tuples. **Still not built**: `contains`/`replace`,
+`filter`/`reduce` (`map`'s siblings), and `math`/`sort` adapters
+(abs/pow/sqrt/gcd/lcm, list sorting) — the rest of what this phase's
+own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
   `strings` (contains/replace, not yet built), `math`
@@ -844,6 +845,17 @@ rest of what this phase's own section below describes.
   non-digit character is a runtime error, not silently skipped or
   mapped to its raw code point, matching `int(x)`'s own "malformed
   input is an error, not a guess" stance above.
+  - **`ints(list)` is a second, deliberately different overload**,
+    added once real usage showed `ints(split(line))` — a line of
+    whitespace-separated, possibly multi-digit numbers — was just as
+    common a shape as a bare digit string. Each element is parsed as a
+    *whole* Integer (`strconv.ParseInt`, the same as `int(x)`'s own
+    String case), not digit-by-digit — `ints(["12", "345"])` is
+    `[12, 345]`, not five single digits. The two overloads answer "this
+    string IS a sequence of digits" vs. "this list holds separate
+    numerals" — different enough questions that giving them different
+    parsing rules under one name is the right call, not an
+    inconsistency to paper over.
 - **`push(list, item)` mutates in place; `+` never does.** Both exist
   because they answer different questions — "add this one item to the
   List I already have" (`push`, the List counterpart to `sprinkle`'s
@@ -861,11 +873,50 @@ rest of what this phase's own section below describes.
   the way `evalTupleLiteral` does for a fresh literal — both operands
   are already-constructed Tuples, so every element was already proven
   `Hashable` when *they* were built.
+- **`map(iterable, fn)` is the first builtin that needs to call back
+  into the interpreter** — every builtin before it only ever produced
+  or inspected `object.Object` values, never *invoked* one, so nothing
+  before this needed a way to call a user-defined `*object.Function`
+  (that needs `internal/interpreter`'s environment/`Eval` machinery,
+  not just the `object` package). Direct import isn't possible —
+  `internal/interpreter` already imports `internal/builtins`, and Go
+  disallows the reverse — so the fix is dependency injection: a new
+  `builtins.Call` type (`func(fn object.Object, args []object.Object)
+  object.Object`) is threaded through `builtins.New`'s new third
+  parameter, and `interpreter.New` supplies its own `i.Call` method
+  value as that argument. This does mean `interpreter.New` has to
+  construct the `*Interpreter` before it can finish building the
+  builtin table (`i := &Interpreter{}` first, *then*
+  `i.Builtins = builtins.New(output, stdin, i.Call)`), since the method
+  value needs a real receiver to bind to — safe because `Call` only
+  ever reads `i.Builtins` when something actually invokes `map` at
+  *program* runtime, long after this one-time constructor call
+  returns, never during construction itself. `mapFn` itself is
+  otherwise a plain "iterate a List/Tuple, call fn on each element,
+  collect into a new List, short-circuit on the first error" loop — no
+  special-casing beyond that; a `*object.Builtin` argument (`map(xs,
+  str)`) and a `*object.Function` argument (`map(xs, recipe(x)
+  {...})`) both just flow through the same injected `call`. Only one
+  function at a time, deliberately: chaining more than one transform
+  per element is already possible by passing a lambda that does both
+  (`map(xs, recipe(x) { serve g(f(x)) })`), so `map` doesn't also need
+  to accept a List of functions to pipeline — that would just be a
+  second, redundant spelling of something closures already do.
+  `internal/builtins`' own tests can't easily exercise the
+  `*object.Function` half of this (constructing one needs
+  `internal/ast`/`internal/object.Environment` wiring that's really
+  `internal/interpreter`'s job) — a `fakeCall` test helper that can
+  still invoke a `*object.Builtin` directly covers `map`'s own
+  iterate-and-collect logic in isolation; the real closures-through-`map`
+  behavior (including a lambda that closes over an outer variable, and
+  a lambda composing two steps like `ints(split(line))`) is covered by
+  `internal/interpreter`'s own test suite instead, where a real `Call`
+  is naturally available.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
-  the Set builtins
+  `map` (apply a function across a List/Tuple), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
   (conversion). These names were chosen specifically because dropping

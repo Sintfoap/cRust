@@ -69,6 +69,86 @@ a
 	}
 }
 
+// --- map() builtin (higher-order, not the Map type) -----------------------
+
+func TestMapBuiltinWithLambda(t *testing.T) {
+	input := `
+squared = map([1, 2, 3], recipe(x) { serve x * x })
+squared
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	want := []int64{1, 4, 9}
+	if len(list.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(list.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, list.Elements[i], w)
+	}
+}
+
+func TestMapBuiltinWithNamedFunction(t *testing.T) {
+	input := `
+recipe double(x) {
+    serve x * 2
+}
+map([1, 2, 3], double)
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	wantInteger(t, list.Elements[0], 2)
+	wantInteger(t, list.Elements[2], 6)
+}
+
+func TestMapBuiltinWithBuiltinFunction(t *testing.T) {
+	// A builtin (str) passed as the transform, not just a user recipe.
+	input := `map([1, 2, 3], str)`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	wantString(t, list.Elements[0], "1")
+}
+
+func TestMapBuiltinComposesMultipleSteps(t *testing.T) {
+	// The user's motivating pattern: knead over ints(split(line)) for
+	// every line, via a lambda that chains split then ints -- map
+	// itself only takes one function, composition happens by writing
+	// a lambda that calls both.
+	input := `
+lines_ = ["1 2 3", "4 5"]
+rows = map(lines_, recipe(line) { serve ints(split(line)) })
+total = 0
+knead row in rows {
+    knead n in row {
+        total += n
+    }
+}
+total
+`
+	wantInteger(t, testEval(t, input), 15)
+}
+
+func TestMapBuiltinClosesOverEnclosingScope(t *testing.T) {
+	input := `
+factor = 10
+scaled = map([1, 2, 3], recipe(x) { serve x * factor })
+scaled
+`
+	result := testEval(t, input)
+	list := result.(*object.List)
+	wantInteger(t, list.Elements[2], 30)
+}
+
+func TestMapBuiltinErrorInFunctionPropagates(t *testing.T) {
+	wantError(t, testEval(t, `map([1, 0], recipe(x) { serve 1 / x })`), "division by zero")
+}
+
+func TestMapBuiltinOnTuple(t *testing.T) {
+	result := testEval(t, `map((1, 2, 3), recipe(x) { serve x + 1 })`)
+	list := result.(*object.List)
+	wantInteger(t, list.Elements[0], 2)
+	wantInteger(t, list.Elements[2], 4)
+}
+
 // --- Map literals and indexing --------------------------------------------
 
 func TestMapLiteral(t *testing.T) {

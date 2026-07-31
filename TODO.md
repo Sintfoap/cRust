@@ -181,7 +181,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `join` (List of Strings + separator → String, `split`'s counterpart)
 - [ ] Strings: contains, replace
 - [x] `chars` (string → List of one-character strings)
-- [x] `ints` (string of digits → List of single-digit Integers)
+- [x] `ints` (string of digits → List of single-digit Integers; also
+      accepts a List of numeric Strings, parsing each as a full
+      Integer — `ints(split(line))`)
 - [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no
       implicit coercion (SPEC.md §6 already rules that out for
       operators: `+` between a String and a number stays a type error,
@@ -191,7 +193,11 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `push` (append to a List in place) and `+` extended to List/List
       and Tuple/Tuple concatenation (always a new value, never
       mutating either operand — `push` is the in-place counterpart)
-- [ ] Collections: sort, map/filter/reduce (or equivalent loop sugar)
+- [x] `map(iterable, fn)` — applies fn (a recipe or builtin) to every
+      element of a List/Tuple, collecting the results. Composition of
+      multiple steps is via a lambda (`map(xs, recipe(x) { serve g(f(x)) })`),
+      not a List of functions
+- [ ] Collections: sort, filter/reduce (or equivalent loop sugar)
 - [x] `slices` (length of a String/List/Map/Set)
 - [x] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`
 - [x] Nil-handling: `sauce` (fallback-if-nobox)

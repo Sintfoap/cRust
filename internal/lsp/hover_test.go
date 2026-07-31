@@ -18,7 +18,7 @@ import (
 // against builtins.New()'s real key set — not another hand-maintained
 // list — is what makes this catch the next one automatically.
 func TestBuiltinDocsCoversEveryRealBuiltin(t *testing.T) {
-	real := builtins.New(io.Discard, strings.NewReader(""))
+	real := builtins.New(io.Discard, strings.NewReader(""), nil) // nil: this test only enumerates keys, never calls map
 	for name := range real {
 		if _, ok := builtinDocs[name]; !ok {
 			t.Errorf("builtinDocs is missing %q — every builtins.New() entry needs a hover/completion doc", name)

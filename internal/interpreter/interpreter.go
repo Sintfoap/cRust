@@ -24,10 +24,19 @@ type Interpreter struct {
 	Builtins map[string]*object.Builtin
 }
 
-// New returns an Interpreter whose `deliver` builtin writes to output
-// and whose `unbox` builtin (with no argument) reads from stdin.
+// New returns an Interpreter whose `deliver` builtin writes to output,
+// whose `unbox` builtin (with no argument) reads from stdin, and whose
+// `map` builtin calls back into this same Interpreter's own Call to
+// invoke user-defined functions — i's Builtins field is set after i
+// itself exists specifically so the i.Call method value passed to
+// builtins.New already refers to the right instance; Call only reads
+// i.Builtins at actual call time (long after this constructor
+// returns), never during construction, so the field being briefly
+// unset here is never observed.
 func New(output io.Writer, stdin io.Reader) *Interpreter {
-	return &Interpreter{Builtins: builtins.New(output, stdin)}
+	i := &Interpreter{}
+	i.Builtins = builtins.New(output, stdin, i.Call)
+	return i
 }
 
 // Call invokes fn (a *object.Function or *object.Builtin) with args,

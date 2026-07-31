@@ -18,12 +18,21 @@ import (
 	"github.com/Sintfoap/cRust/internal/object"
 )
 
-// New returns a fresh builtin table with `deliver` writing to output
-// and `unbox` (with no argument) reading from stdin. A constructor
-// rather than a package-level table, so callers (tests especially) can
-// capture output/supply input deterministically instead of sharing
-// mutable global state.
-func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
+// Call invokes a cRust-callable Object (a *object.Function or
+// *object.Builtin) with args and returns its result — exactly
+// internal/interpreter's own applyFunction logic, injected here rather
+// than imported directly, since internal/interpreter already imports
+// internal/builtins and Go doesn't allow the reverse. `map` is the only
+// builtin that needs this today.
+type Call func(fn object.Object, args []object.Object) object.Object
+
+// New returns a fresh builtin table with `deliver` writing to output,
+// `unbox` (with no argument) reading from stdin, and `map` invoking
+// user-supplied functions via call. A constructor rather than a
+// package-level table, so callers (tests especially) can capture
+// output/supply input deterministically instead of sharing mutable
+// global state.
+func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builtin {
 	return map[string]*object.Builtin{
 		"deliver":  {Fn: deliverFn(output)},
 		"slices":   {Fn: slicesFn},
@@ -31,6 +40,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"chars":    {Fn: charsFn},
 		"ints":     {Fn: intsFn},
 		"push":     {Fn: pushFn},
+		"map":      {Fn: mapFn(call)},
 		"idiv":     {Fn: idivFn},
 		"gather":   {Fn: gatherFn},
 		"sprinkle": {Fn: sprinkleFn},
@@ -129,6 +139,47 @@ func pushFn(args ...object.Object) object.Object {
 	return object.NULL
 }
 
+// mapFn is `map(iterable, fn)` (SPEC.md §7) — applies fn to every
+// element of a List or Tuple, in order, and collects the results into
+// a new List. fn can be a user-defined recipe or another builtin;
+// invoking it goes through the injected call callback (see the Call
+// type doc comment) rather than anything in this package, since
+// calling a *object.Function needs internal/interpreter's environment
+// machinery. A single-function design deliberately — chaining more
+// than one transform per element is already possible by passing a
+// lambda that does both (`map(xs, recipe(x) { serve g(f(x)) })`), so
+// map itself doesn't need to accept a List of functions to pipeline;
+// that would just be a second, redundant way to spell the same thing.
+// Stops and returns immediately on the first element fn errors on,
+// same short-circuiting every other builtin here already gives you
+// for free by just returning whatever call() hands back.
+func mapFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("map", "2", len(args))
+		}
+		var elements []object.Object
+		switch v := args[0].(type) {
+		case *object.List:
+			elements = v.Elements
+		case *object.Tuple:
+			elements = v.Elements
+		default:
+			return wrongArgType("map", 0, "a List or Tuple", args[0])
+		}
+
+		out := make([]object.Object, len(elements))
+		for i, elem := range elements {
+			result := call(args[1], []object.Object{elem})
+			if result.Type() == object.ERROR_OBJ {
+				return result
+			}
+			out[i] = result
+		}
+		return object.NewList(out)
+	}
+}
+
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of
 // one-character (one-rune) Strings.
 func charsFn(args ...object.Object) object.Object {
@@ -147,29 +198,51 @@ func charsFn(args ...object.Object) object.Object {
 	return object.NewList(out)
 }
 
-// intsFn is `ints(s)` (SPEC.md §7) — splits a String into a List of
-// single-digit Integers, one per character: the numeric-grid
-// counterpart to `chars`, which does the same split but keeps each
-// character as a one-rune String instead of parsing it. Every rune
-// must be a decimal digit ('0'-'9') — a non-digit character is a
-// runtime error, not silently skipped or mapped to some other value.
+// intsFn is `ints(s)` / `ints(list)` (SPEC.md §7). `ints(s)` splits a
+// String into a List of single-digit Integers, one per character: the
+// numeric-grid counterpart to `chars`, which does the same split but
+// keeps each character as a one-rune String instead of parsing it.
+// Every rune must be a decimal digit ('0'-'9') — a non-digit character
+// is a runtime error, not silently skipped or mapped to some other
+// value. `ints(list)` is a different, complementary shape: each
+// element of list must be a String holding a (possibly multi-digit)
+// base-10 integer — parsed the same way `int(x)` parses a String, not
+// digit-by-digit — so `ints(split(line))` turns a line of
+// whitespace-separated numbers straight into a List of Integers.
 func intsFn(args ...object.Object) object.Object {
 	if len(args) != 1 {
 		return wrongArgCount("ints", "1", len(args))
 	}
-	s, ok := args[0].(*object.String)
-	if !ok {
-		return wrongArgType("ints", 0, "a String", args[0])
-	}
-	runes := []rune(s.Value)
-	out := make([]object.Object, len(runes))
-	for i, r := range runes {
-		if r < '0' || r > '9' {
-			return newError("ints: %q is not a digit", string(r))
+	switch v := args[0].(type) {
+	case *object.String:
+		runes := []rune(v.Value)
+		out := make([]object.Object, len(runes))
+		for i, r := range runes {
+			if r < '0' || r > '9' {
+				return newError("ints: %q is not a digit", string(r))
+			}
+			out[i] = object.NewInteger(int64(r - '0'))
 		}
-		out[i] = object.NewInteger(int64(r - '0'))
+		return object.NewList(out)
+
+	case *object.List:
+		out := make([]object.Object, len(v.Elements))
+		for i, elem := range v.Elements {
+			s, ok := elem.(*object.String)
+			if !ok {
+				return newError("ints: element %d is %s, not a String", i, elem.Type())
+			}
+			n, err := strconv.ParseInt(strings.TrimSpace(s.Value), 10, 64)
+			if err != nil {
+				return newError("ints: cannot parse %q as an Integer", s.Value)
+			}
+			out[i] = object.NewInteger(n)
+		}
+		return object.NewList(out)
+
+	default:
+		return wrongArgType("ints", 0, "a String or List", args[0])
 	}
-	return object.NewList(out)
 }
 
 // idivFn is `idiv(a, b)` (SPEC.md §6) — integer (floor) division,
