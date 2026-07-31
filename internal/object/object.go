@@ -39,6 +39,7 @@ const (
 	LIST_OBJ    ObjectType = "LIST"
 	MAP_OBJ     ObjectType = "MAP"
 	SET_OBJ     ObjectType = "SET"
+	TUPLE_OBJ   ObjectType = "TUPLE"
 
 	FUNCTION_OBJ ObjectType = "FUNCTION"
 	BUILTIN_OBJ  ObjectType = "BUILTIN"

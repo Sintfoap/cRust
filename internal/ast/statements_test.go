@@ -82,18 +82,6 @@ func TestUnpackAssignStatement(t *testing.T) {
 	var _ Statement = uas
 }
 
-func TestUnpackAssignStatementTupleValues(t *testing.T) {
-	uas := &UnpackAssignStatement{
-		Token:       token.Token{Literal: "a"},
-		Targets:     []*Identifier{{Value: "a"}, {Value: "b"}},
-		TupleValues: []Expression{&Identifier{Value: "x"}, &Identifier{Value: "y"}},
-	}
-	want := "a, b = (x, y)"
-	if got := uas.String(); got != want {
-		t.Errorf("String() = %q, want %q", got, want)
-	}
-}
-
 func TestIncDecStatement(t *testing.T) {
 	tests := []struct {
 		op   string

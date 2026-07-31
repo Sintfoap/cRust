@@ -464,44 +464,73 @@ themselves.
   (`isValidLvalue`: only `*Identifier` and `*IndexExpression` qualify),
   rather than given their own grammar branch. The same validation is
   reused for both forms of `incDecStmt` (`x++` and `++x`).
-- **Tuple-unpack sugar** (`a, b = (x, y)`, `SPEC.md` §3.1) — added
-  after `unpackAssign` shipped, once real usage showed its "last target
-  always gets a List" rule (deliberate — see `SPEC.md` §3.1's own
-  rationale) is the wrong behavior for the common case of wanting two
-  or more genuinely independent scalars, most visibly the classic swap
-  idiom (`x, y = (y, x)`). Handled entirely in
-  `parseUnpackAssignStatement`/`parseUnpackValue`
-  (`internal/parser/statements.go`), not by touching the shared
-  `parseGroupedExpression` prefix parselet every other `(...)` in the
-  grammar goes through — deliberately, so `(a, b)` stays a parse error
-  everywhere except this one grammar slot rather than becoming a
-  general expression that merely fails at eval time. One expression's
-  worth of lookahead resolves the ambiguity with ordinary grouping:
-  parse the first inner expression via the normal `parseExpression`,
-  then check what follows — `,` commits to tuple sugar (collect the
-  rest, `expectPeek(RPAREN)`, store as `UnpackAssignStatement`'s new
-  `TupleValues []ast.Expression` field instead of `Value`); a bare `)`
-  means it was just `(xs)`-style grouping all along, so parsing falls
-  back to the pre-existing behavior — including any operators trailing
-  the `)` (`(x)..y` still parses as a Range, not a truncated
-  expression). That fallback reuses `parseExpression`'s own infix loop
-  rather than re-implementing precedence climbing: the loop was factored
-  out into `parseInfixChain(left, precedence)` specifically so this one
-  caller could resume it on a "left" it had to hand-parse itself,
-  instead of duplicating the loop or resorting to lexer/parser-state
-  backtracking (which would've worked too, but needs snapshotting
-  `Lexer`'s otherwise-private fields — copyable as an opaque struct
-  value across the package boundary, but a less direct fix than just
-  sharing the one loop that was already there).
-  `internal/interpreter/statements.go`'s `evalTupleUnpack` gives the two
-  forms genuinely different runtime rules rather than just different
-  parsing: exact arity (a mismatch is a runtime error, not silently
-  padded/truncated) and every target — including the last — gets its
-  own bare value, never the List-wrapped "everything left over" the
-  plain form's last target gets. Every value is evaluated before any
-  target is assigned (same single-pass-then-assign order the plain
-  form already used), which is what makes the swap idiom correct rather
-  than order-dependent.
+- **`(a, b, ...)` tuple literals** (`SPEC.md` §2.3) parse through the
+  same shared `parseGroupedExpression` prefix parselet every `(` in the
+  grammar already goes through — not a special case scoped to
+  unpacking. One expression's worth of lookahead resolves the
+  ambiguity with ordinary grouping: parse the first inner expression
+  via the normal `parseExpression`, then check what follows — a `,`
+  commits to a `*ast.TupleLiteral` (collect the rest,
+  `expectPeek(RPAREN)`); a bare `)` means it was just `(x)`-style
+  grouping all along, so the already-parsed expression is returned as
+  the grouped value and the surrounding `parseExpression` call's own
+  infix loop picks up anything trailing the `)` the normal way (`(x)..y`
+  still parses as a Range, not a truncated expression) — no special
+  continuation logic needed, since this all happens inside
+  `parseGroupedExpression` itself rather than a separate caller trying
+  to resume `parseExpression` from outside.
+  - This design point is worth calling out because an earlier version
+    of this feature took the opposite approach — parsing `(a, b)` only
+    at the direct right-hand side of an unpacking assignment, as
+    dedicated sugar with no real value type behind it — specifically
+    to keep the change small. That fell over the moment real usage
+    needed to unpack a Tuple produced by a *ternary* choosing between
+    two of them (`x, y = cond (| (a, b) |) (c, d)`): by the time the
+    outer assignment sees the ternary's result, it's just a runtime
+    value with no memory of having been written with `(...)` syntax,
+    so sugar recognized only at one parse-time position structurally
+    can't reach it. Promoting `(a, b, ...)` to a real, general
+    `TupleLiteral` — parseable (and, at the object level, a real
+    `object.Tuple`) anywhere any other expression is — was the only way
+    to make unpacking dispatch on what a value *is* at runtime rather
+    than how the AST node that produced it happened to be shaped,
+    which is what makes it work through a ternary, an `elvis`, a
+    function return, or anything else.
+  - `internal/interpreter/expressions.go`'s `evalTupleLiteral` requires
+    every element to itself be `Hashable` (`internal/object`) — checked
+    once here, at construction, specifically so `object.Tuple`'s own
+    `HashKey` (a combination of every element's own `HashKey`, via
+    `fnv`, folding in each element's `ObjectType` too so e.g. a
+    Boolean and a same-`Value` Integer element can't blend together)
+    never has to handle a non-`Hashable` element itself. This is the
+    same "narrower than `Object` itself" restriction `evalMapLiteral`
+    already enforces for map keys (`SPEC.md` §2's String-or-Integer
+    rule), applied to every element rather than just keys — and it's
+    what makes `Tuple` safely usable as a `Map` key or `Set` element
+    (`sprinkle(seen, (x, y))` for grid-coordinate dedup, the single
+    biggest practical reason to want this over a `List`, which can
+    never be hashed since its contents can change after insertion).
+  - `internal/interpreter/statements.go`'s `evalUnpackAssignStatement`
+    dispatches on `Value`'s *runtime* type once evaluated, not
+    anything visible in the AST: a `*object.Tuple` result unpacks with
+    exact arity (every target, including the last, gets its own bare
+    value; a count mismatch is a runtime error, not silently
+    padded/truncated); a `*object.List` result keeps the classic rule
+    (first N-1 targets bare, the last always List-wrapped). Either way
+    `Value` is evaluated exactly once before any target is assigned, so
+    `a, b = (b, a)` swaps correctly rather than clobbering `b` before
+    it's read.
+  - `Tuple` otherwise behaves like a read-only `List`: indexable
+    (`readIndex`), iterable (`evalForEachLoop`), included in `slices`
+    (`internal/builtins`), and compared by contents in
+    `objectsEqual`/`listsEqual` (factored to take `[]object.Object`
+    directly so `List` and `Tuple` — which only differ in mutability,
+    not in what "equal" means — share one implementation). `writeIndex`
+    is the one place it diverges: a `Tuple` index-assignment is a
+    runtime error (`Tuple is immutable, does not support index
+    assignment`) rather than falling through to `List`'s in-place
+    mutation — immutability is what makes the hashability above safe in
+    the first place, not just a style choice.
 - **`knead` dispatch** needs only one token of lookahead, not the
   general expression backtracking `parseSimpleStatement` uses: a `(`
   immediately after `knead` always means `countedHeader`, a bare

@@ -28,6 +28,7 @@ both in the same change.
 | Boolean | `stuffed`, `thin` | see §4 — no bare `true`/`false` |
 | Nil | `nobox` | absence of a value |
 | List | `[1, 2, 3]` | 0-indexed, ordered, heterogeneous, mutable |
+| **Tuple** | `(1, 2, 3)` | 0-indexed, ordered, heterogeneous, **immutable** — see §2.3 |
 | Map | `{"a": 1, "b": 2}` | string or integer keys, mutable |
 | **Set** | `toppings{1, 2, 3}` | unordered, unique — a pizza's toppings never repeat and don't have an order, so that's the name; see §2.2 |
 | Function | `recipe(a, b) { ... }` | first-class, closes over defining scope |
@@ -78,6 +79,66 @@ empty     = toppings{}
   `knead` loop (§8, `forEachHeader`).
 - Equality between two Sets compares contents, ignoring order:
   `toppings{1, 2} == toppings{2, 1}` is `stuffed`.
+
+### 2.3 Tuples (`(...)`)
+
+A Tuple is a fixed-size, ordered, **immutable** sequence — List's
+counterpart for values that shouldn't change after they're built, most
+usefully because immutability is what makes a Tuple safe to *hash*: it
+can be a `Map` key or `Set` element the way a `List` never safely could
+(a `List`'s contents can change after it's inserted, which would leave
+a stale hash behind; a `Tuple`'s can't).
+
+```
+point = (3, 4)
+deliver(point[0])          // 3 -- indexable, like a List
+
+seen = toppings{}
+sprinkle(seen, (3, 4))     // works: Tuple is hashable
+sprinkle(seen, [3, 4])     // error: List is not hashable
+
+(1, 2) == (1, 2)           // stuffed -- contents, in order, like List
+(1, 2) == [1, 2]           // thin -- different types never compare equal
+```
+
+- Written with the same `(`/`)` a grouped expression uses — `(x)` (no
+  comma) is still ordinary grouping, unchanged; two or more
+  comma-separated values inside the parens is what makes it a Tuple.
+  There's no dedicated bracket pair the way `[...]`/`toppings{...}`
+  each get one, since the parser only needs one token of lookahead
+  (comma vs. `)`) to tell a Tuple from a grouped expression — see §8's
+  grammar note on `tupleLiteral`.
+- **Not mutable**: `t[0] = x` is a runtime error
+  (`Tuple is immutable, does not support index assignment`). This is
+  what makes hashing safe (above), not just a style preference.
+- Indexable (`t[0]`) and iterable (`knead x in myTuple {...}`) exactly
+  like a List; `slices(t)` works the same way too.
+- **Every element must itself be hashable** — Integer, Float, String,
+  Boolean, or another all-hashable Tuple. A List, Map, or Set element
+  is a runtime error at the point the Tuple literal is evaluated
+  (`unhashable type: ... cannot be a Tuple element`), the same
+  "checked at construction" approach §7's `gather`/Set-literal already
+  take for their own elements. This is what guarantees a Tuple's
+  `HashKey` never has to handle an element that can't produce one.
+- Unpacking assignment (§3.1) treats a Tuple specially: **exact arity**
+  is required, and every target — including the last — gets its own
+  bare value, unlike unpacking a List (where the last target always
+  gets wrapped in a `List` of everything left over). Which rule applies
+  is decided by the right-hand side's *runtime* type, so it works
+  through any expression, not just a literal directly on the
+  assignment's right — a ternary choosing between two Tuples, a
+  function call returning one, anything:
+  ```
+  a, b = (1, 2)              // a = 1, b = 2 -- both bare
+  a, b = [1, 2]               // a = 1, b = [2] -- List's own rule, unchanged
+
+  x, y = (y, x)                // swaps correctly
+
+  recipe minMax(a, b) {
+      serve a < b (| (a, b) |) (b, a)
+  }
+  lo, hi = minMax(9, 3)        // lo = 3, hi = 9 -- unpacks the ternary's Tuple result
+  ```
 
 ## 3. Variables & Assignment
 
@@ -169,41 +230,10 @@ Rules:
 - Only plain `=` works with unpacking; there's no unpacking form of
   `+=` etc. — that wouldn't have a sensible meaning.
 
-#### Tuple-unpack sugar: `(a, b, ...)`
-
-Writing the right-hand side as a parenthesized, comma-separated group
-switches to a different rule: **every** target — including the last —
-takes its own bare value, and the count must match *exactly*:
-
-```
-a, b = (1, 2)
-// a = 1, b = 2      <- b is a bare Integer here, not [2]
-
-x = 10
-y = 20
-x, y = (y, x)
-// x = 20, y = 10    <- swaps correctly: both sides evaluated before either target is assigned
-
-a, b = (1, 2, 3)      // runtime error: tuple has 3 value(s), need exactly 2
-```
-
-This is **sugar for this one grammar position only** — `(a, b)` isn't a
-general value. It can't be stored in a variable, passed as a function
-argument, put in a List/Map/Set, or used anywhere else an `expression`
-is expected; the parser only recognizes it as the direct right-hand
-side of an unpacking assignment. There's no new value type behind it
-(no `Tuple` alongside List/Map/Set in §2) — `(a, b, ...)` is purely a
-different way of writing the assignment's right-hand side, not a
-literal that produces something you can hold onto.
-
-A single, comma-free parenthesized expression is **not** tuple sugar —
-`a, b = (xs)` means exactly what `a, b = xs` does (ordinary
-grouping, then the plain List-unpack rule above: `b` still ends up
-`[xs[1]]`, a List). Only two or more comma-separated values inside the
-parens switch to exact-arity semantics. This is what makes the two
-forms unambiguous from a single token of lookahead's worth of
-parsing — the parser doesn't have to guess, it just checks whether a
-`,` or `)` comes after the first inner expression.
+Unpacking a Tuple (§2.3) instead of a List follows a different rule —
+exact arity, every target bare, no last-gets-a-list wrapping — see
+§2.3 for the full explanation and examples; that section is the source
+of truth for Tuple's own behavior, this one for List's.
 
 For-each `knead` loops don't support multiple loop variables yet (e.g.
 unpacking `[key, value]` pairs while iterating a Map). That's a natural
@@ -265,7 +295,7 @@ Reserved for later phases, not yet implemented: a module-import keyword
 | Increment/decrement | `++  --` | either side of the target (`i++` and `++i` are identical); statement-level only, no return value — see §5.2 |
 | Ternary | `(\|`, `\|)` | `cond (\| then \|) else` — the two half-pizza glyphs as a matched pair, one job each — see §5.3 |
 | Elvis / nil-coalesce | `?:` | `a ?: b` — a if it isn't `nobox`, else `b` — see §5.4 |
-| Indexing | `x[i]` | List (by position), Map (by key), String (by position); **not** valid on Set |
+| Indexing | `x[i]` | List/Tuple (by position), Map (by key), String (by position); **not** valid on Set |
 | Grouping | `( )` | expression grouping |
 
 Set union/intersection/difference are deliberately **not** operators —
@@ -416,9 +446,11 @@ per-operator special cases:
 - **`+` on strings** concatenates; `+` between a string and a number is a
   type error rather than an implicit conversion — keeps type mistakes
   visible instead of silently stringifying.
-- **Equality (`==`/`!=`)** compares by value (Lists/Maps/Sets compare
-  their contents, not identity, and ignore order for Sets); comparing
-  across types (e.g. `1 == "1"`) is always `thin`, never a type error.
+- **Equality (`==`/`!=`)** compares by value (Lists/Tuples/Maps/Sets
+  compare their contents, not identity — in order for Lists/Tuples,
+  ignoring order for Sets); comparing across types (e.g. `1 == "1"`,
+  or a List against a same-contents Tuple) is always `thin`, never a
+  type error.
   Integer and Float are **one type for this purpose**, the same
   "number" category ordering (below) already groups them into — `1 ==
   1.0` is `stuffed`, not `thin`. A Function only equals itself (the
@@ -468,7 +500,7 @@ or because it's directly tied to the Set type this doc introduces.
 | Builtin | Signature | Does |
 |---|---|---|
 | `deliver(...)` | `deliver(values...)` | print — send output out |
-| `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Map, or Set |
+| `slices(x)` | `slices(x) -> Integer` | length/count of a String, List, Tuple, Map, or Set |
 | `sauce(value, fallback)` | `(Any, Any) -> Any` | returns `value` unless it's `nobox`, in which case returns `fallback` — same job as the `?:` operator (§5.4), as a plain function |
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
 | `ints(s)` | `(String) -> List` | splits a string of digits into a List of single-digit Integers — the numeric-grid counterpart to `chars`; a non-digit character is a runtime error |
@@ -511,11 +543,12 @@ assignStmt     = lvalue assignOp expression ;
 lvalue         = identifier { index } ;
 assignOp       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 
-unpackAssign   = identifier "," identifier { "," identifier } "="
-                 ( expression | tupleSugar ) ;
-tupleSugar     = "(" expression "," expression { "," expression } ")" ;
-                 (* only valid directly here — §3.1's tuple-unpack
-                    sugar, not a general expression production *)
+unpackAssign   = identifier "," identifier { "," identifier } "=" expression ;
+                 (* whether this unpacks List-style or Tuple-style
+                    (§2.3) depends on expression's *runtime* type, not
+                    anything visible in this grammar — expression can
+                    be a tupleLiteral directly, or any other expression
+                    that evaluates to one (a ternary, a call, ...) *)
 incDecStmt     = lvalue ( "++" | "--" ) | ( "++" | "--" ) lvalue ;
 
 recipeStmt     = "recipe" [ identifier ] "(" [ paramList ] ")" block ;
@@ -561,10 +594,11 @@ argList        = expression { "," expression } ;
 index          = "[" expression "]" ;
 
 primary        = INT | FLOAT | STRING | "stuffed" | "thin" | "nobox"
-               | identifier | "(" expression ")"
+               | identifier | "(" expression ")" | tupleLiteral
                | listLiteral | mapLiteral | setLiteral | recipeStmt ;
 
 listLiteral    = "[" [ expression { "," expression } ] "]" ;
+tupleLiteral   = "(" expression "," expression { "," expression } ")" ;
 mapLiteral     = "{" [ pair { "," pair } ] "}" ;
 pair           = expression ":" expression ;
 setLiteral     = "toppings" "{" [ expression { "," expression } ] "}" ;
@@ -578,15 +612,17 @@ instead. `unpackAssign` is checked before plain `assignStmt` since both
 start with an identifier; the parser only knows which one it's in once
 it sees whether a `,` or an `assignOp` follows.
 
-Note on `unpackAssign`/`tupleSugar`: after `=`, seeing `(` doesn't
-commit to either alternative by itself — `(xs)` (ordinary grouping,
-falls through to plain `expression`) and `(a, b)` (`tupleSugar`) both
-start that way. The parser resolves it with one expression's worth of
-lookahead: parse the first inner expression, then check what follows —
-`,` commits to `tupleSugar` (§3.1's tuple-unpack sugar); a bare `)`
-means it was ordinary grouping all along, and parsing continues as a
-normal `expression` from there (so trailing operators after the `)`,
-e.g. `(x)..y`, still work).
+Note on `"(" expression ")"` vs. `tupleLiteral`: both start with `(`,
+so the parser resolves them with one expression's worth of lookahead —
+parse the first inner expression, then check what follows. A `,`
+commits to `tupleLiteral` (§2.3); a bare `)` means it was ordinary
+grouping all along, and parsing continues as a normal `expression` from
+there (so trailing operators after the `)`, e.g. `(x)..y`, still work).
+This resolution happens in one place (the shared `(`-prefix parse
+function) regardless of where the `(...)` appears — a ternary branch,
+an unpack-assignment's right-hand side, a function argument, anywhere
+`expression` is valid — so `tupleLiteral` is a real, general
+production, not restricted to one grammar position.
 
 Note on `ternary`: the condition is parsed at `elvis` precedence, one
 level below `ternary` itself, so a bare ternary used as a condition

@@ -85,12 +85,14 @@ func slicesFn(args ...object.Object) object.Object {
 		return object.NewInteger(int64(utf8.RuneCountInString(x.Value)))
 	case *object.List:
 		return object.NewInteger(int64(len(x.Elements)))
+	case *object.Tuple:
+		return object.NewInteger(int64(len(x.Elements)))
 	case *object.Map:
 		return object.NewInteger(int64(len(x.Pairs)))
 	case *object.Set:
 		return object.NewInteger(int64(x.Len()))
 	default:
-		return newError("slices: argument must be a String, List, Map, or Set, got %s", x.Type())
+		return newError("slices: argument must be a String, List, Tuple, Map, or Set, got %s", x.Type())
 	}
 }
 

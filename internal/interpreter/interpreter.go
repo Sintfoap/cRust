@@ -113,6 +113,8 @@ func (i *Interpreter) Eval(node ast.Node, env *object.Environment) object.Object
 		return i.evalMapLiteral(node, env)
 	case *ast.SetLiteral:
 		return i.evalSetLiteral(node, env)
+	case *ast.TupleLiteral:
+		return i.evalTupleLiteral(node, env)
 	}
 
 	return newError(token.Token{}, "eval: unsupported node type %T", node)
@@ -199,7 +201,9 @@ func objectsEqual(a, b object.Object) bool {
 	case *object.Null:
 		return true
 	case *object.List:
-		return listsEqual(a, b.(*object.List))
+		return listsEqual(a.Elements, b.(*object.List).Elements)
+	case *object.Tuple:
+		return listsEqual(a.Elements, b.(*object.Tuple).Elements)
 	case *object.Map:
 		return mapsEqual(a, b.(*object.Map))
 	case *object.Set:
@@ -211,12 +215,16 @@ func objectsEqual(a, b object.Object) bool {
 	}
 }
 
-func listsEqual(a, b *object.List) bool {
-	if len(a.Elements) != len(b.Elements) {
+// listsEqual compares two element slices positionally — shared by
+// List and Tuple equality (SPEC.md §6/§2: both compare contents, in
+// order; the two types only differ in mutability, not in what "equal"
+// means).
+func listsEqual(a, b []object.Object) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	for i := range a.Elements {
-		if !objectsEqual(a.Elements[i], b.Elements[i]) {
+	for i := range a {
+		if !objectsEqual(a[i], b[i]) {
 			return false
 		}
 	}

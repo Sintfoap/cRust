@@ -22,19 +22,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	if leftExp == nil {
 		return nil
 	}
-	return p.parseInfixChain(leftExp, precedence)
-}
 
-// parseInfixChain continues Pratt-parsing infix operators onto an
-// already-parsed left operand, picking up exactly where parseExpression
-// would right after its own prefix step. Factored out so a caller that
-// had to hand-parse its own "left" via a different route (currently
-// just parseUnpackAssignStatement's tuple-sugar detection, SPEC.md
-// §3.1 — it needs to look one expression ahead to tell a `(a, b)`
-// tuple from an ordinary grouped expression before it can commit to
-// either parse path) can still pick up any trailing infix operators
-// the normal way instead of duplicating this loop.
-func (p *Parser) parseInfixChain(leftExp ast.Expression, precedence int) ast.Expression {
 	for precedence < p.peekPrecedence() {
 		infix := p.infixParseFns[p.peekToken.Type]
 		if infix == nil {
@@ -191,19 +179,42 @@ func (p *Parser) parseTernaryExpression(cond ast.Expression) ast.Expression {
 	return &ast.TernaryExpression{Token: tok, Cond: cond, Then: then, Else: els}
 }
 
-// parseGroupedExpression handles a parenthesized expression. It doesn't
-// build its own node — the parens exist only to override precedence,
-// so the inner expression is returned as-is.
+// parseGroupedExpression handles a parenthesized expression — either
+// ordinary grouping (doesn't build its own node; the parens exist only
+// to override precedence, so the inner expression is returned as-is)
+// or a TupleLiteral (SPEC.md §2) if a ',' follows the first inner
+// expression. One expression's worth of lookahead is enough to tell
+// them apart without backtracking: parse the first inner expression
+// normally, then check what comes next.
 func (p *Parser) parseGroupedExpression() ast.Expression {
+	tok := p.curToken // '('
 	p.nextToken()
-	exp := p.parseExpression(LOWEST)
-	if exp == nil {
+	first := p.parseExpression(LOWEST)
+	if first == nil {
 		return nil
+	}
+
+	if !p.peekTokenIs(token.COMMA) {
+		if !p.expectPeek(token.RPAREN) {
+			return nil
+		}
+		return first
+	}
+
+	elements := []ast.Expression{first}
+	for p.peekTokenIs(token.COMMA) {
+		p.nextToken() // ','
+		p.nextToken() // first token of the next element
+		el := p.parseExpression(LOWEST)
+		if el == nil {
+			return nil
+		}
+		elements = append(elements, el)
 	}
 	if !p.expectPeek(token.RPAREN) {
 		return nil
 	}
-	return exp
+	return &ast.TupleLiteral{Token: tok, Elements: elements}
 }
 
 // parseCallExpression handles `function(arg, ...)` (SPEC.md §8, call)

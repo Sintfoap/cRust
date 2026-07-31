@@ -12,10 +12,12 @@ type HashKey struct {
 }
 
 // Hashable is implemented by every Object type that can be used as a
-// Map or Set key/element: Integer, Float, String, Boolean. Lists,
-// Maps, and Sets are not (they're mutable, so their hash would change
-// out from under a map that used one as a key — SPEC.md never proposes
-// this, and it's not implemented).
+// Map or Set key/element: Integer, Float, String, Boolean, Tuple.
+// Lists, Maps, and Sets are not (they're mutable, so their hash would
+// change out from under a map that used one as a key) — Tuple is
+// exactly List's immutable counterpart, added specifically so
+// fixed-size groups (grid coordinates, most usefully) can be hashed
+// the way a List never safely could.
 //
 // SPEC.md §2 additionally restricts Map keys specifically to String or
 // Integer; that's a narrower rule than "hashable" and belongs to the

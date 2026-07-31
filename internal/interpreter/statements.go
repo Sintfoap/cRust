@@ -143,6 +143,8 @@ func (i *Interpreter) evalForEachLoop(fel *ast.ForEachLoop, env *object.Environm
 	switch c := collection.(type) {
 	case *object.List:
 		items = c.Elements
+	case *object.Tuple:
+		items = c.Elements
 	case *object.Set:
 		items = make([]object.Object, 0, c.Len())
 		for _, item := range c.Elements {
@@ -292,25 +294,39 @@ func compoundOp(op string) string {
 }
 
 // evalUnpackAssignStatement handles `id, id, ... = value` (SPEC.md
-// §3.1). uas.TupleValues set (the `(a, b, ...)` sugar form) means
-// exact-arity unpacking instead — see evalTupleUnpack. Otherwise the
-// right-hand side must be a List with at least N-1 elements for N
-// targets; every target but the last takes one element positionally,
-// and the last always takes a List of everything left over, even if
-// that's empty — never a bare scalar.
+// §3.1). Dispatches on Value's *runtime* type once evaluated — not
+// anything visible in the AST — since Value can be any expression (a
+// ternary choosing between two Tuples, a function call returning one,
+// a plain variable, ...), not just a literal:
+//   - a Tuple (SPEC.md §2) unpacks with exact arity — every target,
+//     including the last, gets its own bare value; a count mismatch is
+//     an error rather than silently padding/truncating.
+//   - a List unpacks with the classic rule: first N-1 targets take one
+//     element each, the last always takes a List of everything left
+//     over (even if that's empty) — never a bare scalar.
+//
+// Either way, Value is evaluated exactly once before any target is
+// assigned, so `a, b = (b, a)` swaps correctly instead of clobbering
+// `b` before it's read.
 func (i *Interpreter) evalUnpackAssignStatement(uas *ast.UnpackAssignStatement, env *object.Environment) object.Object {
-	if uas.TupleValues != nil {
-		return i.evalTupleUnpack(uas, env)
-	}
-
 	value := i.Eval(uas.Value, env)
 	if isError(value) {
 		return value
 	}
 
+	if tup, ok := value.(*object.Tuple); ok {
+		if len(tup.Elements) != len(uas.Targets) {
+			return newError(uas.Token, "tuple has %d value(s), need exactly %d", len(tup.Elements), len(uas.Targets))
+		}
+		for idx, target := range uas.Targets {
+			env.Set(target.Value, tup.Elements[idx])
+		}
+		return object.NULL
+	}
+
 	list, ok := value.(*object.List)
 	if !ok {
-		return newError(uas.Token, "cannot unpack %s, expected a List", value.Type())
+		return newError(uas.Token, "cannot unpack %s, expected a List or Tuple", value.Type())
 	}
 
 	n := len(uas.Targets)
@@ -324,35 +340,6 @@ func (i *Interpreter) evalUnpackAssignStatement(uas *ast.UnpackAssignStatement, 
 
 	rest := append([]object.Object{}, list.Elements[n-1:]...)
 	env.Set(uas.Targets[n-1].Value, object.NewList(rest))
-
-	return object.NULL
-}
-
-// evalTupleUnpack handles the `(a, b, ...)` sugar form of unpacking
-// assignment (SPEC.md §3.1) — exact arity required (unlike the plain
-// List form's "at least N-1" rule), and every target, including the
-// last, takes its own bare value rather than the last one being
-// wrapped in a List. Every value is evaluated before any target is
-// assigned, the same single-pass-then-assign order the plain List form
-// already uses, so `a, b = (b, a)` swaps correctly instead of clobbering
-// `b` before it's read.
-func (i *Interpreter) evalTupleUnpack(uas *ast.UnpackAssignStatement, env *object.Environment) object.Object {
-	if len(uas.TupleValues) != len(uas.Targets) {
-		return newError(uas.Token, "tuple has %d value(s), need exactly %d", len(uas.TupleValues), len(uas.Targets))
-	}
-
-	values := make([]object.Object, len(uas.TupleValues))
-	for idx, expr := range uas.TupleValues {
-		v := i.Eval(expr, env)
-		if isError(v) {
-			return v
-		}
-		values[idx] = v
-	}
-
-	for idx, target := range uas.Targets {
-		env.Set(target.Value, values[idx])
-	}
 
 	return object.NULL
 }

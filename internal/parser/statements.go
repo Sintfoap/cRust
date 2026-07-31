@@ -361,64 +361,11 @@ func (p *Parser) parseUnpackAssignStatement() ast.Statement {
 	}
 
 	p.nextToken()
-	if p.curTokenIs(token.LPAREN) {
-		return p.parseUnpackValue(stmt)
-	}
-
 	stmt.Value = p.parseExpression(LOWEST)
 	if stmt.Value == nil {
 		return nil
 	}
 
-	return stmt
-}
-
-// parseUnpackValue handles an unpack-assignment's value when it starts
-// with '(' — either `(a, b, ...)` tuple-unpack sugar (SPEC.md §3.1:
-// exact arity, every target gets its own bare value, unlike the
-// ordinary List-unpack rule) or just an ordinary parenthesized
-// expression that happens to open the whole right-hand side, e.g.
-// `x, rest = (a) + b`. There's no way to tell which one it is without
-// parsing the first inner expression and looking at what comes right
-// after it — a bare ')' means "ordinary grouped expression," in which
-// case parseInfixChain picks up any trailing operators exactly the way
-// parseExpression itself would have; a ',' commits to tuple sugar.
-// Called with curToken on '('.
-func (p *Parser) parseUnpackValue(stmt *ast.UnpackAssignStatement) ast.Statement {
-	p.nextToken() // move past '(' to the first inner expression
-	first := p.parseExpression(LOWEST)
-	if first == nil {
-		return nil
-	}
-
-	if !p.peekTokenIs(token.COMMA) {
-		// Ordinary grouped expression, not tuple sugar — close it and
-		// let any trailing infix operators continue normally.
-		if !p.expectPeek(token.RPAREN) {
-			return nil
-		}
-		stmt.Value = p.parseInfixChain(first, LOWEST)
-		if stmt.Value == nil {
-			return nil
-		}
-		return stmt
-	}
-
-	values := []ast.Expression{first}
-	for p.peekTokenIs(token.COMMA) {
-		p.nextToken() // ','
-		p.nextToken() // first token of the next value
-		v := p.parseExpression(LOWEST)
-		if v == nil {
-			return nil
-		}
-		values = append(values, v)
-	}
-	if !p.expectPeek(token.RPAREN) {
-		return nil
-	}
-
-	stmt.TupleValues = values
 	return stmt
 }
 

@@ -119,6 +119,7 @@ func TestSlices(t *testing.T) {
 		{"string, rune count not byte count", &object.String{Value: "café"}, 4},
 		{"empty string", &object.String{Value: ""}, 0},
 		{"list", object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)}), 2},
+		{"tuple", object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)}), 3},
 		{"set", func() object.Object { s := object.NewSet(); s.Add(object.NewInteger(1)); return s }(), 1},
 		{"map", func() object.Object {
 			m := object.NewMap()

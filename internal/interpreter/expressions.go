@@ -404,6 +404,16 @@ func readIndex(tok token.Token, base, index object.Object) object.Object {
 		}
 		return &object.String{Value: string(runes[idx.Value])}
 
+	case *object.Tuple:
+		idx, ok := index.(*object.Integer)
+		if !ok {
+			return newError(tok, "Tuple index must be an Integer, got %s", index.Type())
+		}
+		if idx.Value < 0 || idx.Value >= int64(len(b.Elements)) {
+			return newError(tok, "index out of range: %d", idx.Value)
+		}
+		return b.Elements[idx.Value]
+
 	case *object.Set:
 		return newError(tok, "Set is not indexable")
 
@@ -439,6 +449,9 @@ func writeIndex(tok token.Token, base, index, value object.Object) object.Object
 
 	case *object.Set:
 		return newError(tok, "Set is not indexable")
+
+	case *object.Tuple:
+		return newError(tok, "Tuple is immutable, does not support index assignment")
 
 	case *object.String:
 		return newError(tok, "String is immutable, does not support index assignment")
@@ -513,4 +526,23 @@ func (i *Interpreter) evalSetLiteral(sl *ast.SetLiteral, env *object.Environment
 		}
 	}
 	return s
+}
+
+// evalTupleLiteral requires every element to be Hashable (SPEC.md §2)
+// — checked once here, at construction, specifically so
+// object.Tuple's own HashKey never has to handle a non-Hashable
+// element itself (see its doc comment). This is the same "narrower
+// than Object itself" restriction evalMapLiteral already enforces for
+// map keys, applied to every element instead of just keys.
+func (i *Interpreter) evalTupleLiteral(tl *ast.TupleLiteral, env *object.Environment) object.Object {
+	elements, errObj := i.evalExpressions(tl.Elements, env)
+	if errObj != nil {
+		return errObj
+	}
+	for _, elem := range elements {
+		if _, ok := elem.(object.Hashable); !ok {
+			return newError(tl.Token, "unhashable type: %s cannot be a Tuple element", elem.Type())
+		}
+	}
+	return object.NewTuple(elements)
 }

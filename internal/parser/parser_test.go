@@ -145,71 +145,75 @@ func TestUnpackAssignStatement(t *testing.T) {
 	testIdentifier(t, uas.Value, "xs")
 }
 
-func TestUnpackAssignTupleSugar(t *testing.T) {
+// TestUnpackAssignWithTupleLiteral confirms an unpack-assignment's
+// value can be an ordinary *ast.TupleLiteral, the same as any other
+// expression — there's no unpack-specific parsing here anymore
+// (internal/interpreter's evalUnpackAssignStatement is what gives
+// Tuple its exact-arity unpacking behavior, based on the *runtime*
+// type of whatever Value evaluates to).
+func TestUnpackAssignWithTupleLiteral(t *testing.T) {
 	program := parseProgram(t, "a, b = (1, 2)\n")
-	stmt := singleStatement(t, program)
-	uas, ok := stmt.(*ast.UnpackAssignStatement)
-	if !ok {
-		t.Fatalf("statement is %T, want *ast.UnpackAssignStatement", stmt)
-	}
-	if uas.Value != nil {
-		t.Errorf("Value = %v, want nil (tuple sugar should only set TupleValues)", uas.Value)
-	}
-	if len(uas.TupleValues) != 2 {
-		t.Fatalf("got %d TupleValues, want 2", len(uas.TupleValues))
-	}
-	testIntegerLiteral(t, uas.TupleValues[0], 1)
-	testIntegerLiteral(t, uas.TupleValues[1], 2)
-}
-
-func TestUnpackAssignTupleSugarThreeWay(t *testing.T) {
-	program := parseProgram(t, "a, b, c = (1, 2, 3)\n")
 	uas := singleStatement(t, program).(*ast.UnpackAssignStatement)
-	if len(uas.TupleValues) != 3 {
-		t.Fatalf("got %d TupleValues, want 3", len(uas.TupleValues))
+	tuple, ok := uas.Value.(*ast.TupleLiteral)
+	if !ok {
+		t.Fatalf("Value is %T, want *ast.TupleLiteral", uas.Value)
 	}
+	if len(tuple.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(tuple.Elements))
+	}
+	testIntegerLiteral(t, tuple.Elements[0], 1)
+	testIntegerLiteral(t, tuple.Elements[1], 2)
 }
 
-func TestUnpackAssignTupleSugarSwapIdiom(t *testing.T) {
+func TestUnpackAssignSwapIdiomTupleLiteral(t *testing.T) {
 	program := parseProgram(t, "x, y = (y, x)\n")
 	uas := singleStatement(t, program).(*ast.UnpackAssignStatement)
-	testIdentifier(t, uas.TupleValues[0], "y")
-	testIdentifier(t, uas.TupleValues[1], "x")
+	tuple := uas.Value.(*ast.TupleLiteral)
+	testIdentifier(t, tuple.Elements[0], "y")
+	testIdentifier(t, tuple.Elements[1], "x")
 }
 
-func TestUnpackAssignTupleSugarString(t *testing.T) {
-	program := parseProgram(t, "a, b = (1, 2)\n")
-	got := singleStatement(t, program).String()
-	if got != "a, b = (1, 2)" {
-		t.Errorf("String() = %q, want %q", got, "a, b = (1, 2)")
+// --- Tuple literals ---------------------------------------------------
+
+func TestTupleLiteral(t *testing.T) {
+	program := parseProgram(t, "(1, 2, 3)\n")
+	stmt := singleStatement(t, program).(*ast.ExpressionStatement)
+	tuple, ok := stmt.Expression.(*ast.TupleLiteral)
+	if !ok {
+		t.Fatalf("Expression is %T, want *ast.TupleLiteral", stmt.Expression)
+	}
+	if len(tuple.Elements) != 3 {
+		t.Fatalf("got %d elements, want 3", len(tuple.Elements))
 	}
 }
 
-// TestUnpackAssignSingleParenIsNotTupleSugar confirms a single,
-// non-comma parenthesized expression falls back to the ordinary
-// List-unpack path unchanged — only 2+ comma-separated values inside
-// the parens trigger tuple-sugar's different (exact-arity, no
-// last-gets-a-list) semantics.
-func TestUnpackAssignSingleParenIsNotTupleSugar(t *testing.T) {
+func TestTupleLiteralString(t *testing.T) {
+	program := parseProgram(t, "(1, 2)\n")
+	got := singleStatement(t, program).String()
+	if got != "(1, 2)" {
+		t.Errorf("String() = %q, want %q", got, "(1, 2)")
+	}
+}
+
+// TestSingleParenIsGroupingNotTuple confirms a single, non-comma
+// parenthesized expression is still ordinary grouping — it doesn't
+// build a TupleLiteral node at all, exactly as before this feature
+// existed. Only 2+ comma-separated values inside the parens do.
+func TestSingleParenIsGroupingNotTuple(t *testing.T) {
 	program := parseProgram(t, "a, b = (xs)\n")
 	uas := singleStatement(t, program).(*ast.UnpackAssignStatement)
-	if uas.TupleValues != nil {
-		t.Errorf("TupleValues = %v, want nil (single-element parens aren't tuple sugar)", uas.TupleValues)
+	if _, ok := uas.Value.(*ast.TupleLiteral); ok {
+		t.Errorf("Value = %T, want a plain identifier (single-element parens aren't a tuple)", uas.Value)
 	}
 	testIdentifier(t, uas.Value, "xs")
 }
 
-// TestUnpackAssignGroupedExprTrailingInfix confirms a grouped
-// expression that opens an unpack-assignment's value can still be
-// followed by more operators, exactly as if it had gone through the
-// ordinary parseExpression path — tuple-sugar detection shouldn't
-// swallow anything after a bare (non-comma) ')'.
-func TestUnpackAssignGroupedExprTrailingInfix(t *testing.T) {
+// TestGroupedExprTrailingInfix confirms a grouped expression can still
+// be followed by more operators — tuple detection shouldn't swallow
+// anything after a bare (non-comma) ')'.
+func TestGroupedExprTrailingInfix(t *testing.T) {
 	program := parseProgram(t, "a, b = (5)..7\n")
 	uas := singleStatement(t, program).(*ast.UnpackAssignStatement)
-	if uas.TupleValues != nil {
-		t.Fatalf("TupleValues = %v, want nil", uas.TupleValues)
-	}
 	rangeExpr, ok := uas.Value.(*ast.RangeExpression)
 	if !ok {
 		t.Fatalf("Value is %T, want *ast.RangeExpression", uas.Value)
@@ -218,8 +222,23 @@ func TestUnpackAssignGroupedExprTrailingInfix(t *testing.T) {
 	testIntegerLiteral(t, rangeExpr.End, 7)
 }
 
-func TestUnpackAssignTupleSugarUnclosedParenIsError(t *testing.T) {
-	l := lexer.New("a, b = (1, 2\n")
+func TestTupleLiteralInTernaryBranches(t *testing.T) {
+	program := parseProgram(t, "cond (| (1, 2) |) (3, 4)\n")
+	stmt := singleStatement(t, program).(*ast.ExpressionStatement)
+	tern, ok := stmt.Expression.(*ast.TernaryExpression)
+	if !ok {
+		t.Fatalf("Expression is %T, want *ast.TernaryExpression", stmt.Expression)
+	}
+	if _, ok := tern.Then.(*ast.TupleLiteral); !ok {
+		t.Errorf("Then is %T, want *ast.TupleLiteral", tern.Then)
+	}
+	if _, ok := tern.Else.(*ast.TupleLiteral); !ok {
+		t.Errorf("Else is %T, want *ast.TupleLiteral", tern.Else)
+	}
+}
+
+func TestTupleLiteralUnclosedParenIsError(t *testing.T) {
+	l := lexer.New("(1, 2\n")
 	p := New(l)
 	p.ParseProgram()
 	if len(p.Errors()) == 0 {

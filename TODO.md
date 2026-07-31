@@ -122,15 +122,19 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   list (including `BakeStatement`, added during implementation — it
   wasn't in the original node list).
 
-  → **Added post-Phase-3**: tuple-unpack sugar, `a, b = (x, y)`
-  (`SPEC.md` §3.1) — every target, including the last, gets its own
-  bare value with exact arity required, instead of unpacking's normal
-  "last target always gets a List of everything left over" rule. Valid
-  only as an unpacking assignment's direct right-hand side, not a
-  general value — `(a, b)` elsewhere is still a parse error, same as
-  before. Makes the swap idiom (`x, y = (y, x)`) and fixed-size
-  multi-value returns read naturally without reaching for a List just
-  to immediately unpack it.
+  → **Added post-Phase-3**: `Tuple`, a real value type (`SPEC.md`
+  §2.3) — `(a, b, ...)`, fixed-size, immutable, and (unlike `List`)
+  hashable, so it works as a `Map` key or `Set` element
+  (grid-coordinate dedup being the main reason to want one). Unpacking
+  a `Tuple` requires exact arity and gives every target, including the
+  last, its own bare value, instead of `List`-unpack's "last target
+  always gets a List of everything left over" rule — which rule
+  applies is decided by the right-hand side's *runtime* type, so it
+  works through a ternary/function-call/anything, not just a literal
+  directly on the assignment's right. (First shipped as narrower
+  unpack-only sugar with no real value type behind it; promoted to a
+  real type once that turned out not to survive being produced by a
+  ternary branch — see ARCHITECTURE.md's Phase 3 notes for why.)
 
 ## Phase 4 — Interpreter / Evaluator ✅
 - [x] Tree-walking evaluator (`internal/interpreter`, one recursive

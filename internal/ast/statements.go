@@ -63,17 +63,18 @@ func (as *AssignStatement) String() string {
 
 // UnpackAssignStatement is `id, id, ... = value` (SPEC.md §3.1) —
 // always plain `=`, always bare identifier targets (never index
-// expressions). Value holds the right-hand side for the ordinary
-// List-unpack form (first N-1 targets take one element each, the
-// last always takes a List of everything left over); TupleValues
-// holds it instead for the `(a, b, ...)` sugar form, which every
-// target — including the last — takes one bare value from, with
-// exact arity required. Exactly one of Value/TupleValues is set.
+// expressions). Value can evaluate to either a List (the classic rule:
+// first N-1 targets take one element each, the last always takes a
+// List of everything left over) or a Tuple (SPEC.md §2: exact arity
+// required, every target — including the last — takes its own bare
+// value) — internal/interpreter's evalUnpackAssignStatement dispatches
+// on Value's *runtime* type, not anything visible here at parse time,
+// since Value can be any expression (a ternary choosing between two
+// Tuples, a function call returning one, etc.), not just a literal.
 type UnpackAssignStatement struct {
-	Token       token.Token // the first identifier's token
-	Targets     []*Identifier
-	Value       Expression   // nil if TupleValues is set
-	TupleValues []Expression // nil unless the RHS was written as (a, b, ...)
+	Token   token.Token // the first identifier's token
+	Targets []*Identifier
+	Value   Expression
 }
 
 func (uas *UnpackAssignStatement) statementNode()       {}
@@ -82,14 +83,6 @@ func (uas *UnpackAssignStatement) String() string {
 	names := make([]string, len(uas.Targets))
 	for i, t := range uas.Targets {
 		names[i] = t.String()
-	}
-
-	if uas.TupleValues != nil {
-		values := make([]string, len(uas.TupleValues))
-		for i, v := range uas.TupleValues {
-			values[i] = v.String()
-		}
-		return strings.Join(names, ", ") + " = (" + strings.Join(values, ", ") + ")"
 	}
 	return strings.Join(names, ", ") + " = " + uas.Value.String()
 }
