@@ -689,43 +689,72 @@ output at all. What exists: `Builtin` wraps
 `func(args ...object.Object) object.Object` (variadic, not a slice
 parameter — every builtin in `SPEC.md` §7 has a fixed, small arity, so
 this reads more naturally at each call site than slicing `args`
-manually); `internal/builtins.New(output io.Writer)` builds a fresh
-`map[string]*object.Builtin` per `Interpreter` rather than a
-package-level table, so `deliver`'s destination isn't global mutable
-state. Identifier evaluation checks the environment chain first, then
-falls back to this table — builtins behave like predeclared globals
-that user code can still shadow (confirmed by a test:
-`deliver = recipe(x) {...}` works). A `Builtin`'s `Error` return has no
-position of its own (`internal/builtins` doesn't know about source
-positions at all); `applyFunction` patches the call site's position in
-after the fact if one comes back unset, which is the one place that
-distinction matters.
+manually); `internal/builtins.New(output io.Writer, stdin io.Reader)`
+builds a fresh `map[string]*object.Builtin` per `Interpreter` rather
+than a package-level table, so `deliver`'s destination and `unbox`'s
+source aren't global mutable state — `interpreter.New` and
+`cmd/crust`'s `run`/`runFile` thread both through explicitly (the same
+`stdin io.Reader` `main()`'s `run()` already gained for `crust lsp`,
+reused here rather than a second plumbing path). Identifier evaluation
+checks the environment chain first, then falls back to this table —
+builtins behave like predeclared globals that user code can still
+shadow (confirmed by a test: `deliver = recipe(x) {...}` works). A
+`Builtin`'s `Error` return has no position of its own
+(`internal/builtins` doesn't know about source positions at all);
+`applyFunction` patches the call site's position in after the fact if
+one comes back unset, which is the one place that distinction matters.
 
 Implemented now: `deliver`, `slices`, `sauce`, `chars`, `idiv`
 (mentioned in `SPEC.md` §6 as backing `/`'s "integer division is a
 builtin" note, so it landed with the rest even though it's not yet in
-§7's table), and the full Set family
-`gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`.
-**Still not built**: the `strings`/`strconv`/`math`/`sort` adapters
-(split/join/trim/contains/replace, string↔number parsing,
-abs/pow/sqrt/gcd/lcm, list sorting) and file/stdin input — the rest of
-what this phase's own section below describes.
+§7's table), the full Set family
+`gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
+(`unbox`/`lines`), and type conversion (`str`/`int`/`float`/`bool`).
+**Still not built**: general `strings` helpers (split/join/trim/
+contains/replace) and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm,
+list sorting) — the rest of what this phase's own section below
+describes.
 
 - Most builtins are thin adapters over Go's standard library:
-  `strings` (split/join/trim/contains/replace), `strconv`
-  (string↔number parsing), `math` (abs/pow/sqrt/gcd/lcm), `sort`
-  (list sorting). Input builtins wrap `os.ReadFile` / `bufio.Scanner` for
-  reading puzzle input files or stdin.
+  `strings` (split/join/trim/contains/replace, not yet built), `math`
+  (abs/pow/sqrt/gcd/lcm, not yet built), `sort` (list sorting, not yet
+  built). `unbox` wraps `os.ReadFile` (with a path argument) or reads
+  the injected `stdin io.Reader` directly (no argument) — same-shaped
+  `String` result either way, since a puzzle solution shouldn't care
+  which source it came from. `lines` wraps `bufio.Scanner` with its
+  default `ScanLines` split function specifically for its "no trailing
+  blank entry for a string that ends in `\n`" behavior, rather than
+  hand-rolling that edge case with `strings.Split`.
+- **Type conversion is explicit-only, by design, not by omission.**
+  `SPEC.md` §6 already states operators never implicitly convert
+  between types (`+` between a String and a number is a type error);
+  `str`/`int`/`float`/`bool` exist so a conversion is still possible,
+  just always as a visible function call rather than something that
+  could happen silently inside `+` or an `order` condition. `int`
+  parsing a non-integer string (`int("3.5")`) is a runtime error rather
+  than silently truncating — `float(x)` first, then `int(...)` that, if
+  truncation genuinely is what's wanted; `int(aFloat)` truncates toward
+  zero (a real, deliberate cast), which is a different, intentional
+  operation from parsing malformed input. `bool(x)` doesn't add a new
+  truthiness rule — it exposes the exact one `order`/`bake`/ternary
+  already use (`SPEC.md` §6) as a value instead of only a branch
+  decision, so nothing about "what counts as falsy" needed two separate
+  definitions to keep in sync.
 - The names already locked in — see `SPEC.md` §7 — are `deliver` (print),
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars` (string → List
-  of characters), and the Set builtins `gather`/`sprinkle`/`scrape`/
-  `topped`/`combine`/`shared`/`strip`. These names were chosen
+  of characters), the Set builtins `gather`/`sprinkle`/`scrape`/
+  `topped`/`combine`/`shared`/`strip`, `unbox`/`lines` (input), and
+  `str`/`int`/`float`/`bool` (conversion). These names were chosen
   specifically because dropping `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more
   useful as functions — `sauce` in particular reuses the "base layer
-  under everything else" metaphor for a fallback value. Math builtins
-  keep their standard names on purpose; see `SPEC.md` §7 for why.
+  under everything else" metaphor for a fallback value; `unbox` extends
+  the same "pizza box" metaphor `nobox` already established (§4) to
+  "here's what's actually inside," which read better than forcing a
+  second, unrelated pun onto plain file/stdin reading. Math and
+  conversion builtins keep their standard names on purpose; see
+  `SPEC.md` §7 for why.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

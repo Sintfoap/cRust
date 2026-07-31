@@ -45,7 +45,7 @@ func parseRunArgs(args []string) (path, store string, err error) {
 // this is not the primary error-handling mechanism, which is Error
 // propagating through Eval as an ordinary value; it exists purely so a
 // bug here prints a message instead of a raw Go stack trace.
-func runFile(path, storeFlag string, stdout, stderr io.Writer) (code int) {
+func runFile(path, storeFlag string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(stderr, "crust run: internal error: %v\n", r)
@@ -70,7 +70,7 @@ func runFile(path, storeFlag string, stdout, stderr io.Writer) (code int) {
 		return 1
 	}
 
-	interp := interpreter.New(stdout)
+	interp := interpreter.New(stdout, stdin)
 	env := object.NewEnvironment()
 
 	result := interp.Eval(program, env)

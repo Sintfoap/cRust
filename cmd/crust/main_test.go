@@ -359,7 +359,7 @@ func TestRunFile(t *testing.T) {
 	t.Run("plain script with no entry point runs top-to-bottom", func(t *testing.T) {
 		path := writeFile(t, `deliver("hi")`+"\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 0 {
 			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
 		}
@@ -371,7 +371,7 @@ func TestRunFile(t *testing.T) {
 	t.Run("bare store runs by default", func(t *testing.T) {
 		path := writeFile(t, `recipe store() { deliver("default") }`+"\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 0 {
 			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
 		}
@@ -386,7 +386,7 @@ recipe store_part1() { deliver("one") }
 recipe store_part2() { deliver("two") }
 `)
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "part2", &stdout, &stderr)
+		code := runFile(path, "part2", strings.NewReader(""), &stdout, &stderr)
 		if code != 0 {
 			t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr.String())
 		}
@@ -399,7 +399,7 @@ recipe store_part2() { deliver("two") }
 	t.Run("--store with an unknown name is an error", func(t *testing.T) {
 		path := writeFile(t, `recipe store_part1() { deliver("one") }`+"\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "nope", &stdout, &stderr)
+		code := runFile(path, "nope", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
@@ -414,7 +414,7 @@ recipe store_part1() { deliver("one") }
 recipe store_part2() { deliver("two") }
 `)
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
@@ -426,7 +426,7 @@ recipe store_part2() { deliver("two") }
 	t.Run("parse error is reported and nothing runs", func(t *testing.T) {
 		path := writeFile(t, "order (a < b {\n serve 1\n}\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
@@ -438,7 +438,7 @@ recipe store_part2() { deliver("two") }
 	t.Run("runtime error is reported with file position", func(t *testing.T) {
 		path := writeFile(t, "x = 1 / 0\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
@@ -453,7 +453,7 @@ recipe store_part2() { deliver("two") }
 	t.Run("runtime error inside a store entry point is reported", func(t *testing.T) {
 		path := writeFile(t, "recipe store() {\n deliver(1 / 0)\n}\n")
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, "", &stdout, &stderr)
+		code := runFile(path, "", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
@@ -464,7 +464,7 @@ recipe store_part2() { deliver("two") }
 
 	t.Run("missing file", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		code := runFile("/no/such/file.crust", "", &stdout, &stderr)
+		code := runFile("/no/such/file.crust", "", strings.NewReader(""), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}

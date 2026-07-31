@@ -158,9 +158,14 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   `internal/object`/`internal/builtins`.
 
 ## Phase 5 — Standard Library (AoC-focused) 🚧
-- [ ] Input: read file / stdin, split into lines
-- [ ] Strings: split, join, trim, contains, replace, parse-to-number
+- [x] Input: `unbox()`/`unbox(path)` (stdin or a file, whole contents
+      as a String) + `lines(s)` (split into a List of lines)
+- [ ] Strings: split, join, trim, contains, replace
 - [x] `chars` (string → List of one-character strings)
+- [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no
+      implicit coercion (SPEC.md §6 already rules that out for
+      operators: `+` between a String and a number stays a type error,
+      not a silent stringify/parse)
 - [ ] Math: abs, min, max, pow, gcd, lcm, sqrt (standard names, not themed)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
 - [ ] Collections: sort, map/filter/reduce (or equivalent loop sugar)
@@ -174,8 +179,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   [docs/SPEC.md §7](./docs/SPEC.md#7-standard-library-builtins). Most
   of what's checked off landed ahead of schedule alongside Phase 4 —
   see ARCHITECTURE.md's Phase 5 section for exactly what's built vs.
-  still pending (`internal/builtins`, not yet the `strings`/`math`/
-  `sort`/input adapters).
+  still pending (`internal/builtins`, not yet the general `strings`/
+  `math`/`sort` helpers).
 
 ## Phase 6 — Tooling
 - [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter

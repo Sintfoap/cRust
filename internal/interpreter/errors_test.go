@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/Sintfoap/cRust/internal/lexer"
@@ -13,7 +14,7 @@ import (
 // point cmd/crust's --store resolution uses (SPEC.md §9), which has no
 // source-level CallExpression to go through Eval.
 func TestCallExported(t *testing.T) {
-	interp := New(io.Discard)
+	interp := New(io.Discard, strings.NewReader(""))
 	env := object.NewEnvironment()
 
 	fn := testEvalWith(t, interp, env, `apply = recipe(x) { serve x + 1 }`)
@@ -28,7 +29,7 @@ func TestCallExported(t *testing.T) {
 }
 
 func TestCallExportedOnNonFunction(t *testing.T) {
-	interp := New(io.Discard)
+	interp := New(io.Discard, strings.NewReader(""))
 	result := interp.Call(object.NewInteger(5), nil)
 	wantError(t, result, "not a recipe")
 }

@@ -2,6 +2,8 @@ package builtins
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,11 +50,34 @@ func wantBoolean(t *testing.T, got object.Object, want bool) {
 	}
 }
 
+func wantString(t *testing.T, got object.Object, want string) {
+	t.Helper()
+	s, ok := got.(*object.String)
+	if !ok {
+		t.Fatalf("got %T (%v), want *object.String", got, got)
+	}
+	if s.Value != want {
+		t.Errorf("Value = %q, want %q", s.Value, want)
+	}
+}
+
+func wantFloat(t *testing.T, got object.Object, want float64) {
+	t.Helper()
+	f, ok := got.(*object.Float)
+	if !ok {
+		t.Fatalf("got %T (%v), want *object.Float", got, got)
+	}
+	if f.Value != want {
+		t.Errorf("Value = %v, want %v", f.Value, want)
+	}
+}
+
 func TestNewRegistersEveryBuiltin(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
+		"unbox", "lines", "str", "int", "float", "bool",
 	}
 	for _, name := range want {
 		if _, ok := table[name]; !ok {
@@ -63,7 +88,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 
 func TestDeliver(t *testing.T) {
 	var buf bytes.Buffer
-	table := New(&buf)
+	table := New(&buf, strings.NewReader(""))
 
 	result := call(t, table, "deliver", &object.String{Value: "hi"}, object.NewInteger(5))
 	if result != object.NULL {
@@ -76,7 +101,7 @@ func TestDeliver(t *testing.T) {
 
 func TestDeliverNoArgs(t *testing.T) {
 	var buf bytes.Buffer
-	table := New(&buf)
+	table := New(&buf, strings.NewReader(""))
 	call(t, table, "deliver")
 	if got := buf.String(); got != "\n" {
 		t.Errorf("output = %q, want a bare newline", got)
@@ -84,7 +109,7 @@ func TestDeliverNoArgs(t *testing.T) {
 }
 
 func TestSlices(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 
 	tests := []struct {
 		name string
@@ -109,13 +134,13 @@ func TestSlices(t *testing.T) {
 }
 
 func TestSlicesWrongArgs(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "slices"))
 	wantError(t, call(t, table, "slices", object.NewInteger(1)))
 }
 
 func TestSauce(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 
 	got := call(t, table, "sauce", object.NULL, object.NewInteger(9))
 	wantInteger(t, got, 9)
@@ -130,7 +155,7 @@ func TestSauce(t *testing.T) {
 }
 
 func TestChars(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	got := call(t, table, "chars", &object.String{Value: "ab"})
 	list, ok := got.(*object.List)
 	if !ok {
@@ -145,18 +170,18 @@ func TestChars(t *testing.T) {
 }
 
 func TestCharsWrongType(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "chars", object.NewInteger(1)))
 }
 
 func TestIdiv(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantInteger(t, call(t, table, "idiv", object.NewInteger(7), object.NewInteger(2)), 3)
 	wantInteger(t, call(t, table, "idiv", object.NewInteger(-7), object.NewInteger(2)), -3)
 }
 
 func TestIdivByZero(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	errObj := wantError(t, call(t, table, "idiv", object.NewInteger(1), object.NewInteger(0)))
 	if !strings.Contains(errObj.Message, "zero") {
 		t.Errorf("Message = %q, want it to mention zero", errObj.Message)
@@ -164,13 +189,13 @@ func TestIdivByZero(t *testing.T) {
 }
 
 func TestIdivWrongTypes(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "idiv", &object.Float{Value: 1}, object.NewInteger(2)))
 	wantError(t, call(t, table, "idiv", object.NewInteger(1), &object.Float{Value: 2}))
 }
 
 func TestGather(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(1), object.NewInteger(2)})
 	got := call(t, table, "gather", list)
 	set, ok := got.(*object.Set)
@@ -183,7 +208,7 @@ func TestGather(t *testing.T) {
 }
 
 func TestSprinkleAndScrape(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	set := object.NewSet()
 
 	call(t, table, "sprinkle", set, object.NewInteger(1))
@@ -204,7 +229,7 @@ func TestSprinkleAndScrape(t *testing.T) {
 }
 
 func TestTopped(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	set := object.NewSet()
 	set.Add(object.NewInteger(1))
 
@@ -221,7 +246,7 @@ func setOf(vals ...int64) *object.Set {
 }
 
 func TestCombineSharedStrip(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	a := setOf(1, 2, 3)
 	b := setOf(2, 3, 4)
 
@@ -242,7 +267,7 @@ func TestCombineSharedStrip(t *testing.T) {
 }
 
 func TestBinarySetBuiltinsRejectNonSets(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	for _, name := range []string{"combine", "shared", "strip", "sprinkle", "scrape", "topped"} {
 		t.Run(name+" first arg", func(t *testing.T) {
 			wantError(t, call(t, table, name, object.NewInteger(1), object.NewInteger(2)))
@@ -256,7 +281,7 @@ func TestBinarySetBuiltinsRejectNonSets(t *testing.T) {
 }
 
 func TestWrongArgCounts(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	set := setOf(1)
 
 	tests := []struct {
@@ -282,7 +307,7 @@ func TestWrongArgCounts(t *testing.T) {
 }
 
 func TestGatherUnhashableElement(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	list := object.NewList([]object.Object{object.NewList(nil)})
 	errObj := wantError(t, call(t, table, "gather", list))
 	if !strings.Contains(errObj.Message, "unhashable") {
@@ -291,15 +316,161 @@ func TestGatherUnhashableElement(t *testing.T) {
 }
 
 func TestGatherWrongType(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	wantError(t, call(t, table, "gather", object.NewInteger(1)))
 }
 
 func TestSprinkleUnhashableItem(t *testing.T) {
-	table := New(&bytes.Buffer{})
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
 	set := object.NewSet()
 	errObj := wantError(t, call(t, table, "sprinkle", set, object.NewList(nil)))
 	if !strings.Contains(errObj.Message, "unhashable") {
 		t.Errorf("Message = %q, want it to mention unhashable", errObj.Message)
+	}
+}
+
+func TestUnboxNoArgReadsStdin(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader("puzzle input\nline two\n"))
+	wantString(t, call(t, table, "unbox"), "puzzle input\nline two\n")
+}
+
+func TestUnboxWithPathReadsFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(path, []byte("42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantString(t, call(t, table, "unbox", &object.String{Value: path}), "42\n")
+}
+
+func TestUnboxMissingFile(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "unbox", &object.String{Value: "/no/such/file.txt"}))
+}
+
+func TestUnboxWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "unbox", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestUnboxWrongArgType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "unbox", object.NewInteger(1)))
+}
+
+func TestLines(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"no trailing newline", "a\nb\nc", []string{"a", "b", "c"}},
+		{"trailing newline produces no extra blank entry", "a\nb\n", []string{"a", "b"}},
+		{"CRLF", "a\r\nb\r\n", []string{"a", "b"}},
+		{"empty string", "", nil},
+		{"single line", "only", []string{"only"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := call(t, table, "lines", &object.String{Value: tt.input}).(*object.List)
+			if len(result.Elements) != len(tt.want) {
+				t.Fatalf("got %d lines, want %d: %v", len(result.Elements), len(tt.want), result.Inspect())
+			}
+			for i, w := range tt.want {
+				wantString(t, result.Elements[i], w)
+			}
+		})
+	}
+}
+
+func TestLinesWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "lines", object.NewInteger(1)))
+}
+
+func TestStr(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	wantString(t, call(t, table, "str", object.NewInteger(42)), "42")
+	wantString(t, call(t, table, "str", &object.Float{Value: 3.5}), "3.5")
+	wantString(t, call(t, table, "str", object.TRUE), "stuffed")
+	wantString(t, call(t, table, "str", object.NULL), "nobox")
+	wantString(t, call(t, table, "str", &object.String{Value: "already"}), "already")
+	wantString(t, call(t, table, "str", object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})), "[1, 2]")
+}
+
+func TestInt(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	wantInteger(t, call(t, table, "int", object.NewInteger(7)), 7)
+	wantInteger(t, call(t, table, "int", &object.Float{Value: 3.9}), 3)
+	wantInteger(t, call(t, table, "int", &object.Float{Value: -3.9}), -3)
+	wantInteger(t, call(t, table, "int", &object.String{Value: "123"}), 123)
+	wantInteger(t, call(t, table, "int", &object.String{Value: "  -5  "}), -5)
+}
+
+func TestIntParseError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	errObj := wantError(t, call(t, table, "int", &object.String{Value: "not a number"}))
+	if !strings.Contains(errObj.Message, "cannot parse") {
+		t.Errorf("Message = %q, want it to mention cannot parse", errObj.Message)
+	}
+}
+
+func TestIntWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "int", object.TRUE))
+}
+
+func TestFloat(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	wantFloat(t, call(t, table, "float", &object.Float{Value: 2.5}), 2.5)
+	wantFloat(t, call(t, table, "float", object.NewInteger(4)), 4.0)
+	wantFloat(t, call(t, table, "float", &object.String{Value: "3.14"}), 3.14)
+}
+
+func TestFloatParseError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "float", &object.String{Value: "nope"}))
+}
+
+func TestFloatWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "float", object.TRUE))
+}
+
+func TestBool(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	tests := []struct {
+		name string
+		arg  object.Object
+		want bool
+	}{
+		{"stuffed stays stuffed", object.TRUE, true},
+		{"thin stays thin", object.FALSE, false},
+		{"nobox is falsy", object.NULL, false},
+		{"zero is truthy", object.NewInteger(0), true},
+		{"empty string is truthy", &object.String{Value: ""}, true},
+		{"empty list is truthy", object.NewList(nil), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantBoolean(t, call(t, table, "bool", tt.arg), tt.want)
+		})
+	}
+}
+
+func TestConversionBuiltinsWrongArgCounts(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	for _, name := range []string{"str", "int", "float", "bool", "lines"} {
+		t.Run(name, func(t *testing.T) {
+			wantError(t, call(t, table, name))
+			wantError(t, call(t, table, name, object.NewInteger(1), object.NewInteger(2)))
+		})
 	}
 }

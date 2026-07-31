@@ -24,9 +24,10 @@ type Interpreter struct {
 	Builtins map[string]*object.Builtin
 }
 
-// New returns an Interpreter whose `deliver` builtin writes to output.
-func New(output io.Writer) *Interpreter {
-	return &Interpreter{Builtins: builtins.New(output)}
+// New returns an Interpreter whose `deliver` builtin writes to output
+// and whose `unbox` builtin (with no argument) reads from stdin.
+func New(output io.Writer, stdin io.Reader) *Interpreter {
+	return &Interpreter{Builtins: builtins.New(output, stdin)}
 }
 
 // Call invokes fn (a *object.Function or *object.Builtin) with args,

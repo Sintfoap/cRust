@@ -418,14 +418,16 @@ per-operator special cases:
 
 ## 7. Standard Library (Builtins)
 
-Draft — this list covers what's already implied by §2–§6; the rest of
-Phase 5 (full string/math/collection coverage, file and stdin input)
-fleshes this out later. Math functions (`abs`, `min`, `max`, `pow`,
-`sqrt`, `gcd`, `lcm`) are expected to keep their standard names —
-they're universal vocabulary, and forcing a pizza pun onto them would
-cost clarity for no gain. Everything below is genuinely part of the
-pizza theme, either because the pun was too good to pass up or because
-it's directly tied to the Set type this doc introduces.
+Draft — this list covers what's already implied by §2–§6 plus input and
+type conversion; the rest of Phase 5 (general string helpers — split,
+join, trim, contains, replace — and math/collection coverage) fleshes
+this out later. Math functions (`abs`, `min`, `max`, `pow`, `sqrt`,
+`gcd`, `lcm`) are expected to keep their standard names — they're
+universal vocabulary, and forcing a pizza pun onto them would cost
+clarity for no gain; `str`/`int`/`float`/`bool` (type conversion, below)
+are named on that same principle. Everything else below is genuinely
+part of the pizza theme, either because the pun was too good to pass up
+or because it's directly tied to the Set type this doc introduces.
 
 | Builtin | Signature | Does |
 |---|---|---|
@@ -441,6 +443,21 @@ it's directly tied to the Set type this doc introduces.
 | `combine(a, b)` | `(Set, Set) -> Set` | union |
 | `shared(a, b)` | `(Set, Set) -> Set` | intersection |
 | `strip(a, b)` | `(Set, Set) -> Set` | difference — items in `a` not in `b` |
+| `unbox()` / `unbox(path)` | `() -> String` / `(String) -> String` | reads all of stdin, or a whole file at `path` — either way, the raw contents, trailing newline and all |
+| `lines(s)` | `(String) -> List` | splits `s` into a List of lines (handles `\n` and `\r\n`; a trailing newline doesn't produce an extra blank entry) |
+| `str(x)` | `(Any) -> String` | converts any value to its String form (the same text `deliver` would print for it) |
+| `int(x)` | `(String \| Integer \| Float) -> Integer` | parses a String (base-10; a non-integer string like `"3.5"` is a runtime error, not a silent truncation) or truncates a Float toward zero; an Integer passes through unchanged |
+| `float(x)` | `(String \| Integer \| Float) -> Float` | parses a String or widens an Integer; a Float passes through unchanged |
+| `bool(x)` | `(Any) -> Boolean` | normalizes any value to a strict Boolean using §6's truthiness rule (only `thin`/`nobox` are falsy) — the same rule `order`/`bake`/ternary already apply, exposed as a value |
+
+Type conversion is **always explicit** — there's no implicit coercion
+between types anywhere in the language. This isn't a Phase 5 add-on
+choice; it's the same rule §6 already states for operators (`+`
+between a String and a number is a type error, not a silent
+stringify), applied consistently: `str`/`int`/`float`/`bool` exist
+specifically so a conversion is a visible, deliberate function call at
+the point it happens, not something that could happen implicitly
+somewhere else and be missed while reading the code.
 
 ## 8. Grammar (EBNF)
 

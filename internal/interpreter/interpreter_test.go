@@ -22,6 +22,15 @@ func testEval(t *testing.T, input string) object.Object {
 
 func testEvalCapture(t *testing.T, input string) (string, object.Object) {
 	t.Helper()
+	_, out, result := testEvalCaptureWithStdin(t, input, "")
+	return out, result
+}
+
+// testEvalCaptureWithStdin is testEvalCapture with a caller-supplied
+// stdin, for tests exercising `unbox()`'s no-argument (stdin-reading)
+// form.
+func testEvalCaptureWithStdin(t *testing.T, input, stdin string) (*Interpreter, string, object.Object) {
+	t.Helper()
 	l := lexer.New(input)
 	p := parser.New(l)
 	program := p.ParseProgram()
@@ -30,10 +39,10 @@ func testEvalCapture(t *testing.T, input string) (string, object.Object) {
 	}
 
 	var buf bytes.Buffer
-	interp := New(&buf)
+	interp := New(&buf, strings.NewReader(stdin))
 	env := object.NewEnvironment()
 	result := interp.Eval(program, env)
-	return buf.String(), result
+	return interp, buf.String(), result
 }
 
 func wantInteger(t *testing.T, got object.Object, want int64) {
@@ -425,4 +434,25 @@ deliver("should not run")
 
 func TestErrorInSubexpressionPropagates(t *testing.T) {
 	wantError(t, testEval(t, "1 + (1 / 0)"), "division by zero")
+}
+
+// --- Input and type conversion builtins -----------------------------------
+
+func TestUnboxReadsInjectedStdin(t *testing.T) {
+	_, _, result := testEvalCaptureWithStdin(t, `unbox()`, "puzzle input\n")
+	wantString(t, result, "puzzle input\n")
+}
+
+func TestUnboxLinesPipeline(t *testing.T) {
+	_, buf, _ := testEvalCaptureWithStdin(t, `
+deliver(lines(unbox()))
+`, "1\n2\n3\n")
+	if buf != "[1, 2, 3]\n" {
+		t.Errorf("output = %q, want the three lines as a List", buf)
+	}
+}
+
+func TestTypeConversionRoundTrip(t *testing.T) {
+	wantInteger(t, testEval(t, `int(str(42))`), 42)
+	wantString(t, testEval(t, `str(int("7") + int(float("3.9")))`), "10")
 }

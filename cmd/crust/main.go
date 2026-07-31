@@ -117,7 +117,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			fmt.Fprintln(stderr, "crust run: missing <file.crust>")
 			return 1
 		}
-		return runFile(path, storeFlag, stdout, stderr)
+		return runFile(path, storeFlag, stdin, stdout, stderr)
 	case "tokens":
 		if len(rest) < 2 {
 			fmt.Fprintln(stderr, "crust tokens: missing <file.crust>")
@@ -140,7 +140,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			fmt.Fprintf(stderr, "crust: %s\n", err)
 			return 2
 		}
-		return runFile(path, storeFlag, stdout, stderr)
+		return runFile(path, storeFlag, stdin, stdout, stderr)
 	}
 }
 

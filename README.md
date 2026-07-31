@@ -13,18 +13,20 @@ lexer, the parser, and the interpreter (Phases 0–4) are done —
 AST (`internal/ast`, `internal/parser`), and now a real result
 (`internal/interpreter`, `internal/object`), with a first pass at the
 standard library (`internal/builtins`: `deliver`, `slices`, `sauce`,
-`chars`, `idiv`, and the Set family) built alongside it. `crust run
+`chars`, `idiv`, the Set family, input (`unbox`/`lines`), and type
+conversion (`str`/`int`/`float`/`bool`)) built alongside it. `crust run
 <file.crust>` (and the bare-file shorthand) both work end to end,
 closures and all — see [Building](#building) below. `crust lsp` adds
-editor hover + diagnostics on top (`internal/lsp`, JSON-RPC over
-stdio) — see [Language server](#language-server-hover--diagnostics)
-below. See [TODO.md](./TODO.md) for the roadmap and milestones,
+editor hover, diagnostics, go-to-definition, and more on top
+(`internal/lsp`, JSON-RPC over stdio) — see
+[Language server](#language-server) below. See [TODO.md](./TODO.md)
+for the roadmap and milestones,
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
 behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
 section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
 keyword table, grammar, and semantics. Next up: rounding out Phase 5's
-standard library (string/math builtins, file input) and Phase 6's REPL.
+standard library (general string helpers, math) and Phase 6's REPL.
 
 ## Why
 
