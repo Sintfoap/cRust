@@ -709,14 +709,14 @@ Implemented now: `deliver`, `slices`, `sauce`, `chars`, `idiv`
 builtin" note, so it landed with the rest even though it's not yet in
 §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
-(`unbox`/`lines`), and type conversion (`str`/`int`/`float`/`bool`).
-**Still not built**: general `strings` helpers (split/join/trim/
-contains/replace) and `math`/`sort` adapters (abs/pow/sqrt/gcd/lcm,
-list sorting) — the rest of what this phase's own section below
-describes.
+(`unbox`/`lines`/`trim`), and type conversion
+(`str`/`int`/`float`/`bool`). **Still not built**: general `strings`
+helpers (split/join/contains/replace) and `math`/`sort` adapters
+(abs/pow/sqrt/gcd/lcm, list sorting) — the rest of what this phase's
+own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
-  `strings` (split/join/trim/contains/replace, not yet built), `math`
+  `strings` (split/join/contains/replace, not yet built), `math`
   (abs/pow/sqrt/gcd/lcm, not yet built), `sort` (list sorting, not yet
   built). `unbox` wraps `os.ReadFile` (with a path argument) or reads
   the injected `stdin io.Reader` directly (no argument) — same-shaped
@@ -724,7 +724,14 @@ describes.
   which source it came from. `lines` wraps `bufio.Scanner` with its
   default `ScanLines` split function specifically for its "no trailing
   blank entry for a string that ends in `\n`" behavior, rather than
-  hand-rolling that edge case with `strings.Split`.
+  hand-rolling that edge case with `strings.Split`. `trim` wraps
+  `strings.TrimSpace` — added right after input, once it became obvious
+  cleaning up `unbox()`'s trailing newline was the actual first thing
+  most callers would need to do with its output. Deliberately named
+  `trim`, not `strip`: `strip(a, b)` (Set difference) already existed
+  in §7, and overloading one name across two unrelated operations
+  (whitespace trimming vs. Set difference) would have been confusing
+  regardless of which one got there first.
 - **Type conversion is explicit-only, by design, not by omission.**
   `SPEC.md` §6 already states operators never implicitly convert
   between types (`+` between a String and a number is a type error);
@@ -744,8 +751,8 @@ describes.
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars` (string → List
   of characters), the Set builtins `gather`/`sprinkle`/`scrape`/
-  `topped`/`combine`/`shared`/`strip`, `unbox`/`lines` (input), and
-  `str`/`int`/`float`/`bool` (conversion). These names were chosen
+  `topped`/`combine`/`shared`/`strip`, `unbox`/`lines`/`trim` (input),
+  and `str`/`int`/`float`/`bool` (conversion). These names were chosen
   specifically because dropping `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more
   useful as functions — `sauce` in particular reuses the "base layer

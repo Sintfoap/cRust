@@ -445,6 +445,7 @@ or because it's directly tied to the Set type this doc introduces.
 | `strip(a, b)` | `(Set, Set) -> Set` | difference — items in `a` not in `b` |
 | `unbox()` / `unbox(path)` | `() -> String` / `(String) -> String` | reads all of stdin, or a whole file at `path` — either way, the raw contents, trailing newline and all |
 | `lines(s)` | `(String) -> List` | splits `s` into a List of lines (handles `\n` and `\r\n`; a trailing newline doesn't produce an extra blank entry) |
+| `trim(s)` | `(String) -> String` | removes leading/trailing whitespace — distinct from `strip` (Set difference, above) on purpose, to avoid the name collision; the usual reason to reach for this is a trailing newline off `unbox()`'s raw output |
 | `str(x)` | `(Any) -> String` | converts any value to its String form (the same text `deliver` would print for it) |
 | `int(x)` | `(String \| Integer \| Float) -> Integer` | parses a String (base-10; a non-integer string like `"3.5"` is a runtime error, not a silent truncation) or truncates a Float toward zero; an Integer passes through unchanged |
 | `float(x)` | `(String \| Integer \| Float) -> Float` | parses a String or widens an Integer; a Float passes through unchanged |

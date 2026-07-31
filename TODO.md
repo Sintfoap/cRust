@@ -160,7 +160,9 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 ## Phase 5 — Standard Library (AoC-focused) 🚧
 - [x] Input: `unbox()`/`unbox(path)` (stdin or a file, whole contents
       as a String) + `lines(s)` (split into a List of lines)
-- [ ] Strings: split, join, trim, contains, replace
+- [x] `trim` (leading/trailing whitespace — kept distinct from `strip`,
+      which is Set difference, to avoid a name collision)
+- [ ] Strings: split, join, contains, replace
 - [x] `chars` (string → List of one-character strings)
 - [x] Type conversion: `str`/`int`/`float`/`bool` — explicit only, no
       implicit coercion (SPEC.md §6 already rules that out for

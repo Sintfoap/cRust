@@ -39,6 +39,7 @@ func New(output io.Writer, stdin io.Reader) map[string]*object.Builtin {
 		"strip":    {Fn: stripFn},
 		"unbox":    {Fn: unboxFn(stdin)},
 		"lines":    {Fn: linesFn},
+		"trim":     {Fn: trimFn},
 		"str":      {Fn: strFn},
 		"int":      {Fn: intFn},
 		"float":    {Fn: floatFn},
@@ -321,6 +322,23 @@ func linesFn(args ...object.Object) object.Object {
 		out = append(out, &object.String{Value: scanner.Text()})
 	}
 	return object.NewList(out)
+}
+
+// trimFn is `trim(s)` (SPEC.md §7) — removes leading/trailing
+// whitespace from a String. Named distinctly from `strip` (Set
+// difference, already taken — SPEC.md §7) specifically to avoid the
+// two colliding; the most common reason to reach for this one is
+// cleaning up a trailing newline off `unbox()`'s raw output before
+// parsing it.
+func trimFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("trim", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("trim", 0, "a String", args[0])
+	}
+	return &object.String{Value: strings.TrimSpace(s.Value)}
 }
 
 // strFn is `str(x)` (SPEC.md §7) — converts any value to its String

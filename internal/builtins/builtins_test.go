@@ -77,7 +77,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
-		"unbox", "lines", "str", "int", "float", "bool",
+		"unbox", "lines", "trim", "str", "int", "float", "bool",
 	}
 	for _, name := range want {
 		if _, ok := table[name]; !ok {
@@ -391,6 +391,33 @@ func TestLinesWrongType(t *testing.T) {
 	wantError(t, call(t, table, "lines", object.NewInteger(1)))
 }
 
+func TestTrim(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"leading and trailing spaces", "  hello  ", "hello"},
+		{"trailing newline (unbox() output)", "42\n", "42"},
+		{"tabs and mixed whitespace", "\t\n hi \n\t", "hi"},
+		{"nothing to trim", "clean", "clean"},
+		{"all whitespace", "   \n\t  ", ""},
+		{"interior whitespace preserved", "  a b  ", "a b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantString(t, call(t, table, "trim", &object.String{Value: tt.input}), tt.want)
+		})
+	}
+}
+
+func TestTrimWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""))
+	wantError(t, call(t, table, "trim", object.NewInteger(1)))
+}
+
 func TestStr(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
 
@@ -467,7 +494,7 @@ func TestBool(t *testing.T) {
 
 func TestConversionBuiltinsWrongArgCounts(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""))
-	for _, name := range []string{"str", "int", "float", "bool", "lines"} {
+	for _, name := range []string{"str", "int", "float", "bool", "lines", "trim"} {
 		t.Run(name, func(t *testing.T) {
 			wantError(t, call(t, table, name))
 			wantError(t, call(t, table, name, object.NewInteger(1), object.NewInteger(2)))
