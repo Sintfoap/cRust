@@ -119,7 +119,7 @@ knead n in [1, 2, 3, 4, 5] {
     total += n
 }
 `))
-	m.active = tabStepper
+	m.active = tabEditor
 	m.cursor = 3
 	m.editorErr = "stale"
 
@@ -138,13 +138,17 @@ knead n in [1, 2, 3, 4, 5] {
 	if m.editorErr != "" {
 		t.Errorf("editorErr = %q, want cleared on a successful reload", m.editorErr)
 	}
-	if cmd == nil {
-		t.Error("a successful reload should reopen nvim (openEditorCmd)")
+	if m.active != tabKPI {
+		t.Errorf("active = %v, want tabKPI after a successful reload (back to the dashboard)", m.active)
+	}
+	if cmd != nil {
+		t.Error("a successful reload should not reopen nvim -- the user already chose to quit")
 	}
 }
 
 func TestHandleReloadFailureKeepsOldView(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabEditor
 	original := m.view
 	next, cmd := m.handleReload(reloadMsg{err: errors.New("1 parse error(s):\n  bad token")})
 	m = next.(debugModel)
@@ -154,8 +158,11 @@ func TestHandleReloadFailureKeepsOldView(t *testing.T) {
 	if m.editorErr == "" {
 		t.Error("expected editorErr to report the reload failure")
 	}
-	if cmd == nil {
-		t.Error("a failed reload should still reopen nvim so the user can fix the typo")
+	if m.active != tabEditor {
+		t.Errorf("active = %v, want tabEditor so the error stays visible", m.active)
+	}
+	if cmd != nil {
+		t.Error("a failed reload should not reopen nvim automatically -- the user already chose to quit")
 	}
 }
 

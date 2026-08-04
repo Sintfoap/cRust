@@ -71,6 +71,23 @@ func TestDebugModelShiftTabGoesBackward(t *testing.T) {
 	}
 }
 
+func TestDebugModelSwitchingToEditorTabAutoLaunchesNvim(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.view.path = writeDebugFile(t, "x = 1\n")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab}) // KPI -> Editor, wrapping backward
+	if cmd == nil {
+		t.Error("switching to the Editor tab should return a non-nil Cmd (auto-launch nvim)")
+	}
+}
+
+func TestDebugModelSwitchingToOtherTabsDoesNotLaunchNvim(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab}) // KPI -> Stepper
+	if cmd != nil {
+		t.Error("switching to the Stepper tab should not launch nvim")
+	}
+}
+
 func TestDebugModelQuitReturnsQuitCmd(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

@@ -4,11 +4,11 @@
 // shipping a full terminal emulator inside this TUI just to render
 // nvim's own screen, a much bigger and more fragile build than reusing
 // a real editor wholesale (see ARCHITECTURE.md's debugger section for
-// the fuller tradeoff). An autocmd makes nvim quit the instant the
-// buffer is saved, and the callback below reopens it automatically
-// after rerunning the recording — so from the user's chair it reads as
-// "save and the debugger updates," even though under the hood each
-// save is really its own nvim process handing control straight back.
+// the fuller tradeoff). nvim runs completely natively — no autocmd
+// forcing it to quit on every save — so :w saves and keeps editing
+// exactly like it would anywhere else; the debugger only regains
+// control (and only then rechecks the file) once nvim actually exits,
+// however the user chose to do that (:wq, :x, ZZ, or plain :q).
 package main
 
 import (
@@ -35,18 +35,18 @@ type reloadMsg struct {
 	err  error
 }
 
-// openEditorCmd hands the terminal to nvim on m.view.path, preloaded
-// with an autocmd that quits it the moment the buffer is saved. mtime,
-// captured before nvim runs, is how the callback tells "saved and
-// quit" apart from "quit without saving" — nvim's own exit status is 0
-// either way, so it can't be the signal, and comparing file content
-// would mean reading a potentially large file twice for no more
-// certainty than the mtime already gives.
+// openEditorCmd hands the terminal to nvim on m.view.path. mtime,
+// captured before nvim runs, is how the callback tells "the file
+// changed during this session" apart from "nothing was saved" once
+// nvim exits — nvim's own exit status is 0 whether the user quit via
+// :wq or a plain :q, so it can't be the signal, and comparing file
+// content would mean reading a potentially large file twice for no
+// more certainty than the mtime already gives.
 func (m debugModel) openEditorCmd() tea.Cmd {
 	path := m.view.path
 	before := mtimeOf(path)
 
-	cmd := exec.Command("nvim", "-c", "autocmd BufWritePost <buffer> quitall!", path)
+	cmd := exec.Command("nvim", path)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return nvimExitMsg{err: err, saved: err == nil && mtimeOf(path) != before}
 	})
@@ -63,12 +63,14 @@ func mtimeOf(path string) time.Time {
 	return info.ModTime()
 }
 
-// handleNvimExit reacts to nvim handing the terminal back. A launch
-// failure (nvim missing, a bad exit) surfaces on the Editor tab and
-// goes no further; a clean quit with no save just returns to the
-// Editor tab as it was; a save kicks off reloadCmd, which — on success
-// — reopens nvim itself, so the loop continues without the user
-// needing to press enter again.
+// handleNvimExit reacts to nvim handing the terminal back, however it
+// exited. A launch failure (nvim missing, a bad exit) surfaces on the
+// Editor tab and goes no further; quitting with nothing saved is a
+// no-op, since there's nothing new to show; a save kicks off
+// reloadCmd, whose result (handleReload) is what actually leaves the
+// Editor tab — nvim itself is never reopened automatically here, since
+// the only way this fires at all is the user having already chosen to
+// quit.
 func (m debugModel) handleNvimExit(msg nvimExitMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.editorErr = msg.err.Error()
@@ -101,19 +103,24 @@ func (m debugModel) reloadCmd() tea.Cmd {
 // handleReload applies a reload's result. Failure (e.g. a save that
 // left the file with a parse error) is shown on the Editor tab without
 // touching the previous — still valid — recording, so a typo mid-edit
-// doesn't blank out the KPI/Stepper tabs. Success replaces the view and
-// resets the stepper's fold/cursor state, since the new recording's
-// tree has no relationship to the old one's, then reopens nvim to
-// continue editing.
+// doesn't blank out the KPI/Stepper tabs; the user already chose to
+// quit nvim, so this leaves them on the Editor tab to read the error
+// and reopen it themselves (enter, or tab away and back) rather than
+// forcing them straight back in. Success replaces the view, resets the
+// stepper's fold/cursor state (the new recording's tree has no
+// relationship to the old one's), and switches to the KPI tab — the
+// save is done and nvim already closed, so landing back on the
+// dashboard is the point, not another editing pass.
 func (m debugModel) handleReload(msg reloadMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.editorErr = msg.err.Error()
-		return m, m.openEditorCmd()
+		return m, nil
 	}
 	m.editorErr = ""
 	m.view = msg.view
 	m.expanded = map[*debugger.TraceNode]bool{}
 	m.cursor, m.top = 0, 0
 	m.rebuildRows()
-	return m, m.openEditorCmd()
+	m.active = tabKPI
+	return m, nil
 }

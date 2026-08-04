@@ -1788,55 +1788,70 @@ code was written.
     just to render nvim's own screen, a much bigger and more fragile
     build for a debugging tool's third tab than reusing a real editor
     wholesale.
-    - **An autocmd (`autocmd BufWritePost <buffer> quitall!`, passed via
-      `nvim -c`) makes nvim quit the instant the buffer is saved** — the
-      mechanism that turns "hand off to a separate program" into
-      something that reads, from the user's chair, as "save and the
-      debugger updates." Telling "saved and quit" apart from "quit
-      without saving" (`:q`, `ZQ`, closing the terminal) can't use
-      nvim's exit status, which is 0 either way; it uses the file's
-      mtime, captured immediately before `ExecProcess` runs and
-      compared again in the exit callback, which is enough since the
-      whole point is "did *this* invocation touch the file," not a
-      general "is the file dirty" check.
-    - **A save triggers `reloadCmd`, which re-parses and re-records the
-      file with the exact same `--store`/`--max-steps` the original run
-      used** (`buildDebugView`, factored out of `runDebug` specifically
-      so both the initial CLI invocation and this reload share one
-      implementation rather than two that could drift). Its
-      interpreter's program output (`deliver`, etc.) goes to
-      `io.Discard`, not the real terminal — unlike the very first
-      recording, built *before* the TUI ever took the screen, a reload
-      runs while the alt-screen buffer is already active, and writing
-      straight to the terminal from inside it would corrupt the
-      display. A reload that fails (the save left the file with a
-      parse error) surfaces the error on the Editor tab without
-      touching the previous, still-valid recording — a mid-edit typo
-      shouldn't blank out the KPI/Stepper tabs — and still reopens nvim
-      immediately, since the user is mid-edit and wants to fix the
-      typo, not get bounced to a placeholder screen.
-    - **A successful reload reopens nvim automatically**
-      (`handleReload`/`handleNvimExit` both end by returning
-      `openEditorCmd()` again), which is what makes the whole thing a
-      *loop* rather than a single hand-off: edit, save (nvim quits,
-      crust reruns and refreshes, nvim reopens), edit again, with no
-      keypress needed in between beyond the saves themselves. Quitting
-      without saving breaks the loop and returns to the Editor tab's
-      placeholder rather than reopening nvim, which is the deliberate
-      way to stop editing.
+    - **nvim runs completely natively — no autocmd forcing a quit on
+      every save.** The first version forced a `quitall!` right after
+      any `BufWritePost`, so it could regain control and refresh the
+      other tabs; in practice that made a plain `:w` (save, keep
+      editing) indistinguishable from `:wq` (save, I'm done) — every
+      save kicked you out and immediately reopened nvim, which read as
+      janky rather than "the debugger just updates," and a real user
+      said so. The fix was to stop trying to interrupt nvim's own
+      session at all: `:w` now saves and keeps editing exactly like it
+      would anywhere else, and the debugger only rechecks anything once
+      nvim *actually* exits, however the user chose to do that (`:wq`,
+      `:x`, `ZZ`, or a plain `:q`). Telling "something was saved during
+      this session" apart from "nothing was" still can't use nvim's
+      exit status (0 either way); it compares the file's mtime from
+      immediately before `ExecProcess` runs to immediately after, which
+      is enough since the question is "did *this* invocation touch the
+      file," not a general "is the file dirty" check — and it doesn't
+      care how many intermediate `:w`s happened along the way, only
+      whether the file differs by the time nvim hands control back.
+    - **Switching to the Editor tab launches nvim immediately —
+      no enter required** (`maybeOpenEditor`, called from the same
+      tab/shift-tab handling every other tab switch already went
+      through). The tab *is* "open the editor"; a separate keypress
+      once you're already looking at it was one more step than the
+      action needed. `enter` still (re)launches it manually, for
+      retrying after a launch error or reopening after a plain quit
+      without having to tab away and back.
+    - **A save (detected once nvim exits) triggers `reloadCmd`, which
+      re-parses and re-records the file with the exact same
+      `--store`/`--max-steps` the original run used** (`buildDebugView`,
+      factored out of `runDebug` specifically so both the initial CLI
+      invocation and this reload share one implementation rather than
+      two that could drift). Its interpreter's program output
+      (`deliver`, etc.) goes to `io.Discard`, not the real terminal —
+      unlike the very first recording, built *before* the TUI ever took
+      the screen, a reload runs while the alt-screen buffer is already
+      active, and writing straight to the terminal from inside it would
+      corrupt the display.
+    - **Neither a successful nor a failed reload reopens nvim
+      automatically — the user already chose to quit it, and that
+      choice is respected either way.** Success (`handleReload`)
+      replaces the view, resets the stepper's fold/cursor state (the
+      new tree has no relationship to the old one's), and switches
+      `active` to the KPI tab — the save is done, nvim already closed,
+      landing back on the dashboard is the point. Failure (a save that
+      left the file with a parse error) surfaces the error on the
+      Editor tab without touching the previous, still-valid recording —
+      a mid-edit typo shouldn't blank out the KPI/Stepper tabs — and
+      leaves the user there to read it and reopen nvim themselves
+      (`enter`, or tab away and back) rather than forcing them straight
+      back in against their own quit.
     - **Verified against a real `nvim`, not just Go unit tests**: a pty
       running the actual compiled binary, with `nvim` genuinely
-      installed, confirmed the missing-binary error path (surfaces on
-      the Editor tab, doesn't crash the TUI), that appending a line and
-      `:w`-saving inside nvim actually persists to disk and triggers a
-      rerun (the KPI tab's step count changed to match), that nvim
-      reopens automatically afterward, and that `:q!` on the reopened
-      session cleanly returns to the Editor tab. The parts that
-      genuinely can't run under `go test` (spawning a real interactive
-      subprocess, a live `Program.Run()` against a terminal) are the
-      same shape of gap `runDebugTUI` itself already had — covered by
-      this real-pty pass instead, the project's established substitute
-      for what a unit test can't reach.
+      installed, confirmed switching to the Editor tab opens nvim with
+      no keypress beyond the tab switch itself; that `:w` alone saves
+      and leaves nvim running (no forced exit); that appending a line
+      and quitting with `:wq` persists the save, reruns the file (the
+      KPI tab's step count changed to match), and lands on the KPI
+      tab — not back in nvim. The parts that genuinely can't run under
+      `go test` (spawning a real interactive subprocess, a live
+      `Program.Run()` against a terminal) are the same shape of gap
+      `runDebugTUI` itself already had — covered by this real-pty pass
+      instead, the project's established substitute for what a unit
+      test can't reach.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

@@ -144,8 +144,10 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "tab", "right", "l":
 		m.active = (m.active + 1) % tabCount
+		return m, m.maybeOpenEditor()
 	case "shift+tab", "left", "h":
 		m.active = (m.active + tabCount - 1) % tabCount
+		return m, m.maybeOpenEditor()
 	case "down", "j":
 		if m.active == tabStepper {
 			m.moveCursor(1)
@@ -163,6 +165,18 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// maybeOpenEditor launches nvim the moment a tab switch lands on the
+// Editor tab, so there's no separate "now press enter" step once
+// you're actually there — switching to the tab is the open action.
+// Returns nil for every other tab, so tab/shift-tab stays a no-op cmd
+// everywhere else, exactly as before this existed.
+func (m debugModel) maybeOpenEditor() tea.Cmd {
+	if m.active != tabEditor {
+		return nil
+	}
+	return m.openEditorCmd()
 }
 
 func (m *debugModel) moveCursor(delta int) {
@@ -256,7 +270,7 @@ func (m debugModel) helpText() string {
 	case tabStepper:
 		return "tab/←→: switch tab   ↑↓: move   enter: open/close   q: quit"
 	case tabEditor:
-		return "tab/←→: switch tab   enter: open in nvim (saving reruns + reopens)   q: quit"
+		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
 	}
@@ -286,9 +300,10 @@ func (m debugModel) viewEditor() string {
 	lines := []string{
 		fmt.Sprintf("file: %s", m.view.path),
 		"",
-		"enter: open it in nvim",
-		"saving (:w) reruns the file, refreshes the KPI/Stepper tabs, and reopens nvim",
-		"quitting without saving (:q) returns you here",
+		"nvim opens automatically whenever you switch to this tab (enter reopens it too)",
+		"nvim behaves normally in there: :w saves and keeps editing",
+		"quitting after a save (:wq, :x, ZZ, ...) reruns the file and takes you to the KPIs tab",
+		"quitting without ever saving (:q) just returns you here",
 	}
 	if m.editorErr != "" {
 		lines = append(lines, "", styleError.Render("last attempt failed: "+m.editorErr))

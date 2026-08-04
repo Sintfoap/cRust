@@ -352,20 +352,26 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       rendering an editor pane inline — embedding one would need a full
       terminal emulator layered into this TUI just to draw nvim's own
       screen, a much bigger and more fragile build than reusing a real
-      editor. An autocmd quits nvim the instant the buffer is saved;
-      the debugger tells "saved and quit" apart from "quit without
-      saving" by comparing the file's mtime before/after (nvim's exit
-      status is 0 either way), reruns the file on a save, refreshes the
-      KPI/Stepper tabs, and reopens nvim automatically — so from the
-      user's chair it reads as "save and the debugger updates." All
-      three verified via a real pty (a small terminal no longer loses
-      the tab bar; `// end` markers appear in both the TUI and
-      `--plain`; a real `nvim` session round-tripped a save through the
-      whole reload-and-reopen loop, confirmed by the file's own
-      contents and the KPI tab's updated step count), not just Go unit
-      tests — see ARCHITECTURE.md's debugger section for the design
-      notes, including why the Editor tab is a hand-off and not an
-      embedded pane.
+      editor. Switching to the Editor tab launches nvim immediately, no
+      enter needed; inside it, nvim behaves completely natively (`:w`
+      saves and keeps editing) — an earlier version forced a quit after
+      every save so it could refresh, which made `:w` indistinguishable
+      from `:wq` and read as janky rather than "the debugger updates,"
+      per direct feedback. Now the debugger only rechecks anything once
+      nvim actually exits (however the user chose to: `:wq`, `:x`,
+      `ZZ`, plain `:q`), tells "something was saved" apart from
+      "nothing was" by comparing the file's mtime before/after, and — on
+      a save — reruns the file, refreshes the KPI/Stepper tabs, and
+      switches to the KPI tab; it does not reopen nvim, respecting that
+      the user already chose to quit. All of this verified via a real
+      pty (a small terminal no longer loses the tab bar; `// end`
+      markers appear in both the TUI and `--plain`; a real `nvim`
+      session confirmed the tab-switch auto-launch, that `:w` alone
+      leaves nvim open, and that `:wq` persists the save, reruns the
+      file, and lands on the KPI tab), not just Go unit tests — see
+      ARCHITECTURE.md's debugger section for the design notes,
+      including why the Editor tab is a hand-off and not an embedded
+      pane.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

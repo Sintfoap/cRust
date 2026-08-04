@@ -123,10 +123,12 @@ not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
 not one row per call site. On a real terminal this opens an
 interactive three-tab TUI (KPI pie charts, the tree stepper, and an
-Editor tab that hands off to `nvim` on the file being debugged — saving
-reruns the recording and refreshes the other two tabs, then reopens
-`nvim` automatically); piped or redirected, or with `--plain`, it
-prints the same information as text:
+Editor tab that opens `nvim` on the file being debugged as soon as you
+switch to it — `nvim` behaves normally in there, so `:w` just saves and
+keeps you editing; quitting after a save, e.g. `:wq`, reruns the
+recording, refreshes the other two tabs, and takes you to the KPIs
+tab); piped or redirected, or with `--plain`, it prints the same
+information as text:
 
 ```
 crust debug day01.crust
