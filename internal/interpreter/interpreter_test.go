@@ -284,6 +284,35 @@ func TestListEqualityByContent(t *testing.T) {
 	wantBoolean(t, testEval(t, "[1, [2, 3]] == [1, [2, 3]]"), true)
 }
 
+func TestGridEqualityByContent(t *testing.T) {
+	wantBoolean(t, testEval(t, `grid("ab\ncd") == grid("ab\ncd")`), true)
+	wantBoolean(t, testEval(t, `grid("ab") == grid("cd")`), false)
+}
+
+func TestGridEqualityConsidersOffset(t *testing.T) {
+	// Two grids with the same visible content but a different origin
+	// (one shifted by an earlier setAt into negative coordinates) are
+	// not the same value -- the same coordinate would mean a different
+	// cell on each.
+	input := `
+a = grid("x")
+b = grid("x")
+setAt(b, (-1, 0), "y")
+a == b
+`
+	wantBoolean(t, testEval(t, input), false)
+}
+
+func TestGridEqualityDifferentDimensions(t *testing.T) {
+	wantBoolean(t, testEval(t, `grid("a") == grid("ab")`), false)
+	wantBoolean(t, testEval(t, `grid("a") == grid("a\nb")`), false)
+}
+
+func TestGridInequality(t *testing.T) {
+	wantBoolean(t, testEval(t, `grid("a") != grid("b")`), true)
+	wantBoolean(t, testEval(t, `grid("a") != grid("a")`), false)
+}
+
 func TestSetEqualityIgnoresOrder(t *testing.T) {
 	wantBoolean(t, testEval(t, "toppings{1, 2} == toppings{2, 1}"), true)
 }

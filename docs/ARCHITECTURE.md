@@ -1007,22 +1007,29 @@ own section below describes.
   List either — it's a List containing exactly one element, the empty
   Tuple `()`, matching the standard math convention that there's
   exactly one way to choose nothing.
-- **Grid support is five composable functions over plain List-of-List,
-  not a dedicated Grid type.** The request that motivated this was
-  "grid simulation functionality" — broad enough that it was worth
-  asking what shape was actually wanted (a full cellular-automaton
-  stepper vs. just the pieces to write one) before building anything;
-  the answer was utilities only, so a `step(grid, rule)`-style function
-  stayed out of scope. `grid(s)` parses a String into a row-major List
-  of row-Lists of one-character Strings (`lines` + `chars`, combined
-  into one call); `at(g, pos)`/`setAt(g, pos, value)` are bounds-checked
+- **Grid support started as five composable functions over plain
+  List-of-List, not a dedicated Grid type** — until `setAt` needed to
+  auto-expand instead of erroring (below), at which point it *became*
+  a dedicated type after all. Both stages are kept here rather than
+  overwriting the first with the second, since the reasoning that led
+  from one to the other is the useful part. The request that motivated
+  the original version was "grid simulation functionality" — broad
+  enough that it was worth asking what shape was actually wanted (a
+  full cellular-automaton stepper vs. just the pieces to write one)
+  before building anything; the answer was utilities only, so a
+  `step(grid, rule)`-style function stayed out of scope then and still
+  hasn't been built. `grid(s)` parsed a String into a row-major List of
+  row-Lists of one-character Strings (`lines` + `chars`, combined into
+  one call); `at(g, pos)`/`setAt(g, pos, value)` were bounds-checked
   read/write; `neighbors4(pos)`/`neighbors8(pos)` give the 4 or 8
   neighbor positions of a cell. Every position is a `(row, col)` Tuple
   — chosen specifically because it's hashable (SPEC.md §2.3), so a
   position can go straight into a `Set` (visited cells, already how
   `gather`/`sprinkle`/`topped` work) or a `Map` key (distances, costs)
-  with no extra packing, and it composes cleanly with `combos`/`map`
-  now that those exist too.
+  with no extra packing, and it composes cleanly with `combos`/`map`.
+  Tuple positions and `neighbors4`/`neighbors8` are entirely unchanged
+  by everything below — only the grid value itself and `at`/`setAt`
+  changed.
   - **`at` reads out-of-range as `nobox`, deliberately breaking from
     plain `g[row][col]` indexing (which errors via `readIndex`)** — the
     same reasoning `readIndex`'s own doc comment already gives for a
@@ -1033,16 +1040,90 @@ own section below describes.
     `knead n in neighbors8(pos) { v = at(g, n); order (v == "#") {
     count += 1 } }` never needs to check `n` is in range first, since
     `at` already answers "no" as `nobox`, which just isn't `"#"`.
-  - **`setAt` goes the other way: out-of-range is a runtime error**,
-    matching plain `g[row][col] = value` rather than `at`'s nobox-on-
-    miss. Writing off the edge of a grid is a bug to surface
-    immediately (there's no sensible "did I write it or not" query the
-    way a read's existence-check is), so the asymmetry between `at` and
-    `setAt` is intentional, not an oversight. `setAt`'s target row also
-    has to be a `List`, never a `Tuple` — Tuples are immutable, so
-    there's no in-place write to make; grids built by tools that
-    happened to produce Tuple rows (`at` reads through either) can't be
-    mutated with `setAt` without first converting.
+  - **`setAt` originally went the other way: out-of-range was a runtime
+    error**, matching plain `g[row][col] = value` rather than `at`'s
+    nobox-on-miss, on the reasoning that writing off the edge of a grid
+    is a bug to surface immediately. That held until a user actually
+    hit it mid-simulation (their own neighbor-walk output included
+    negative coordinates like `(0, -1)`) and asked for `setAt` to
+    expand the grid instead of erroring — see the dedicated Grid-type
+    note directly below for what changed and why "expand" turned out
+    to need more than a one-line fix.
+  - **Why "expand" couldn't just mean "grow the List a bit": a plain
+    List-of-List has nowhere to remember a shifted origin.** Growing
+    positively (appending rows/cols) is easy with plain Lists, but the
+    motivating case was negative — the user's own neighbor-walk output
+    included coordinates like `(0, -1)`, i.e. `setAt` needs to succeed
+    when the new cell is *before* row/col 0. That only works if
+    `(0, -1)` keeps meaning the same physical cell on every later call,
+    which means somewhere has to remember "this grid's logical row 0 is
+    now at backing-storage row 1" — state a bare `[][]Object` has no
+    field for. That gap is what promoted Grid from "five functions over
+    List-of-List" to `object.Grid` (`internal/object/grid.go`): a struct
+    holding the backing rows plus `RowOffset`/`ColOffset`, so
+    `Set`/`Get` can translate a logical `(row, col)` into a backing-array
+    index (`row + RowOffset`, `col + ColOffset`) and the offset survives
+    across calls.
+  - **`Grid.Set` on an out-of-range position rebuilds the whole grid into
+    a new bounding box rather than prepending/appending incrementally**
+    — it computes the union of the current bounds and the new position,
+    allocates a fresh `[][]Object` sized to that box, copies every
+    existing cell to its shifted position, writes the new value, and
+    updates `RowOffset`/`ColOffset` to match. That's O(new area) per
+    expanding write instead of O(1), but grid expansions are rare
+    relative to in-bounds writes in a typical simulation loop (most
+    `setAt` calls land inside the existing box once a simulation is
+    running), and AoC-sized grids make the difference unmeasurable in
+    practice — consistent with this project's standing preference for
+    the simplest-correct approach at this input scale (see the general
+    performance philosophy note elsewhere in this doc) over a fancier
+    incremental-resize scheme.
+  - **Grid is deliberately not directly indexable (`g[row]`) or iterable
+    (`knead row in g`)** — both were considered and rejected. A raw
+    index would have to mean either "position in backing storage" (which
+    silently changes meaning after any expansion shifts the offset —
+    exactly the bug the offset exists to prevent) or would have to
+    redo the same `row + RowOffset`/`col + ColOffset` translation `at`
+    and `setAt` already do, just duplicated at a second call site.
+    `at`/`setAt`/`gridBounds` are the entire interface on purpose.
+    `gridBounds(g)` fills the resulting gap — since nothing else exposes
+    a Grid's current extent, it returns `(minRow, minCol, maxRow,
+    maxCol)` as a Tuple (or `nobox` for an empty grid), which is what
+    lets `examples/grid_life.crust`'s `step()` sweep every cell without
+    knowing the grid's dimensions ahead of time.
+  - **`setAt` now requires an actual `*object.Grid`, not a plain List**
+    — the old List-based `setAt` path was deleted outright rather than
+    kept as a fallback, since a plain List has no offset field for
+    `setAt` to update on an expanding write. `at`, by contrast, still
+    accepts either a `*object.Grid` or a plain List-of-List/Tuple-rows
+    (checking for Grid first, falling back to the legacy path) — reading
+    doesn't need persistent offset state, so old code that built a grid
+    by hand (e.g. via `map()`) without going through `grid()`/`newGrid()`
+    still works with `at`.
+  - **Grid equality (`==`/`!=`) compares offset *and* contents, not just
+    visible layout** — two grids with identical cell values but
+    different `RowOffset`/`ColOffset` are *not* equal, because the same
+    coordinate Tuple would resolve to a different cell on each of them;
+    treating them as equal would make `==` lie about what a subsequent
+    `at(g, pos)` returns. This follows the same "compare full internal
+    state" convention already used for Map/List equality elsewhere in
+    the interpreter. Grid is also deliberately **not** `Hashable` (like
+    List/Map/Set, and for the same reason — it's mutable), so it can't
+    be a Map key or Set element.
+  - `newGrid()` (0-arg, returns an empty `&object.Grid{}`) exists for
+    simulations that start from a handful of live cells rather than a
+    block of text — e.g. `grid_life.crust`'s `step()` builds each
+    generation by calling `setAt` into a fresh `newGrid()`, letting the
+    grid grow to fit exactly the cells that get written instead of
+    pre-sizing it.
+  - Re-verified the whole Grid type end-to-end via real `crust run`
+    subprocesses, not just Go unit tests: expansion in the positive
+    direction, the negative-direction case that motivated all of this
+    (`setAt` at `(0, -1)` on an empty grid), a grid that expands in both
+    directions across several calls with earlier cells checked to still
+    read back correctly afterward, and the full rewritten
+    `grid_life.crust` (vertical blinker → horizontal blinker, same
+    result as before the type existed).
   - **`neighbors4`/`neighbors8` do zero bounds checking against any
     particular grid** — they're pure `(row, col)` arithmetic, so a
     neighbor of `(0, 0)` can come back as `(-1, 0)`. That's
@@ -1068,7 +1149,8 @@ own section below describes.
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
   `map` (apply a function across a List/Tuple), `min`/`max`, `combos`
-  (n-element combinations), `grid`/`at`/`setAt`/`neighbors4`/`neighbors8`
+  (n-element combinations),
+  `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`

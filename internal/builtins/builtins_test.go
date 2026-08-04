@@ -109,7 +109,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
-		"grid", "at", "setAt", "neighbors4", "neighbors8",
+		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
 	}
 	for _, name := range want {
 		if _, ok := table[name]; !ok {
@@ -715,24 +715,30 @@ func TestCombosWrongArgCount(t *testing.T) {
 
 func TestGridParsesRowsAndCols(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	got := call(t, table, "grid", &object.String{Value: "abc\nde\n"}).(*object.List)
-	if len(got.Elements) != 2 {
-		t.Fatalf("got %d rows, want 2", len(got.Elements))
+	got := call(t, table, "grid", &object.String{Value: "abc\nde\n"}).(*object.Grid)
+	if got.Height() != 2 {
+		t.Fatalf("got %d rows, want 2", got.Height())
 	}
-	row0 := got.Elements[0].(*object.List)
-	wantString(t, row0.Elements[0], "a")
-	wantString(t, row0.Elements[2], "c")
-	row1 := got.Elements[1].(*object.List)
-	if len(row1.Elements) != 2 {
-		t.Fatalf("got %d cols in row 1, want 2", len(row1.Elements))
+	wantString(t, got.Rows[0][0], "a")
+	wantString(t, got.Rows[0][2], "c")
+	if len(got.Rows[1]) != 2 {
+		t.Fatalf("got %d cols in row 1, want 2", len(got.Rows[1]))
 	}
 }
 
 func TestGridNoTrailingBlankRow(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	got := call(t, table, "grid", &object.String{Value: "ab\ncd\n"}).(*object.List)
-	if len(got.Elements) != 2 {
-		t.Errorf("got %d rows, want 2 (no trailing blank row)", len(got.Elements))
+	got := call(t, table, "grid", &object.String{Value: "ab\ncd\n"}).(*object.Grid)
+	if got.Height() != 2 {
+		t.Errorf("got %d rows, want 2 (no trailing blank row)", got.Height())
+	}
+}
+
+func TestGridReturnsZeroOffset(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "grid", &object.String{Value: "ab"}).(*object.Grid)
+	if got.RowOffset != 0 || got.ColOffset != 0 {
+		t.Errorf("RowOffset/ColOffset = %d/%d, want 0/0", got.RowOffset, got.ColOffset)
 	}
 }
 
@@ -749,6 +755,58 @@ func TestGridWrongArgCount(t *testing.T) {
 func testGrid(t *testing.T, table map[string]*object.Builtin, s string) object.Object {
 	t.Helper()
 	return call(t, table, "grid", &object.String{Value: s})
+}
+
+func TestNewGridIsEmpty(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "newGrid").(*object.Grid)
+	if got.Height() != 0 || got.Width() != 0 {
+		t.Errorf("Height/Width = %d/%d, want 0/0", got.Height(), got.Width())
+	}
+}
+
+func TestNewGridWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "newGrid", object.NewInteger(1)))
+}
+
+func TestGridBoundsOnEmptyGridIsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := call(t, table, "newGrid")
+	if got := call(t, table, "gridBounds", g); got != object.NULL {
+		t.Errorf("gridBounds(newGrid()) = %v, want nobox", got)
+	}
+}
+
+func TestGridBoundsAfterParsing(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "abc\ndef")
+	got := call(t, table, "gridBounds", g).(*object.Tuple)
+	wantInteger(t, got.Elements[0], 0)
+	wantInteger(t, got.Elements[1], 0)
+	wantInteger(t, got.Elements[2], 1)
+	wantInteger(t, got.Elements[3], 2)
+}
+
+func TestGridBoundsAfterExpansion(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "a")
+	call(t, table, "setAt", g, object.NewTuple([]object.Object{object.NewInteger(-3), object.NewInteger(4)}), &object.String{Value: "z"})
+	got := call(t, table, "gridBounds", g).(*object.Tuple)
+	wantInteger(t, got.Elements[0], -3)
+	wantInteger(t, got.Elements[1], 0)
+	wantInteger(t, got.Elements[2], 0)
+	wantInteger(t, got.Elements[3], 4)
+}
+
+func TestGridBoundsWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "gridBounds", object.NewInteger(1)))
+}
+
+func TestGridBoundsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "gridBounds"))
 }
 
 func TestAtInBounds(t *testing.T) {
@@ -824,6 +882,24 @@ func TestAtRowNotAListOrTuple(t *testing.T) {
 	}
 }
 
+func TestAtOnPlainListOutOfRange(t *testing.T) {
+	// The legacy List-of-List path (grid() no longer returns this
+	// shape, but at() still accepts one for backward compatibility)
+	// still reads out-of-range as nobox, same as the Grid path.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := object.NewList([]object.Object{
+		object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)}),
+	})
+	rowOOB := object.NewTuple([]object.Object{object.NewInteger(5), object.NewInteger(0)})
+	if got := call(t, table, "at", g, rowOOB); got != object.NULL {
+		t.Errorf("at(list, row-out-of-range) = %v, want nobox", got)
+	}
+	colOOB := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(5)})
+	if got := call(t, table, "at", g, colOOB); got != object.NULL {
+		t.Errorf("at(list, col-out-of-range) = %v, want nobox", got)
+	}
+}
+
 func TestAtOnTupleRow(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	g := object.NewList([]object.Object{
@@ -841,25 +917,57 @@ func TestSetAtMutatesInPlace(t *testing.T) {
 	wantString(t, call(t, table, "at", g, pos), "Z")
 }
 
-func TestSetAtOutOfRangeIsError(t *testing.T) {
+func TestSetAtExpandsPositivelyInsteadOfErroring(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	g := testGrid(t, table, "ab")
-	pos := object.NewTuple([]object.Object{object.NewInteger(9), object.NewInteger(0)})
-	wantError(t, call(t, table, "setAt", g, pos, &object.String{Value: "Z"}))
-
-	pos = object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(9)})
-	wantError(t, call(t, table, "setAt", g, pos, &object.String{Value: "Z"}))
+	g := testGrid(t, table, "ab").(*object.Grid)
+	pos := object.NewTuple([]object.Object{object.NewInteger(9), object.NewInteger(9)})
+	result := call(t, table, "setAt", g, pos, &object.String{Value: "Z"})
+	if _, isErr := result.(*object.Error); isErr {
+		t.Fatalf("setAt out of range returned an Error, want it to expand instead: %v", result)
+	}
+	wantString(t, call(t, table, "at", g, pos), "Z")
+	if g.Height() != 10 || g.Width() != 10 {
+		t.Errorf("Height/Width after expanding to (9,9) = %d/%d, want 10/10", g.Height(), g.Width())
+	}
 }
 
-func TestSetAtOnTupleRowIsError(t *testing.T) {
+func TestSetAtExpandsNegativelyAndPreservesExistingCells(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	g := object.NewList([]object.Object{
-		object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)}),
+	g := testGrid(t, table, "ab\ncd").(*object.Grid)
+	original := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+
+	pos := object.NewTuple([]object.Object{object.NewInteger(-2), object.NewInteger(-2)})
+	call(t, table, "setAt", g, pos, &object.String{Value: "Z"})
+
+	wantString(t, call(t, table, "at", g, pos), "Z")
+	// The cell that used to be (0,0) must still read the same value --
+	// the whole point of tracking an offset instead of just erroring.
+	wantString(t, call(t, table, "at", g, original), "a")
+}
+
+func TestSetAtNewCellsDefaultToNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	g := testGrid(t, table, "a").(*object.Grid)
+	call(t, table, "setAt", g, object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(3)}), &object.String{Value: "z"})
+	skipped := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(1)})
+	if got := call(t, table, "at", g, skipped); got != object.NULL {
+		t.Errorf("at(g, (0,1)) (never written, just grown past) = %v, want nobox", got)
+	}
+}
+
+func TestSetAtRequiresAGrid(t *testing.T) {
+	// The old plain-List setAt path is gone entirely: growing "in
+	// place" needs a persistent offset a plain List has no room for
+	// (see object/grid.go), so setAt now only accepts what grid()/
+	// newGrid() actually return.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{
+		object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)}),
 	})
 	pos := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
-	errObj := wantError(t, call(t, table, "setAt", g, pos, object.NewInteger(9)))
-	if !strings.Contains(errObj.Message, "immutable") {
-		t.Errorf("Message = %q, want it to mention immutability", errObj.Message)
+	errObj := wantError(t, call(t, table, "setAt", list, pos, object.NewInteger(9)))
+	if !strings.Contains(errObj.Message, "Grid") {
+		t.Errorf("Message = %q, want it to mention Grid", errObj.Message)
 	}
 }
 

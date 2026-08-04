@@ -40,6 +40,7 @@ const (
 	MAP_OBJ     ObjectType = "MAP"
 	SET_OBJ     ObjectType = "SET"
 	TUPLE_OBJ   ObjectType = "TUPLE"
+	GRID_OBJ    ObjectType = "GRID"
 
 	FUNCTION_OBJ ObjectType = "FUNCTION"
 	BUILTIN_OBJ  ObjectType = "BUILTIN"

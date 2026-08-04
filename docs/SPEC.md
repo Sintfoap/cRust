@@ -31,6 +31,7 @@ both in the same change.
 | **Tuple** | `(1, 2, 3)` | 0-indexed, ordered, heterogeneous, **immutable** — see §2.3 |
 | Map | `{"a": 1, "b": 2}` | Hashable keys (String/Integer/Float/Boolean/Tuple), mutable |
 | **Set** | `toppings{1, 2, 3}` | unordered, unique — a pizza's toppings never repeat and don't have an order, so that's the name; see §2.2 |
+| **Grid** | `grid(s)` / `newGrid()` | mutable 2D structure, `(row, col)` coordinates can go negative and grow via `setAt`; no literal syntax, not directly indexable/iterable — see §2.4 |
 | Function | `recipe(a, b) { ... }` | first-class, closes over defining scope |
 
 ### 2.1 Strings and Comments
@@ -141,6 +142,53 @@ sprinkle(seen, [3, 4])     // error: List is not hashable
   }
   lo, hi = minMax(9, 3)        // lo = 3, hi = 9 -- unpacks the ternary's Tuple result
   ```
+
+### 2.4 Grids (`grid(s)` / `newGrid()`)
+
+A Grid is a mutable 2D structure whose `(row, col)` coordinates can be
+negative and grow in any direction — `setAt(g, pos, value)` expands `g`
+to include `pos` if it's currently out of range, instead of erroring,
+which is what a plain List of Lists could never safely do (a List has
+no room to remember "row 0 currently means logical row -3" between
+calls — see §7's `setAt` for why that persistent offset is exactly the
+reason Grid is its own type rather than nested Lists):
+
+```
+g = grid("ab\ncd")            // parse text: rows/cols start at (0, 0)
+deliver(at(g, (0, 0)))        // "a"
+
+setAt(g, (5, 5), "X")         // out of range -- g grows to include it
+deliver(at(g, (5, 5)))        // "X"
+deliver(gridBounds(g))        // (0, 0, 5, 5)
+
+setAt(g, (-2, -2), "Y")       // negative -- g grows the other way too
+deliver(at(g, (0, 0)))        // still "a" -- prior coordinates unaffected
+deliver(gridBounds(g))        // (-2, -2, 5, 5)
+```
+
+- There's no Grid *literal* syntax — a Grid always comes from `grid(s)`
+  (parsing text, one character per cell, at offset `(0, 0)`) or
+  `newGrid()` (empty, for building one up entirely through `setAt`,
+  e.g. a simulation that starts from a handful of live cells rather
+  than a fixed-size input).
+- **Not directly indexable or iterable** — `g[0]` and
+  `knead row in g {...}` are both errors, unlike List/Tuple. This is
+  deliberate, not an oversight: once a Grid's origin can shift, a raw
+  index would either have to mean "position 0 in the backing storage"
+  (which silently changes meaning after any expansion, wrong) or
+  duplicate the same offset math `at`/`setAt` already do (redundant).
+  `at(g, pos)`, `setAt(g, pos, value)`, and `gridBounds(g)` — the
+  latter for learning where a Grid's edges currently are — are the
+  whole interface.
+- `at`/`setAt` take positions as `(row, col)` Tuples, same as
+  `neighbors4`/`neighbors8` produce and consume — see §7.
+- `==`/`!=` compare a Grid's full logical layout: same bounds *and* the
+  same cell at every coordinate. A Grid with identical visible content
+  but a different origin (e.g. one that was expanded negatively and one
+  that wasn't) is **not** equal — the same coordinate would mean a
+  different cell on each.
+- Not `Hashable` (mutable, like List/Map/Set) — can't be a `Map` key or
+  `Set` element.
 
 ## 3. Variables & Assignment
 
@@ -534,9 +582,11 @@ it's directly tied to the Set type this doc introduces.
 | `min(a, b, ...)` / `min(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | smallest of 2+ direct arguments, or of a List/Tuple's elements — same ordering as `<` (§6): numbers (Integer/Float freely mixed) or Strings, never a mix of both. Returns the winning element itself, unconverted |
 | `max(a, b, ...)` / `max(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | largest of 2+ direct arguments, or of a List/Tuple's elements — same rules as `min` |
 | `combos(list, n)` | `(List \| Tuple, Integer) -> List` | every n-element combination of `list`'s elements, each as a Tuple, in lexicographic order of position — order within a group doesn't matter and no element is reused within one group ("n choose k", not permutations). `combos(xs, 2)` is every pair, `combos(xs, 3)` every triple, and so on for any `n`. `n` greater than `slices(list)` gives an empty List (not an error); `n < 0` is an error. Every element of `list` must be Hashable, same as an ordinary `(a, b)` Tuple literal |
-| `grid(s)` | `(String) -> List` | parses `s` into a row-major grid — a List of rows, each row a List of one-character Strings — the 2D counterpart to `lines` + `chars` combined. `grid(unbox(path))` turns a raw grid-puzzle input file straight into something `at`/`setAt`/`neighbors4`/`neighbors8` work with |
-| `at(g, pos)` | `(List, Tuple) -> Any` | bounds-checked read from grid `g` at `(row, col)` `pos`. Out-of-range reads as `nobox` rather than erroring — unlike plain `g[row][col]` indexing — so a candidate neighbor near an edge can be checked with `==`/`?:` instead of a hand-written bounds check |
-| `setAt(g, pos, value)` | `(List, Tuple, Any) -> Nil` | bounds-checked in-place write into grid `g` at `pos`, `at`'s mutating counterpart. Unlike `at`, out-of-range **is** a runtime error, matching plain `g[row][col] = value`; the target row must be a List, not a Tuple (Tuples are immutable) |
+| `grid(s)` | `(String) -> Grid` | parses `s` into a Grid at offset `(0, 0)` — one character per cell — the 2D counterpart to `lines` + `chars` combined. `grid(unbox(path))` turns a raw grid-puzzle input file straight into something `at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8` work with. See §2.4 |
+| `newGrid()` | `() -> Grid` | an empty Grid, for building one up entirely through `setAt` rather than parsing one from text (e.g. a simulation that starts from a handful of live cells) |
+| `at(g, pos)` | `(Grid \| List, Tuple) -> Any` | bounds-checked read from `g` at `(row, col)` `pos` — `g` is usually a Grid, but a plain List of row Lists/Tuples still works too. Out-of-range reads as `nobox` rather than erroring — unlike plain `g[row][col]` indexing (not valid on a Grid at all — see §2.4) — so a candidate neighbor near an edge can be checked with `==`/`?:` instead of a hand-written bounds check |
+| `setAt(g, pos, value)` | `(Grid, Tuple, Any) -> Nil` | write into Grid `g` at `pos`, `at`'s mutating counterpart. Unlike `at`, `g` must be a real Grid, not a plain List — growing to include an out-of-range `pos` (in any direction, including negative) needs a persistent origin offset a plain List has no room to keep between calls. Never errors on an out-of-range `pos`; it grows `g` to include it instead |
+| `gridBounds(g)` | `(Grid) -> Tuple \| Nil` | `g`'s current `(minRow, minCol, maxRow, maxCol)`, or `nobox` if `g` is empty. The only way to learn a Grid's bounds after any number of expanding `setAt` calls, since a Grid isn't directly indexable/iterable (§2.4) |
 | `neighbors4(pos)` / `neighbors8(pos)` | `(Tuple) -> List` | the 4 orthogonal, or 8 orthogonal+diagonal, neighbor positions of `(row, col)` `pos`, each as a Tuple — pure coordinate arithmetic, no bounds checking against any grid. Pair with `at` (nobox on out-of-range) to filter to only the neighbors that actually exist |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |

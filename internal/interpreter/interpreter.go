@@ -225,11 +225,32 @@ func objectsEqual(a, b object.Object) bool {
 		return mapsEqual(a, b.(*object.Map))
 	case *object.Set:
 		return setsEqual(a, b.(*object.Set))
+	case *object.Grid:
+		return gridsEqual(a, b.(*object.Grid))
 	case *object.Function:
 		return a == b.(*object.Function)
 	default:
 		return false
 	}
+}
+
+// gridsEqual compares two Grids by their full logical layout: same
+// offset (so the same coordinates mean the same cells — a shifted
+// duplicate with identical *content* but a different origin is not
+// the same grid) and the same rows underneath it.
+func gridsEqual(a, b *object.Grid) bool {
+	if a.RowOffset != b.RowOffset || a.ColOffset != b.ColOffset {
+		return false
+	}
+	if len(a.Rows) != len(b.Rows) {
+		return false
+	}
+	for i := range a.Rows {
+		if !listsEqual(a.Rows[i], b.Rows[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // listsEqual compares two element slices positionally — shared by

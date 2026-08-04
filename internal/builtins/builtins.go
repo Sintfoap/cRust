@@ -45,8 +45,10 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
 		"combos":     {Fn: combosFn},
 		"grid":       {Fn: gridFn},
+		"newGrid":    {Fn: newGridFn},
 		"at":         {Fn: atFn},
 		"setAt":      {Fn: setAtFn},
+		"gridBounds": {Fn: gridBoundsFn},
 		"neighbors4": {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
 		"neighbors8": {Fn: neighborsFn("neighbors8", allOffsets)},
 		"idiv":       {Fn: idivFn},
@@ -364,7 +366,7 @@ func gridFn(args ...object.Object) object.Object {
 	if !ok {
 		return wrongArgType("grid", 0, "a String", args[0])
 	}
-	var rows []object.Object
+	var rows [][]object.Object
 	scanner := bufio.NewScanner(strings.NewReader(s.Value))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -373,9 +375,21 @@ func gridFn(args ...object.Object) object.Object {
 		for i, r := range runes {
 			row[i] = &object.String{Value: string(r)}
 		}
-		rows = append(rows, object.NewList(row))
+		rows = append(rows, row)
 	}
-	return object.NewList(rows)
+	return object.NewGrid(rows, 0, 0)
+}
+
+// newGridFn is `newGrid()` (SPEC.md §7) — an empty Grid, the starting
+// point for building one up entirely through `setAt` (a simulation
+// with no fixed-size input to parse in the first place, e.g. Conway's
+// Game of Life starting from a handful of live cells) rather than
+// parsing one from text via `grid(s)`.
+func newGridFn(args ...object.Object) object.Object {
+	if len(args) != 0 {
+		return wrongArgCount("newGrid", "0", len(args))
+	}
+	return &object.Grid{}
 }
 
 // gridPos validates pos as a (row, col) Tuple of two Integers — the
@@ -415,27 +429,37 @@ func gridRowElements(row object.Object) ([]object.Object, bool) {
 	}
 }
 
-// atFn is `at(g, pos)` (SPEC.md §7) — bounds-checked read from a
-// row-major grid (a List of row Lists/Tuples — `grid(s)`'s own output
-// shape) at (row, col). Out-of-range reads as nobox rather than an
-// error, deliberately different from plain `g[row][col]` indexing
-// (which errors via readIndex) — the same reasoning readIndex's own
-// doc comment already gives for a missing Map key reading as nobox
-// instead of erroring: grid code constantly needs to ask "is there a
-// cell here" for a candidate neighbor near an edge, and nobox lets
-// that be a plain equality/`?:` check instead of a hand-written bounds
-// check before every single lookup.
+// atFn is `at(g, pos)` (SPEC.md §7) — bounds-checked read at (row,
+// col). g is usually a Grid (`grid(s)`/`newGrid()`'s own output
+// shape), but a plain List of row Lists/Tuples still works too — `at`
+// predates Grid and this keeps hand-built nested-List grids (e.g. from
+// `map`) usable without forcing a conversion. Out-of-range reads as
+// nobox rather than an error, deliberately different from plain
+// `g[row][col]` indexing (which errors via readIndex) — the same
+// reasoning readIndex's own doc comment already gives for a missing
+// Map key reading as nobox instead of erroring: grid code constantly
+// needs to ask "is there a cell here" for a candidate neighbor near an
+// edge, and nobox lets that be a plain equality/`?:` check instead of
+// a hand-written bounds check before every single lookup.
 func atFn(args ...object.Object) object.Object {
 	if len(args) != 2 {
 		return wrongArgCount("at", "2", len(args))
 	}
-	g, ok := args[0].(*object.List)
-	if !ok {
-		return wrongArgType("at", 0, "a List", args[0])
-	}
 	row, col, errObj := gridPos("at", 1, args[1])
 	if errObj != nil {
 		return errObj
+	}
+
+	if g, ok := args[0].(*object.Grid); ok {
+		if v, ok := g.Get(int(row), int(col)); ok {
+			return v
+		}
+		return object.NULL
+	}
+
+	g, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("at", 0, "a Grid or List", args[0])
 	}
 	if row < 0 || row >= int64(len(g.Elements)) {
 		return object.NULL
@@ -450,38 +474,58 @@ func atFn(args ...object.Object) object.Object {
 	return rowElements[col]
 }
 
-// setAtFn is `setAt(g, pos, value)` (SPEC.md §7) — bounds-checked
-// in-place write into a row-major grid at (row, col), `at`'s mutating
-// counterpart. Unlike `at`, out-of-range is a runtime error here,
-// matching plain `g[row][col] = value` (writeIndex) rather than
-// nobox-on-miss: writing off the edge of a grid is a bug to surface
-// immediately, not a routine "is this cell there" query the way a read
-// so often is. The target row must be a List, not a Tuple — Tuples are
-// immutable (SPEC.md §2.3), so there's no in-place write to make.
+// setAtFn is `setAt(g, pos, value)` (SPEC.md §7) — write into a Grid
+// at (row, col), growing g in whichever direction(s) that coordinate
+// falls outside its current bounds (including negative — a Grid's
+// bounds can shift, see `object.Grid.Set`), `at`'s mutating
+// counterpart. g must be a real Grid (`grid(s)`/`newGrid()`), not a
+// plain List: growing "in place" needs somewhere to remember the
+// shifted origin between calls, which a plain List has no room for
+// (see object/grid.go's doc comment) — a plain nested List still works
+// with `at` (read-only, no growing needed), just not `setAt`.
 func setAtFn(args ...object.Object) object.Object {
 	if len(args) != 3 {
 		return wrongArgCount("setAt", "3", len(args))
 	}
-	g, ok := args[0].(*object.List)
+	g, ok := args[0].(*object.Grid)
 	if !ok {
-		return wrongArgType("setAt", 0, "a List", args[0])
+		return wrongArgType("setAt", 0, "a Grid (grid(s) or newGrid())", args[0])
 	}
 	row, col, errObj := gridPos("setAt", 1, args[1])
 	if errObj != nil {
 		return errObj
 	}
-	if row < 0 || row >= int64(len(g.Elements)) {
-		return newError("setAt: row %d out of range", row)
-	}
-	rowList, ok := g.Elements[row].(*object.List)
-	if !ok {
-		return newError("setAt: row %d is %s, not a List (Tuples are immutable)", row, g.Elements[row].Type())
-	}
-	if col < 0 || col >= int64(len(rowList.Elements)) {
-		return newError("setAt: col %d out of range", col)
-	}
-	rowList.Elements[col] = args[2]
+	g.Set(int(row), int(col), args[2])
 	return object.NULL
+}
+
+// gridBoundsFn is `gridBounds(g)` (SPEC.md §7) — g's current logical
+// bounding box as a `(minRow, minCol, maxRow, maxCol)` Tuple, or nobox
+// for an empty Grid (nothing's been written yet, so there's no box to
+// report — the same "nothing here" answer `at` gives for a single
+// missing cell). The only way to learn where a Grid's bounds actually
+// are after any number of expanding `setAt` calls: a Grid deliberately
+// isn't directly indexable/iterable the way a List is (see
+// ARCHITECTURE.md), so `at`/`setAt`/`gridBounds` are the whole
+// interface.
+func gridBoundsFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("gridBounds", "1", len(args))
+	}
+	g, ok := args[0].(*object.Grid)
+	if !ok {
+		return wrongArgType("gridBounds", 0, "a Grid", args[0])
+	}
+	minRow, minCol, maxRow, maxCol, ok := g.Bounds()
+	if !ok {
+		return object.NULL
+	}
+	return object.NewTuple([]object.Object{
+		object.NewInteger(int64(minRow)),
+		object.NewInteger(int64(minCol)),
+		object.NewInteger(int64(maxRow)),
+		object.NewInteger(int64(maxCol)),
+	})
 }
 
 // orthogonalOffsets/allOffsets are neighbors4/neighbors8's (dRow, dCol)
