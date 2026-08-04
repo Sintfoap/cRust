@@ -17,18 +17,13 @@
           version = "0.1.0-dev";
           src = ./.;
 
-          # go.mod gained its first third-party dependencies (bubbletea +
-          # lipgloss, for `crust debug`'s TUI), so `vendorHash = null`
-          # (valid only for a stdlib-only module) no longer works.
-          # `lib.fakeHash` is nixpkgs' own placeholder for exactly this
-          # situation — `nix build` fails with a hash mismatch that
-          # prints the real value to paste in here. Not computed in this
-          # change since it needs an actual Nix build to produce (not
-          # something derivable by reading go.sum), so the very next
-          # `nix build`/`nix develop` against this commit is expected to
-          # fail once, informatively, until someone with Nix available
-          # updates this to the printed hash.
-          vendorHash = pkgs.lib.fakeHash;
+          # go.mod's first third-party dependencies (bubbletea + lipgloss,
+          # for `crust debug`'s TUI) meant `vendorHash = null` (valid only
+          # for a stdlib-only module) no longer worked. This is the real
+          # hash printed by `nix build` against go.sum, replacing the
+          # `lib.fakeHash` placeholder that was here until someone with
+          # Nix actually ran the build once.
+          vendorHash = "sha256-uwBJAqN4sIepiiJf9lCDumLqfKJEowQO2tOiSWD3Fig=";
 
           subPackages = [ "cmd/crust" ];
 
