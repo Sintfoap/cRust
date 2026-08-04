@@ -12,10 +12,10 @@ type MapPair struct {
 	Value Object
 }
 
-// Map is cRust's Map type (SPEC.md §2): mutable, keyed by String or
-// Integer (that restriction is enforced by the evaluator, not here —
-// see hashkey.go). A pointer to a struct wrapping a Go map, for the
-// same reference-semantics reason as List.
+// Map is cRust's Map type (SPEC.md §2): mutable, keyed by any Hashable
+// value (that restriction is enforced by the evaluator, not here — see
+// hashkey.go). A pointer to a struct wrapping a Go map, for the same
+// reference-semantics reason as List.
 type Map struct {
 	Pairs map[HashKey]MapPair
 }

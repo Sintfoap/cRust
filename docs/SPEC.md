@@ -29,7 +29,7 @@ both in the same change.
 | Nil | `nobox` | absence of a value |
 | List | `[1, 2, 3]` | 0-indexed, ordered, heterogeneous, mutable |
 | **Tuple** | `(1, 2, 3)` | 0-indexed, ordered, heterogeneous, **immutable** — see §2.3 |
-| Map | `{"a": 1, "b": 2}` | string or integer keys, mutable |
+| Map | `{"a": 1, "b": 2}` | Hashable keys (String/Integer/Float/Boolean/Tuple), mutable |
 | **Set** | `toppings{1, 2, 3}` | unordered, unique — a pizza's toppings never repeat and don't have an order, so that's the name; see §2.2 |
 | Function | `recipe(a, b) { ... }` | first-class, closes over defining scope |
 

@@ -1,0 +1,49 @@
+// Game of Life, one generation, on a sparse/unbounded grid. Unlike
+// grid_life.crust (a fixed-size List-of-List grid via grid()/setAt()),
+// this represents "alive" cells as a Set of (row, col) Tuples — no
+// bounds at all, so positions can go negative or grow arbitrarily in
+// any direction without ever needing to resize anything. This is the
+// standard AoC pattern for simulations that aren't confined to a
+// fixed-size input grid (e.g. Conway Cubes-style problems).
+
+recipe countLiveNeighbors(live, pos) {
+    count = 0
+    knead n in neighbors8(pos) {
+        order (topped(live, n)) {
+            count += 1
+        }
+    }
+    serve count
+}
+
+// Only alive cells and their neighbors can possibly change state or
+// come alive next generation -- no need to consider anywhere else.
+recipe candidates(live) {
+    seen = toppings{}
+    knead pos in live {
+        sprinkle(seen, pos)
+        knead n in neighbors8(pos) {
+            sprinkle(seen, n)
+        }
+    }
+    serve seen
+}
+
+recipe step(live) {
+    next = toppings{}
+    knead pos in candidates(live) {
+        n = countLiveNeighbors(live, pos)
+        alive = (topped(live, pos) with (n == 2 or n == 3)) or (hold topped(live, pos) with n == 3)
+        order (alive) {
+            sprinkle(next, pos)
+        }
+    }
+    serve next
+}
+
+live = toppings{(0, 1), (1, 1), (2, 1)}
+after = step(live)
+deliver(slices(after))
+deliver(topped(after, (1, 0)))
+deliver(topped(after, (1, 1)))
+deliver(topped(after, (1, 2)))

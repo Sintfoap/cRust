@@ -164,7 +164,54 @@ m[1]`
 }
 
 func TestMapLiteralRejectsInvalidKeyType(t *testing.T) {
-	wantError(t, testEval(t, "m = {[1]: 2}"), "map keys must be a String or Integer")
+	wantError(t, testEval(t, "m = {[1]: 2}"), "map keys must be Hashable")
+}
+
+// TestMapAcceptsTupleKey is a regression test: Tuple was made hashable
+// (SPEC.md §2.3) specifically so it could be a Map key or Set element
+// -- "grid coordinates" is the doc's own example -- but isValidMapKey
+// (expressions.go) special-cased String/Integer only and was never
+// updated when Tuple landed, so this silently errored until a grid
+// utilities session actually tried the pattern. Covers map literal,
+// index-read, and index-assignment, since all three routed through the
+// same stale check independently.
+func TestMapAcceptsTupleKey(t *testing.T) {
+	input := `
+m = {(1, 1): "a"}
+m[(1, 1)]
+`
+	wantString(t, testEval(t, input), "a")
+}
+
+func TestMapAcceptsTupleKeyOnIndexAssignment(t *testing.T) {
+	input := `
+m = {}
+m[(2, 3)] = "b"
+m[(2, 3)]
+`
+	wantString(t, testEval(t, input), "b")
+}
+
+func TestMapMissingTupleKeyReadsAsNobox(t *testing.T) {
+	input := `
+m = {(1, 1): "a"}
+m[(9, 9)]
+`
+	wantNull(t, testEval(t, input))
+}
+
+func TestMapAcceptsFloatAndBooleanKeys(t *testing.T) {
+	input := `
+m = {1.5: "a", stuffed: "b"}
+m[1.5]
+`
+	wantString(t, testEval(t, input), "a")
+
+	input2 := `
+m = {1.5: "a", stuffed: "b"}
+m[stuffed]
+`
+	wantString(t, testEval(t, input2), "b")
 }
 
 func TestMapMissingKeyReadsAsNobox(t *testing.T) {

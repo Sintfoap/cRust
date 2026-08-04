@@ -502,14 +502,36 @@ themselves.
     `HashKey` (a combination of every element's own `HashKey`, via
     `fnv`, folding in each element's `ObjectType` too so e.g. a
     Boolean and a same-`Value` Integer element can't blend together)
-    never has to handle a non-`Hashable` element itself. This is the
-    same "narrower than `Object` itself" restriction `evalMapLiteral`
-    already enforces for map keys (`SPEC.md` §2's String-or-Integer
-    rule), applied to every element rather than just keys — and it's
-    what makes `Tuple` safely usable as a `Map` key or `Set` element
+    never has to handle a non-`Hashable` element itself. This is what
+    makes `Tuple` safely usable as a `Map` key or `Set` element
     (`sprinkle(seen, (x, y))` for grid-coordinate dedup, the single
     biggest practical reason to want this over a `List`, which can
     never be hashed since its contents can change after insertion).
+    - **Real bug, live for a while: `Tuple`-as-`Map`-key didn't
+      actually work**, despite this doc and `SPEC.md` §2.3 both
+      claiming it did from the moment `Tuple` landed. `isValidMapKey`
+      (`expressions.go`) — the gate `evalMapLiteral`, map-literal
+      index-reads, and map index-*assignment* all call independently —
+      still special-cased `String`/`Integer` only, a rule written
+      before `Tuple` (or `Float`/`Boolean` `HashKey`) existed and never
+      revisited when they were added. `Set` never had this problem:
+      `evalSetLiteral` and `sprinkle`/`gather` all just check
+      `object.Hashable` directly, no allowlist, so `toppings{(x, y)}`
+      worked from day one — only `Map` quietly lagged behind its own
+      documentation. Found via the grid-utilities session, the first
+      time anyone actually tried `m[(row, col)] = value` for a sparse
+      "infinite" grid (the standard AoC pattern for simulations that
+      grow past a fixed `grid()`/`setAt()` array's bounds). Fixed by
+      making `isValidMapKey` just check `object.Hashable`, matching
+      `Set`'s rule exactly — `Map` and `Set` are both backed by the
+      same interface, so a Map accepting a narrower set of key types
+      than Set accepts as elements was never a design anyone chose on
+      purpose, just documentation that outran an early implementation
+      detail nobody went back to fix. `String, Integer, Float, Boolean,
+      Tuple` — precisely `Hashable`'s implementers — can all be Map
+      keys now, end to end (literal, read, assignment), with
+      regression tests at the interpreter layer covering all three
+      access paths plus a same-shape `Float`/`Boolean` key check.
   - `internal/interpreter/statements.go`'s `evalUnpackAssignStatement`
     dispatches on `Value`'s *runtime* type once evaluated, not
     anything visible in the AST: a `*object.Tuple` result unpacks with

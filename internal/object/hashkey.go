@@ -19,10 +19,11 @@ type HashKey struct {
 // fixed-size groups (grid coordinates, most usefully) can be hashed
 // the way a List never safely could.
 //
-// SPEC.md §2 additionally restricts Map keys specifically to String or
-// Integer; that's a narrower rule than "hashable" and belongs to the
-// evaluator (Phase 4), which is the layer that knows it's evaluating a
-// mapLiteral or map index-assignment rather than a Set operation.
+// Map and Set agree on exactly this rule — "any Hashable value" — with
+// no narrower allowlist for either one (see isValidMapKey,
+// internal/interpreter/expressions.go): a Map that accepted a smaller
+// set of key types than Set accepts as elements would be a surprising
+// asymmetry given both are backed by this same interface.
 type Hashable interface {
 	HashKey() HashKey
 }

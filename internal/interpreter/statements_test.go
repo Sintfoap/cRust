@@ -122,7 +122,7 @@ calls
 }
 
 func TestMapIndexAssignmentInvalidKeyType(t *testing.T) {
-	wantError(t, testEval(t, "m = {}\nm[[1]] = 1"), "map keys must be a String or Integer")
+	wantError(t, testEval(t, "m = {}\nm[[1]] = 1"), "map keys must be Hashable")
 }
 
 func TestInvalidAssignmentTargets(t *testing.T) {

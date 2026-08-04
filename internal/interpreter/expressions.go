@@ -419,7 +419,7 @@ func readIndex(tok token.Token, base, index object.Object) object.Object {
 
 	case *object.Map:
 		if !isValidMapKey(index) {
-			return newError(tok, "map keys must be a String or Integer, got %s", index.Type())
+			return newError(tok, "map keys must be Hashable (String, Integer, Float, Boolean, or Tuple), got %s", index.Type())
 		}
 		val, ok := b.Get(index)
 		if !ok {
@@ -476,7 +476,7 @@ func writeIndex(tok token.Token, base, index, value object.Object) object.Object
 
 	case *object.Map:
 		if !isValidMapKey(index) {
-			return newError(tok, "map keys must be a String or Integer, got %s", index.Type())
+			return newError(tok, "map keys must be Hashable (String, Integer, Float, Boolean, or Tuple), got %s", index.Type())
 		}
 		b.Set(index, value)
 		return value
@@ -495,13 +495,19 @@ func writeIndex(tok token.Token, base, index, value object.Object) object.Object
 	}
 }
 
+// isValidMapKey is true for any Hashable Object — matching Set's own
+// "any Hashable element" rule (evalSetLiteral) rather than a narrower
+// String/Integer-only allowlist, so a Map and a Set backed by the same
+// object.Hashable interface actually agree on what can go in either
+// one. Notably this includes Tuple: SPEC.md §2.3 introduced Tuple
+// specifically so fixed-size groups like grid coordinates could be
+// hashed "the way a List never safely could" and explicitly promises
+// it "can be a Map key or Set element" — a promise this function used
+// to only keep for Set, since it still special-cased String/Integer
+// alone (a stale rule from before Tuple existed).
 func isValidMapKey(obj object.Object) bool {
-	switch obj.(type) {
-	case *object.String, *object.Integer:
-		return true
-	default:
-		return false
-	}
+	_, ok := obj.(object.Hashable)
+	return ok
 }
 
 // addDelta is IncDecStatement's `+1`/`-1` step (SPEC.md §5.2), shared
@@ -537,7 +543,7 @@ func (i *Interpreter) evalMapLiteral(ml *ast.MapLiteral, env *object.Environment
 			return key
 		}
 		if !isValidMapKey(key) {
-			return newError(ml.Token, "map keys must be a String or Integer, got %s", key.Type())
+			return newError(ml.Token, "map keys must be Hashable (String, Integer, Float, Boolean, or Tuple), got %s", key.Type())
 		}
 		value := i.Eval(pair.Value, env)
 		if isError(value) {
