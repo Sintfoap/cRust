@@ -292,27 +292,38 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [ ] (Stretch) Further LSP: incremental (as opposed to full) document
       sync, code actions — `internal/lsp` exists now (above) as a base
       to extend rather than something to build from scratch
-- [x] (Stretch) debugger, in progress: `internal/trace` (a `Tracer`
-      hook — `Step`/`PushFrame`/`PopFrame` — checked once per statement
-      and once per call/loop-lap frame in `internal/interpreter`, nil
-      when untraced so an ordinary `crust run` pays nothing extra;
-      verified against a real benchmark, not just reasoned about) +
+- [x] (Stretch) debugger: `internal/trace` (a `Tracer` hook —
+      `Step`/`PushFrame`/`PopFrame` — checked once per statement and
+      once per call/loop-lap frame in `internal/interpreter`, nil when
+      untraced so an ordinary `crust run` pays nothing extra; verified
+      against a real benchmark, not just reasoned about) +
       `internal/debugger` (a `Recorder` building a bounded step/frame
       tree — recipe calls and knead/bake loop laps are frames, repeated
       loop laps fold after 3 — plus a `Timing` pass giving each
-      function/loop its self/total time, keyed by *family* so every
-      call to one recipe, at any recursion depth, lands in one KPI
-      bucket rather than one per call site) + `crust debug <file>`
-      (plain-text output done and tested; the interactive two-tab TUI —
-      KPI pie charts, tree stepper — described below is still to come).
-      Concept and much of the tree-building shape borrowed from a
-      similar tool in another interpreter project, adapted for cRust
-      being a general imperative language rather than a value-pipeline
-      one — see ARCHITECTURE.md's debugger section for exactly what
-      carried over and what had to change.
-- [ ] (Stretch) debugger TUI: two tabs (KPI pie charts for time/memory
-      per function; an interactive tree stepper over the same
-      recording) on top of the `internal/debugger` groundwork above
+      function/loop its self/total time and self *size*, keyed by
+      *family* so every call to one recipe, at any recursion depth, and
+      every lap of one loop, lands in one KPI bucket rather than one
+      per call site) + `crust debug <file> [--store=<name>] [--plain]
+      [--max-steps N]`: a plain-text mode (also what makes the whole
+      thing unit-testable and CI-scriptable) and — on a real terminal —
+      an interactive bubbletea TUI with two tabs, switched with
+      tab/←→: **KPIs** (a pizza-toned ASCII pie chart each for
+      self-time and self-memory per function/loop, ranked, plus overall
+      step count/total time/slowest single statement) and **Stepper**
+      (the recorded tree, ↑↓ to move, enter to open/close a folded run
+      of loop laps). Concept and much of the tree-building shape
+      borrowed, at the user's explicit request, from a similar tool in
+      another interpreter project, adapted throughout for cRust being a
+      general imperative language rather than a value pipeline — see
+      ARCHITECTURE.md's debugger section for exactly what carried over
+      and what had to change, including three real bugs (one a genuine
+      performance regression, caught by benchmarking against a
+      pre-tracing git-worktree baseline rather than just reasoning about
+      the code) found by actually running the finished command rather
+      than trusting the unit tests alone.
+- [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
+      the terminal's actual size (fixed at 7 today, which a very small
+      terminal could clip) and a search/filter over the Stepper tree
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter

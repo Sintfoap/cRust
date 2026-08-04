@@ -183,23 +183,6 @@ func TestIsColorTerminalFalseForNonFile(t *testing.T) {
 	}
 }
 
-func TestRunDebugTUIFallsBackToPlain(t *testing.T) {
-	// The real interactive stepper isn't built yet (see debug_tui.go's
-	// doc comment); until it lands, this is exactly writePlain, called
-	// directly rather than through runDebug's terminal check (which a
-	// *bytes.Buffer can never satisfy).
-	rec := debugger.NewRecorder(0)
-	view := &debugView{path: "x.crust", rec: rec}
-	var stdout, stderr bytes.Buffer
-	code := runDebugTUI(view, strings.NewReader(""), &stdout, &stderr)
-	if code != 0 {
-		t.Errorf("code = %d, want 0", code)
-	}
-	if stdout.Len() == 0 {
-		t.Error("expected some plain-text output")
-	}
-}
-
 func TestSelfPctTextZeroOverall(t *testing.T) {
 	if got := selfPctText(debugger.NodeTiming{}, 0); got != "—" {
 		t.Errorf("selfPctText with zero overall = %q, want an em dash", got)

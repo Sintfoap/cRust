@@ -83,7 +83,9 @@ standard practice to avoid import cycles in a Go interpreter.
   - `vendorHash = null` since `go.mod` has no `require`s yet (stdlib
     only) — nothing to vendor. This needs to become a real hash the
     moment a third-party Go dependency is added; `nix build` prints the
-    correct value on a mismatch.
+    correct value on a mismatch. *(That moment arrived in Phase 6 —
+    `crust debug`'s TUI needed bubbletea/lipgloss; see the Go
+    dependency policy row in §4's design-decisions table.)*
   - `subPackages = [ "cmd/crust" ]` restricts the build to the CLI
     binary specifically, independent of whatever exists under
     `internal/` at any given phase.
@@ -1581,9 +1583,71 @@ code was written.
   `main.go`'s `isTerminal` from a concrete `*os.File` to the `io.Writer`
   every command here is actually handed) is both a legitimate mode on
   its own (scriptable — grep it, diff it, assert on it in CI) and what
-  makes the whole command unit-testable without a pty. The interactive
-  two-tab TUI (KPI pie charts; a tree stepper) is still to come — see
-  `TODO.md`.
+  makes the whole command unit-testable without a pty.
+- **The interactive TUI** (`cmd/crust/debug_tui.go`, `debug_style.go`) —
+  bubbletea + lipgloss, cRust's first non-stdlib Go dependency (added
+  specifically for this; everything else in the project stayed
+  zero-dependency, see the Nix section). Two tabs, switched with
+  tab/←→/shift+tab: **KPIs** (two pie charts — self-time and
+  self-memory per function/loop, `Timing.KPIs()`'s own ranked order —
+  plus overall step count, total time, and the single slowest
+  statement by its own self time) and **Stepper** (the recorded tree,
+  ↑↓ to move a highlighted cursor with the visible window scrolling to
+  follow it, enter/space to open or close a *folded* run of loop laps —
+  the only rows that ever need toggling, since an ordinary frame or
+  step already shows everything under it; ​`recorder.go`'s fold
+  mechanism is what keeps a huge run from flooding the view in the
+  first place, so a second general-purpose collapse-everything UI on
+  top of that would just be more interface for the same job).
+  - **Tested the way `repl_tty.go` is: by driving the model directly**
+    (`newDebugModel`, then `Update(tea.KeyMsg{...})`/`Update(tea.WindowSizeMsg{...})`,
+    asserting on the returned model and `View()`'s text) rather than
+    through a real pty — a bubbletea `Model` is a plain Go value with
+    `Init`/`Update`/`View` methods, so nothing about testing it needs a
+    terminal at all. 25 tests this way cover tab switching (both
+    directions, including the backward wrap), cursor movement and
+    clamping at both ends, scroll-window following the cursor, fold
+    toggling (open, close, and confirming a non-folded row is a
+    no-op), and view content for both tabs including the zero-KPI/
+    empty-recording edge case.
+  - **Also verified against the real compiled binary in an actual pty**
+    (Python's `pty.openpty()` + `subprocess.Popen`, not just the Go
+    unit tests above) — confirmed the real ANSI background-color
+    escape codes for the pie chart wedges are actually emitted and
+    form the right circular shape (not just that the *math* was right
+    in isolation), that switching to the Stepper tab and sending
+    movement keys doesn't crash, and that `q` exits cleanly (exit code
+    0) rather than hanging or leaving the alt-screen in a bad state.
+  - **Pie chart rendering** (`debug_style.go`'s `pieChart`) is plain
+    trigonometry, not a charting library: for each terminal cell inside
+    a radius-7 circle (`tx² + ty² ≤ radius²`), `atan2` gives the angle
+    from 12 o'clock going clockwise, and that angle picks which KPI's
+    cumulative-share bucket the cell falls in
+    (`sliceIndex` over `Timing.KPIs()`'s own share-of-total boundaries).
+    Each logical horizontal step renders as *two* terminal characters
+    — cells are roughly twice as tall as wide, so without that
+    compensation the "circle" comes out as a tall oval. A muted,
+    pizza-toned six-color cycle (`sliceColors`) — tomato/cheese/basil/
+    olive/crimson/sage, deliberately desaturated rather than default
+    ANSI brights — is what "pizza-themed but streamlined, minimalistic"
+    meant in practice: the theme is in the palette choice, not in
+    cartoon pizza-slice iconography. A slice has no room for its own
+    label at terminal resolution, so a text legend (colored swatch +
+    name + percentage + formatted value) underneath is where a reader
+    actually learns which color is which.
+  - **Why KPI buckets by *family*, not call site, matters most
+    visibly here**: the same `family()` collapsing described above
+    (recorder.go) is what makes the KPI pie chart show one wedge per
+    *function* — the literal thing the user asked to see — instead of
+    fragmenting a single recursive recipe's cost across as many wedges
+    as it has call sites in the source, which would have made the
+    pie chart actively misleading rather than merely less useful.
+  - Not built: resizing the pie chart radius to the terminal's actual
+    size (fixed at 7 regardless of window dimensions — reasonable for
+    the terminal sizes this was tested against, but a very small
+    terminal could clip it) and a search/filter over the stepper tree
+    the way the source project's visualizer has; both are natural
+    follow-ons noted in `TODO.md` rather than guessed at.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
@@ -1623,10 +1687,11 @@ months ahead of the event instead of the week before.
 | Distribution | Build from source (`go build`/`go run`); no release workflow yet | Nothing worth shipping to non-developers at Phase 0/1; a release workflow is cheap to add later and premature now |
 | CLI shape | `main()` → `run(args, stdin, stdout, stderr) (code int)`, not `os.Exit`/`os.Stdout`/`os.Stdin` sprinkled through the logic | Makes the CLI unit-testable (`main_test.go`) without subprocess spawning; `stdin` was added specifically for `crust lsp`, the first subcommand that actually reads it |
 | Nix packaging | `flake.nix` via `buildGoModule`, no `flake.lock` committed yet | Builds from source, so it's consistent with "no release workflow" rather than a separate distribution channel; the lock file needs a real Nix install (network access this dev environment doesn't have) to generate correctly |
-| LSP implementation | Hand-rolled JSON-RPC/LSP in `internal/lsp`, no third-party LSP library | Keeps the zero-Go-dependency policy intact, which is what keeps `flake.nix`'s `vendorHash = null` valid; the protocol subset `crust lsp` actually needs (lifecycle, hover, diagnostics) is small enough that this doesn't cost much |
+| LSP implementation | Hand-rolled JSON-RPC/LSP in `internal/lsp`, no third-party LSP library | The protocol subset `crust lsp` actually needs (lifecycle, hover, diagnostics) is small enough that a dependency wouldn't have saved much even before the zero-dependency policy ended (see below) |
 | LSP distribution | A `crust lsp` subcommand, not a separate `crust-lsp` binary | Reuses the existing build/package/Nix-flake path entirely — no new binary to build, version, or install |
 | Banner colors | 24-bit true-color ANSI, no 256-color fallback tier | Matches `assets/banner.png`'s hex palette exactly; a decorative help-screen banner degrading ungracefully on an ancient terminal isn't worth a second color-rendering path |
-| TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Keeps the project's dependency count at zero, which is what keeps the Nix flake's `vendorHash = null` valid — not worth breaking for isatty detection |
+| TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Was originally "keeps the dependency count at zero"; `crust debug`'s TUI ended that policy anyway (below), but this stayed as-is since `main.go`/`debug.go`'s own stdlib check already does the whole job — pulling in `x/term` for it now would be a dependency with nothing to show for it |
+| Go dependency policy | Zero third-party dependencies through Phase 0–5, ends at Phase 6 with bubbletea + lipgloss (`crust debug`'s TUI) | `flake.nix`'s `vendorHash = null` (valid only for a stdlib-only module) became `pkgs.lib.fakeHash` — nixpkgs' own placeholder that fails informatively, printing the real hash, on the first `nix build` against real dependencies. Not computed in this same change since it needs an actual Nix install to produce, which this dev environment doesn't have (same limitation the uncommitted `flake.lock` note above already lives with) |
 
 ## 5. Performance Strategy
 
