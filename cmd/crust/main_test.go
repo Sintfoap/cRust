@@ -131,6 +131,24 @@ func TestRun(t *testing.T) {
 			wantStdout: "#1:",
 		},
 		{
+			name:       "debug missing file",
+			args:       []string{"debug"},
+			wantCode:   2,
+			wantStderr: "debug needs a program file",
+		},
+		{
+			name:       "debug missing on disk",
+			args:       []string{"debug", "/no/such/file.crust"},
+			wantCode:   1,
+			wantStderr: "no such file",
+		},
+		{
+			name:       "debug with a real file",
+			args:       []string{"debug", "../../examples/hello.crust"},
+			wantCode:   0,
+			wantStdout: "step",
+		},
+		{
 			name:       "help shows banner by default",
 			args:       []string{"--help"},
 			wantCode:   0,

@@ -12,6 +12,7 @@ import (
 	"github.com/Sintfoap/cRust/internal/builtins"
 	"github.com/Sintfoap/cRust/internal/object"
 	"github.com/Sintfoap/cRust/internal/token"
+	"github.com/Sintfoap/cRust/internal/trace"
 )
 
 // Interpreter holds what Eval needs beyond the AST node and
@@ -20,8 +21,15 @@ import (
 // Builtins isn't global mutable state — each Interpreter (each `crust
 // run`, each REPL session, each test) gets its own, bound to its own
 // output writer.
+//
+// Trace is nil for an ordinary run — internal/trace's Tracer is
+// checked once per statement (evalBlockStatement) and once per call/
+// loop-lap frame (evalFramed), and every one of those checks costs
+// nothing when it's nil; see BenchmarkTracedVsUntraced. `crust debug`
+// is the one caller that sets it, to a *debugger.Recorder.
 type Interpreter struct {
 	Builtins map[string]*object.Builtin
+	Trace    trace.Tracer
 }
 
 // New returns an Interpreter whose `deliver` builtin writes to output,
@@ -46,7 +54,7 @@ func New(output io.Writer, stdin io.Reader) *Interpreter {
 // CallExpression to Eval. There's no call-site token in this case, so
 // any resulting Error's position is left unset (0, 0).
 func (i *Interpreter) Call(fn object.Object, args []object.Object) object.Object {
-	return i.applyFunction(token.Token{}, fn, args)
+	return i.applyFunction(token.Token{}, "call(...)", fn, args)
 }
 
 // Eval evaluates node in env and returns the resulting Object. It never

@@ -19,7 +19,10 @@ conversion (`str`/`int`/`float`/`bool`)) built alongside it. `crust run
 closures and all — see [Building](#building) below. `crust lsp` adds
 editor hover, diagnostics, go-to-definition, and more on top
 (`internal/lsp`, JSON-RPC over stdio) — see
-[Language server](#language-server) below. See [TODO.md](./TODO.md)
+[Language server](#language-server) below. `crust debug` adds a
+step-by-step debugger with time/memory-per-function KPIs
+(`internal/trace`, `internal/debugger`) — see
+[Debugging](#debugging-time-and-memory-per-function) above. See [TODO.md](./TODO.md)
 for the roadmap and milestones,
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
 behind each phase (including a
@@ -107,6 +110,38 @@ crust tokens examples/hello.crust
 crust parse examples/hello.crust
 #1: deliver("Hello, World!")
 ```
+
+### Debugging: time and memory per function
+
+`crust debug day01.crust` runs the program and shows exactly where the
+time and memory went, statement by statement: a step-by-step trace
+tree (recipe calls and `knead`/`bake` loop laps are frames you can see
+into) plus a ranking of every function/loop by *self* time — the work
+it's actually responsible for, not counting whatever it delegated to a
+call or another loop — so a recursive `fib` shows up as one bucket
+across every recursion depth, not one row per call site. On a real
+terminal this opens an interactive two-tab TUI (KPI pie charts, plus
+the tree stepper); piped or redirected, or with `--plain`, it prints
+the same information as text:
+
+```
+crust debug day01.crust
+# day01.crust — 11 steps · 102µs total
+# step                                    out            size   time    self%
+# recipe findPair(nums, target) { …       recipe(...)      —  1.4µs     1.3%
+# entries = [1721, 979, ...]              [1721, ...]      6  1.5µs     1.5%
+# pair = findPair(entries, 2020)          [1721, 299]      2 35.1µs     2.3%
+#   findPair(...)
+#     ...
+#
+# by self time:
+#   name                     calls    self      %  size
+#   findPair(...)                1  32.7µs  32.0%     —
+```
+
+`--store=<name>` picks the entry point the same way `crust run` does;
+`--max-steps N` bounds the recording for a program that loops far more
+than a terminal (or a human) wants to read through.
 
 ### With Nix
 

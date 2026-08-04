@@ -326,7 +326,11 @@ func (i *Interpreter) evalCallExpression(ce *ast.CallExpression, env *object.Env
 		return errObj
 	}
 
-	return i.applyFunction(ce.Token, fn, args)
+	var label string
+	if i.Trace != nil {
+		label = ce.Function.String() + "(...)"
+	}
+	return i.applyFunction(ce.Token, label, fn, args)
 }
 
 // evalExpressions evaluates exps left to right, stopping at the first
@@ -356,8 +360,12 @@ func (i *Interpreter) evalExpressions(exps []ast.Expression, env *object.Environ
 // new parameter slot" apart from "this is an ordinary reassignment."
 // A Builtin error's position is unset until here, since
 // internal/builtins knows nothing about source positions; this is the
-// one place that patches it in.
-func (i *Interpreter) applyFunction(tok token.Token, fn object.Object, args []object.Object) object.Object {
+// one place that patches it in. label is purely for the debugger's
+// frame display (see evalFramed) — the callee's own source text
+// ("sum(...)") when known from a real call site, or a generic
+// fallback from callers with no call-site expression to read (i.Call,
+// used by e.g. the map() builtin).
+func (i *Interpreter) applyFunction(tok token.Token, label string, fn object.Object, args []object.Object) object.Object {
 	switch fn := fn.(type) {
 	case *object.Function:
 		if len(args) != len(fn.Parameters) {
@@ -367,7 +375,7 @@ func (i *Interpreter) applyFunction(tok token.Token, fn object.Object, args []ob
 		for idx, param := range fn.Parameters {
 			extEnv.Declare(param.Value, args[idx])
 		}
-		result := i.Eval(fn.Body, extEnv)
+		result := i.evalFramed(label, fn.Body, extEnv)
 		return unwrapReturnValue(result)
 
 	case *object.Builtin:

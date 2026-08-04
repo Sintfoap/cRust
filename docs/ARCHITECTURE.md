@@ -1422,6 +1422,169 @@ own section below describes.
   - Not built: incremental (as opposed to full) document sync, and
     code actions — listed as possible follow-on work in `TODO.md`.
 
+#### Debugger (`internal/trace`, `internal/debugger`, `crust debug`)
+
+Concept and much of the tree-building shape borrowed from a similar
+step-by-step debugger in another interpreter project
+(RFuller25/domainlang's `visualize` command), at the user's explicit
+request to "borrow some concepts." What carried over unchanged, and
+what had to be redesigned, both come down to one underlying
+difference: that project's language is a value *pipeline* — every
+construct is a stage with one input value and one output value, so
+"watch the data change shape" is a direct, uniform description of
+every step. cRust is a general imperative language — a `knead` loop
+has no value of its own, an `order` picks a branch rather than
+producing one, and an assignment's interesting fact is *which name*
+got a new value, not an anonymous output. That's why the design here
+is *statement*-shaped rather than value-shaped throughout, discussed
+with the user (a real design conversation, not assumed) before any
+code was written.
+
+- **`internal/trace`** defines the hook: a `Tracer` interface
+  (`Step(StepEvent)`, `PushFrame(label)`, `PopFrame()`) and
+  `StepEvent{Node ast.Statement, Out object.Object, Dur time.Duration}`.
+  No `Depth`/`Frame` field on `StepEvent` — a `Tracer` receives
+  `Step`/`PushFrame`/`PopFrame` calls in the actual order they happen,
+  so a tree-building `Tracer` already knows its own nesting from that
+  call sequence alone, and carrying the same fact again on every event
+  would be a second, redundant way to ask "how deep am I." No `Err`
+  field either: cRust represents a runtime failure as an ordinary
+  `object.Object` value (`*object.Error`, never Go's `error`
+  interface — see `internal/interpreter`'s `isError`), so a failed
+  step's `Out` already *is* its error.
+  - `internal/object.Environment` gained no changes for this; the
+    `Interpreter.Trace trace.Tracer` field is nil by default, and every
+    call site checks it directly rather than through a wrapper —
+    `evalTracedStatement` (per-statement `Step` reports, wraps
+    `evalBlockStatement`'s and `evalProgram`'s loops) and `evalFramed`
+    (per-call/per-lap `PushFrame`/`PopFrame`, wraps `applyFunction`'s
+    body eval and the three loop forms' body eval) both short-circuit
+    to a plain `i.Eval(...)` when `i.Trace == nil`.
+  - **A real zero-cost claim, checked, not just asserted.** The first
+    version of the loop/call frame-label code built each label
+    (`fmt.Sprintf("knead (...) lap %d", lap)`, `ce.Function.String()+"(...)"`)
+    *unconditionally*, before ever checking whether tracing was even
+    on — so an untraced `crust run` was still paying for a
+    `Sprintf` allocation on every single loop lap and function call.
+    Caught by actually benchmarking against a git-worktree checkout of
+    the pre-tracing commit (`BenchmarkUntraced` vs. a throwaway
+    baseline benchmark in a `git worktree add` of the prior commit),
+    not by reasoning about the code: allocs/op were 19100 vs. baseline
+    15892 — a real, measurable regression the doc comments claimed
+    didn't exist. Fixed by guarding each label computation behind its
+    own `if i.Trace != nil` at the call site, after which allocs/op
+    matched the baseline exactly (15892 = 15892) across three runs
+    each. `BenchmarkTraced`/`BenchmarkUntraced` in
+    `internal/interpreter/trace_test.go` keep this checkable going
+    forward (`go test -bench . -benchmem ./internal/interpreter`) —
+    there's no automated pass/fail threshold (that would be flaky,
+    keyed to whatever machine runs it), just numbers a human can read.
+  - **`ast.Statement` gained a `Pos() token.Token` method** (added to
+    the interface itself, not a type-switch helper) so the recorder can
+    attach a line number to any statement kind uniformly. A type switch
+    would silently return a zero-value position for any statement kind
+    added later without remembering to update it; putting `Pos()` on
+    the interface makes the Go compiler enforce it — a new `Statement`
+    type that forgets `Pos()` fails to build, not fails silently at
+    runtime. All 12 concrete statement types implement it as a one-line
+    `return x.Token`.
+- **`internal/debugger`** is the consumer: `Recorder` (implements
+  `trace.Tracer`, builds a bounded tree — recipe calls and loop laps
+  are frames a reader can step into) and `Timing` (a self/total-time
+  pass over that tree, plus KPI aggregation).
+  - **The tree-building algorithm is close to a direct port**: a
+    frame's `PushFrame`/`PopFrame` calls both happen *during* the step
+    that opened it, so a closed frame is held in a pending list at the
+    level that opened it until the step that produced it reports, at
+    which point it becomes that step's child. Loop laps fold into one
+    collapsed-but-still-explorable row past `foldFrom` (3) consecutive
+    same-shaped frames, so a thousand-lap loop doesn't bury the program
+    around it. What didn't carry over: the source project's `adopt()`
+    step (collapsing a child frame that merely restates its owner's own
+    label — needed there because a pipeline stage's body frame is
+    always named identically to the stage itself) and `number()`
+    (numbering same-labeled sibling frames after the fact) — cRust's
+    loop-lap labels already embed their own lap number at the point
+    they're built (`evalForEachLoop` etc.), and a step's label is never
+    equal to a frame's label in the first place, so neither
+    post-processing step has anything to do here.
+  - **A real bug, found by actually running `crust debug` against a
+    file**, not just from unit tests: `Roots()` originally treated
+    *any* frame left in the pending list as evidence of an incomplete
+    recording (a step cap hit mid-body, or — in the source project — an
+    uncaught panic) and wrapped it in a misleading
+    `"(incomplete — ...)"` row. But `crust debug`'s own entry-point call
+    (`interp.Call`, invoked directly from `cmd/crust/debug.go`'s Go
+    code, never through a *traced statement*) opens exactly this kind
+    of never-adopted frame on every single ordinary, successful run —
+    a program's whole logic almost always lives inside its `store()`
+    entry point. Fixed by keying the distinction on `r.truncated`
+    instead of "is anything pending at all": a pending frame is only
+    genuinely incomplete when the step cap was actually hit; otherwise
+    it's just a frame that happened to open outside the traced-
+    statement machinery, and belongs as an ordinary root.
+    Regression-tested (`TestRecorderUnclaimedFrameIsAnOrdinaryRootWhenNotTruncated`)
+    alongside the still-real truncation case
+    (`TestRecorderIncompleteRunKeepsOrphanedFrames`).
+  - **A second real display bug, same discovery method**: `Step.Label()`
+    originally returned a statement's raw `String()` — correct for
+    round-tripping source, wrong for a one-line table row, since a
+    recipe declaration's or a loop's `String()` renders its *entire*
+    multi-line body. `crust debug`'s plain-text table broke badly on
+    this (a "row" that was actually eleven lines of source text, with
+    every column after it shifted). Fixed by keeping only the first
+    line and marking that there's more
+    (`"recipe fib(n) { …"`) — `TestStepLabelCollapsesMultiLineStatementsToOneLine`
+    pins it.
+  - **KPIs bucket by frame *family*, not by call site.** The source
+    project's own hotspot ranking keys by the call-site AST node
+    (right for "which line is slow" — a legitimate question, and the
+    one a profiler usually answers), but the user's actual ask was
+    "time spent **per function**." A recursive `fib(n-1)`/`fib(n-2)`
+    is two different call-site nodes; bucketing by node identity would
+    split one recipe's cost across as many rows as it has call sites
+    in the source, not the one row "time spent per function" implies.
+    `family()` (`recorder.go`) collapses a frame's display label down
+    to its recurring-thing key — stripping the trailing `" lap N"`
+    that every loop-lap label embeds (a recipe-call label never
+    contains it, so it passes through unchanged) — and `Timing.measure`
+    switches to that family when descending into a frame's children,
+    so every call to one recipe, at any recursion depth, and every lap
+    of one loop, lands in a single `KPI` bucket. Verified with an
+    actual recursive `fact`/`fib`: `TestTimingKPIsGroupRecursiveCallsIntoOneBucket`
+    asserts a `fact(5)`'s five recursion depths produce `Calls == 5`
+    in one bucket, and the real `crust debug` demo run against a
+    `fib(0..7)` summed-in-a-loop program produced exactly 100 calls in
+    one `fib(...)` bucket — the correct closed-form sum
+    (`fib(0)+fib(1)+...+fib(7)` call counts), a number worth checking
+    by hand precisely because getting the bucketing wrong would still
+    produce *a* plausible-looking number, just the wrong one.
+  - **Self vs. total time**, and KPI `SelfSize`/`SelfTime`, follow the
+    same "self time is what a profile should rank by" reasoning as the
+    source project (a `knead` loop at 98% total isn't a slow loop, it's
+    a hundred laps of whatever's inside it) — `NodeTiming.Self` is
+    `Total` minus the summed `Total` of a row's own child frames,
+    floored at zero for clock-granularity noise. Unlike the source
+    project, `SelfSize` also exists: `trace.SizeOf` (mirroring
+    `slices(x)`'s rune/element-count rule, not byte length) feeds a
+    second KPI dimension, since the user explicitly asked for "memory
+    used per function" alongside time.
+- **`crust debug <file.crust>`** (`cmd/crust/debug.go`,
+  `debug_view.go`) mirrors `runFile`'s two-phase execution (top-level
+  eval, then resolve/call `store`/`store_<name>` per `SPEC.md` §9) but
+  under a `debugger.Recorder`, and deliberately does *not* exit
+  non-zero on a runtime `Error` the way `crust run` does — the recorded
+  failure, in place, at the step that produced it, is the whole point
+  of looking at the trace, not something to suppress by failing the
+  command first. Plain-text output (`--plain`, or automatically
+  whenever stdout isn't a real terminal — `isColorTerminal`, generalizing
+  `main.go`'s `isTerminal` from a concrete `*os.File` to the `io.Writer`
+  every command here is actually handed) is both a legitimate mode on
+  its own (scriptable — grep it, diff it, assert on it in CI) and what
+  makes the whole command unit-testable without a pty. The interactive
+  two-tab TUI (KPI pie charts; a tree stepper) is still to come — see
+  `TODO.md`.
+
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).

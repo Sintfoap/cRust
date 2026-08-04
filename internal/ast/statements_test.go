@@ -126,6 +126,38 @@ func TestBurntStatement(t *testing.T) {
 	var _ Statement = bs
 }
 
+// TestStatementPosReturnsOwnToken spot-checks that Pos() (added to the
+// Statement interface so the debugger recorder can attach a line
+// number to any statement kind without a type switch) returns the
+// statement's own token, not a zero value or another field.
+func TestStatementPosReturnsOwnToken(t *testing.T) {
+	tok := token.Token{Line: 7, Col: 3}
+	tests := []struct {
+		name string
+		stmt Statement
+	}{
+		{"BlockStatement", &BlockStatement{Token: tok}},
+		{"ExpressionStatement", &ExpressionStatement{Token: tok}},
+		{"AssignStatement", &AssignStatement{Token: tok}},
+		{"UnpackAssignStatement", &UnpackAssignStatement{Token: tok}},
+		{"IncDecStatement", &IncDecStatement{Token: tok}},
+		{"ReturnStatement", &ReturnStatement{Token: tok}},
+		{"BurntStatement", &BurntStatement{Token: tok}},
+		{"FlipStatement", &FlipStatement{Token: tok}},
+		{"CountedLoop", &CountedLoop{Token: tok}},
+		{"ForEachLoop", &ForEachLoop{Token: tok}},
+		{"BakeStatement", &BakeStatement{Token: tok}},
+		{"IfStatement", &IfStatement{Token: tok}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.stmt.Pos(); got != tok {
+				t.Errorf("Pos() = %+v, want %+v", got, tok)
+			}
+		})
+	}
+}
+
 func TestFlipStatement(t *testing.T) {
 	fs := &FlipStatement{Token: token.Token{Literal: "flip"}}
 	if got := fs.String(); got != "flip" {

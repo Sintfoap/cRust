@@ -29,6 +29,7 @@ type IfStatement struct {
 
 func (is *IfStatement) statementNode()       {}
 func (is *IfStatement) TokenLiteral() string { return is.Token.Literal }
+func (is *IfStatement) Pos() token.Token     { return is.Token }
 func (is *IfStatement) String() string {
 	var out strings.Builder
 	out.WriteString("order (")

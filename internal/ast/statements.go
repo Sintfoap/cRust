@@ -18,6 +18,7 @@ type BlockStatement struct {
 
 func (bs *BlockStatement) statementNode()       {}
 func (bs *BlockStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BlockStatement) Pos() token.Token     { return bs.Token }
 func (bs *BlockStatement) String() string {
 	var out strings.Builder
 	out.WriteString("{\n")
@@ -38,6 +39,7 @@ type ExpressionStatement struct {
 
 func (es *ExpressionStatement) statementNode()       {}
 func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *ExpressionStatement) Pos() token.Token     { return es.Token }
 func (es *ExpressionStatement) String() string {
 	if es.Expression == nil {
 		return ""
@@ -57,6 +59,7 @@ type AssignStatement struct {
 
 func (as *AssignStatement) statementNode()       {}
 func (as *AssignStatement) TokenLiteral() string { return as.Token.Literal }
+func (as *AssignStatement) Pos() token.Token     { return as.Token }
 func (as *AssignStatement) String() string {
 	return as.Target.String() + " " + as.Operator + " " + as.Value.String()
 }
@@ -79,6 +82,7 @@ type UnpackAssignStatement struct {
 
 func (uas *UnpackAssignStatement) statementNode()       {}
 func (uas *UnpackAssignStatement) TokenLiteral() string { return uas.Token.Literal }
+func (uas *UnpackAssignStatement) Pos() token.Token     { return uas.Token }
 func (uas *UnpackAssignStatement) String() string {
 	names := make([]string, len(uas.Targets))
 	for i, t := range uas.Targets {
@@ -98,6 +102,7 @@ type IncDecStatement struct {
 
 func (ids *IncDecStatement) statementNode()       {}
 func (ids *IncDecStatement) TokenLiteral() string { return ids.Token.Literal }
+func (ids *IncDecStatement) Pos() token.Token     { return ids.Token }
 func (ids *IncDecStatement) String() string {
 	return ids.Target.String() + ids.Operator
 }
@@ -111,6 +116,7 @@ type ReturnStatement struct {
 
 func (rs *ReturnStatement) statementNode()       {}
 func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
+func (rs *ReturnStatement) Pos() token.Token     { return rs.Token }
 func (rs *ReturnStatement) String() string {
 	if rs.ReturnValue == nil {
 		return "serve"
@@ -126,6 +132,7 @@ type BurntStatement struct {
 func (bs *BurntStatement) statementNode()       {}
 func (bs *BurntStatement) TokenLiteral() string { return bs.Token.Literal }
 func (bs *BurntStatement) String() string       { return "burnt" }
+func (bs *BurntStatement) Pos() token.Token     { return bs.Token }
 
 // FlipStatement is `flip` (SPEC.md §4) — continue.
 type FlipStatement struct {
@@ -135,3 +142,4 @@ type FlipStatement struct {
 func (fs *FlipStatement) statementNode()       {}
 func (fs *FlipStatement) TokenLiteral() string { return fs.Token.Literal }
 func (fs *FlipStatement) String() string       { return "flip" }
+func (fs *FlipStatement) Pos() token.Token     { return fs.Token }

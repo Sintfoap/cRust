@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Sintfoap/cRust/internal/ast"
@@ -18,7 +19,7 @@ func (i *Interpreter) evalProgram(program *ast.Program, env *object.Environment)
 	var result object.Object = object.NULL
 
 	for _, stmt := range program.Statements {
-		result = i.Eval(stmt, env)
+		result = i.evalTracedStatement(stmt, env)
 
 		switch result := result.(type) {
 		case *object.ReturnValue:
@@ -44,7 +45,7 @@ func (i *Interpreter) evalProgram(program *ast.Program, env *object.Environment)
 // — cRust has no implicit last-statement-as-value, unlike Rust/Ruby.
 func (i *Interpreter) evalBlockStatement(block *ast.BlockStatement, env *object.Environment) object.Object {
 	for _, stmt := range block.Statements {
-		result := i.Eval(stmt, env)
+		result := i.evalTracedStatement(stmt, env)
 		if result != nil {
 			switch result.Type() {
 			case object.RETURN_VALUE_OBJ, object.BREAK_OBJ, object.CONTINUE_OBJ, object.ERROR_OBJ:
@@ -97,7 +98,7 @@ func (i *Interpreter) evalCountedLoop(cl *ast.CountedLoop, env *object.Environme
 		}
 	}
 
-	for {
+	for lap := 1; ; lap++ {
 		if cl.Cond != nil {
 			cond := i.Eval(cl.Cond, env)
 			if isError(cond) {
@@ -108,7 +109,11 @@ func (i *Interpreter) evalCountedLoop(cl *ast.CountedLoop, env *object.Environme
 			}
 		}
 
-		result := i.Eval(cl.Body, env)
+		var label string
+		if i.Trace != nil {
+			label = fmt.Sprintf("knead (...) lap %d", lap)
+		}
+		result := i.evalFramed(label, cl.Body, env)
 		if result != nil {
 			switch result.Type() {
 			case object.ERROR_OBJ, object.RETURN_VALUE_OBJ:
@@ -159,10 +164,14 @@ func (i *Interpreter) evalForEachLoop(fel *ast.ForEachLoop, env *object.Environm
 		return newError(fel.Token, "cannot iterate over %s", collection.Type())
 	}
 
-	for _, item := range items {
+	for idx, item := range items {
 		env.Set(fel.Identifier.Value, item)
 
-		result := i.Eval(fel.Body, env)
+		var label string
+		if i.Trace != nil {
+			label = fmt.Sprintf("knead %s in ... lap %d", fel.Identifier.Value, idx+1)
+		}
+		result := i.evalFramed(label, fel.Body, env)
 		if result != nil {
 			switch result.Type() {
 			case object.ERROR_OBJ, object.RETURN_VALUE_OBJ:
@@ -180,7 +189,7 @@ func (i *Interpreter) evalForEachLoop(fel *ast.ForEachLoop, env *object.Environm
 // bakeStmt) — an ordinary conditional loop, burnt/flip handled the
 // same as the other two loop forms.
 func (i *Interpreter) evalBakeStatement(bs *ast.BakeStatement, env *object.Environment) object.Object {
-	for {
+	for lap := 1; ; lap++ {
 		cond := i.Eval(bs.Condition, env)
 		if isError(cond) {
 			return cond
@@ -189,7 +198,11 @@ func (i *Interpreter) evalBakeStatement(bs *ast.BakeStatement, env *object.Envir
 			break
 		}
 
-		result := i.Eval(bs.Body, env)
+		var label string
+		if i.Trace != nil {
+			label = fmt.Sprintf("bake (...) lap %d", lap)
+		}
+		result := i.evalFramed(label, bs.Body, env)
 		if result != nil {
 			switch result.Type() {
 			case object.ERROR_OBJ, object.RETURN_VALUE_OBJ:

@@ -22,6 +22,7 @@ type CountedLoop struct {
 
 func (cl *CountedLoop) statementNode()       {}
 func (cl *CountedLoop) TokenLiteral() string { return cl.Token.Literal }
+func (cl *CountedLoop) Pos() token.Token     { return cl.Token }
 func (cl *CountedLoop) String() string {
 	out := "knead ("
 	if cl.Init != nil {
@@ -52,6 +53,7 @@ type ForEachLoop struct {
 
 func (fel *ForEachLoop) statementNode()       {}
 func (fel *ForEachLoop) TokenLiteral() string { return fel.Token.Literal }
+func (fel *ForEachLoop) Pos() token.Token     { return fel.Token }
 func (fel *ForEachLoop) String() string {
 	return "knead " + fel.Identifier.String() + " in " + fel.Collection.String() + " " + fel.Body.String()
 }
@@ -66,6 +68,7 @@ type BakeStatement struct {
 
 func (bs *BakeStatement) statementNode()       {}
 func (bs *BakeStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BakeStatement) Pos() token.Token     { return bs.Token }
 func (bs *BakeStatement) String() string {
 	return "bake (" + bs.Condition.String() + ") " + bs.Body.String()
 }
