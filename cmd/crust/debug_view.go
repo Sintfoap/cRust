@@ -69,9 +69,13 @@ func (v *debugView) writePlain(w io.Writer) {
 				walk(n.Children[:1], depth+1)
 				fmt.Fprintf(w, "%s… %d more iterations (--max-steps/full detail via the TUI)\n",
 					strings.Repeat("  ", depth+1), laps-1)
+				fmt.Fprintf(w, "%s// end %s\n", indent, closingLabel(n.Label()))
 				continue
 			}
 			walk(n.Children, depth+1)
+			if len(n.Children) > 0 {
+				fmt.Fprintf(w, "%s// end %s\n", indent, closingLabel(n.Label()))
+			}
 		}
 	}
 	walk(v.rec.Roots(), 0)
@@ -98,6 +102,18 @@ func (v *debugView) writePlain(w io.Writer) {
 		fmt.Fprintf(w, "  %s %6d %9s %7s %8s%s\n",
 			col(k.Name, 30), k.Calls, k.SelfTime.String(), pct, sizeCol, failedNote)
 	}
+}
+
+// closingLabel renders a node's label for its matching "// end" marker
+// — the same text a "// end" line for, e.g., "knead r in (...) { …"
+// would need is just "knead r in (...)", not another dangling "{ …"
+// that has nothing left to continue into, and a loop header or call
+// site can be long enough that the closing line deserves its own
+// (shorter) truncation rather than reusing a table column width.
+func closingLabel(label string) string {
+	label = strings.TrimSuffix(label, " { …")
+	label = strings.TrimSuffix(label, " …")
+	return truncateRunes(label, 50)
 }
 
 // col renders a table cell w columns wide, counting runes so a

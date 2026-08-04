@@ -116,13 +116,17 @@ crust parse examples/hello.crust
 `crust debug day01.crust` runs the program and shows exactly where the
 time and memory went, statement by statement: a step-by-step trace
 tree (recipe calls and `knead`/`bake` loop laps are frames you can see
-into) plus a ranking of every function/loop by *self* time — the work
-it's actually responsible for, not counting whatever it delegated to a
-call or another loop — so a recursive `fib` shows up as one bucket
-across every recursion depth, not one row per call site. On a real
-terminal this opens an interactive two-tab TUI (KPI pie charts, plus
-the tree stepper); piped or redirected, or with `--plain`, it prints
-the same information as text:
+into, each closed by a `// end ...` marker so a long block's extent
+reads the same way matching braces would) plus a ranking of every
+function/loop by *self* time — the work it's actually responsible for,
+not counting whatever it delegated to a call or another loop — so a
+recursive `fib` shows up as one bucket across every recursion depth,
+not one row per call site. On a real terminal this opens an
+interactive three-tab TUI (KPI pie charts, the tree stepper, and an
+Editor tab that hands off to `nvim` on the file being debugged — saving
+reruns the recording and refreshes the other two tabs, then reopens
+`nvim` automatically); piped or redirected, or with `--plain`, it
+prints the same information as text:
 
 ```
 crust debug day01.crust
@@ -133,6 +137,7 @@ crust debug day01.crust
 # pair = findPair(entries, 2020)          [1721, 299]      2 35.1µs     2.3%
 #   findPair(...)
 #     ...
+#   // end findPair(...)
 #
 # by self time:
 #   name                     calls    self      %  size

@@ -331,9 +331,46 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       pre-tracing git-worktree baseline rather than just reasoning about
       the code) found by actually running the finished command rather
       than trusting the unit tests alone.
+- [x] (Stretch) debugger UX follow-ons, from real usage: (1) a real bug
+      — the KPI tab's two pie charts don't scale down for a small
+      terminal, and with no alt-screen or height clamp in place, a
+      window shorter than that content scrolled the tab bar and header
+      (printed first) right off the top, so the tabs looked like they'd
+      vanished; fixed with `tea.WithAltScreen()` plus a `clampHeight`
+      that trims the whole rendered frame to the window's actual row
+      count, replacing whatever's cut with a one-line note, so the tab
+      bar is always the first thing on screen regardless of window size
+      or which tab is showing. (2) Readability: a long recipe call or
+      loop body can run for dozens of rows in the Stepper tree (or the
+      `--plain` output), and indentation alone doesn't make it easy to
+      tell where one ends — every frame/step with children now gets a
+      `// end ...` row right after its subtree, at the same depth as
+      its own opening row, mirroring matching braces. (3) A third
+      **Editor** tab hands the whole terminal to a real `nvim` on the
+      file being debugged (`tea.ExecProcess`, the standard bubbletea
+      pattern for shelling out to a full-screen program) rather than
+      rendering an editor pane inline — embedding one would need a full
+      terminal emulator layered into this TUI just to draw nvim's own
+      screen, a much bigger and more fragile build than reusing a real
+      editor. An autocmd quits nvim the instant the buffer is saved;
+      the debugger tells "saved and quit" apart from "quit without
+      saving" by comparing the file's mtime before/after (nvim's exit
+      status is 0 either way), reruns the file on a save, refreshes the
+      KPI/Stepper tabs, and reopens nvim automatically — so from the
+      user's chair it reads as "save and the debugger updates." All
+      three verified via a real pty (a small terminal no longer loses
+      the tab bar; `// end` markers appear in both the TUI and
+      `--plain`; a real `nvim` session round-tripped a save through the
+      whole reload-and-reopen loop, confirmed by the file's own
+      contents and the KPI tab's updated step count), not just Go unit
+      tests — see ARCHITECTURE.md's debugger section for the design
+      notes, including why the Editor tab is a hand-off and not an
+      embedded pane.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
-      the terminal's actual size (fixed at 7 today, which a very small
-      terminal could clip) and a search/filter over the Stepper tree
+      the terminal's actual size (fixed at 7 today — clampHeight now
+      keeps a small terminal from losing the tab bar over it, but the
+      chart itself can still get cut off rather than shrinking to fit)
+      and a search/filter over the Stepper tree
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter

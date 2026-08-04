@@ -3,9 +3,11 @@
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
 //
-// Two tabs, switched with tab/left/right: KPIs (two pie charts — time
-// and memory per function/loop — plus a few overall numbers) and
-// Stepper (the recorded tree, navigable with the arrow keys).
+// Three tabs, switched with tab/left/right: KPIs (two pie charts — time
+// and memory per function/loop — plus a few overall numbers), Stepper
+// (the recorded tree, navigable with the arrow keys), and Editor (hands
+// the terminal to nvim on the file being debugged; see debug_editor.go
+// for the save-triggered reload loop).
 package main
 
 import (
@@ -20,19 +22,28 @@ import (
 	"github.com/Sintfoap/cRust/internal/debugger"
 )
 
-// tab is which of the two panes is showing.
+// tab is which of the three panes is showing.
 type tab int
 
 const (
 	tabKPI tab = iota
 	tabStepper
+	tabEditor
 )
 
+// tabCount is how many tabs there are, for wrapping cursor arithmetic —
+// named rather than inlined as a literal 3 so handleKey's wraparound
+// math stays correct if a fourth tab ever shows up.
+const tabCount = 3
+
 // visRow is one visible line of the stepper's tree: a node plus its
-// indentation depth.
+// indentation depth. closing marks a synthetic row generated after a
+// node's children (see buildRows) rather than the node's own row —
+// two visRows can share the same node, one opening and one closing.
 type visRow struct {
-	node  *debugger.TraceNode
-	depth int
+	node    *debugger.TraceNode
+	depth   int
+	closing bool
 }
 
 // debugModel is the TUI's state.
@@ -50,6 +61,19 @@ type debugModel struct {
 	rows     []visRow
 	cursor   int
 	top      int // first visible row, for scrolling a tall tree
+
+	// opts and stdin are only needed for the Editor tab's reload loop
+	// (debug_editor.go) — a rerun after a save must record the file
+	// with the exact same --store/--max-steps the original run used,
+	// and stdin so an input()-reading program still has something to
+	// read from. runDebugTUI sets both after construction; tests that
+	// never touch the Editor tab can leave them at their zero values.
+	opts  debugOptions
+	stdin io.Reader
+
+	// editorErr is the last nvim launch/exit error, if any, shown on
+	// the Editor tab — e.g. nvim isn't on PATH. Cleared on success.
+	editorErr string
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -74,14 +98,25 @@ func (m *debugModel) rebuildRows() {
 // the fold mechanism (recorder.go) is already what keeps a huge run
 // from flooding the view; a second, general expand/collapse on top of
 // that would just be more UI for the same job.
+//
+// Every node whose children actually get shown also gets a synthetic
+// "// end ..." row right after them, at the same depth as its own
+// opening row — a long recipe call or loop's body can run for dozens
+// of screen rows, and without a closing marker there's nothing to scan
+// for besides indentation to tell where it ends, the same problem
+// unbraced code would have.
 func buildRows(nodes []*debugger.TraceNode, depth int, expanded map[*debugger.TraceNode]bool) []visRow {
 	var rows []visRow
 	for _, n := range nodes {
-		rows = append(rows, visRow{n, depth})
+		rows = append(rows, visRow{node: n, depth: depth})
 		if n.Folded && !expanded[n] {
 			continue
 		}
+		if len(n.Children) == 0 {
+			continue
+		}
 		rows = append(rows, buildRows(n.Children, depth+1, expanded)...)
+		rows = append(rows, visRow{node: n, depth: depth, closing: true})
 	}
 	return rows
 }
@@ -95,6 +130,10 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case nvimExitMsg:
+		return m.handleNvimExit(msg)
+	case reloadMsg:
+		return m.handleReload(msg)
 	}
 	return m, nil
 }
@@ -104,9 +143,9 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
 	case "tab", "right", "l":
-		m.active = (m.active + 1) % 2
+		m.active = (m.active + 1) % tabCount
 	case "shift+tab", "left", "h":
-		m.active = (m.active + 2 - 1) % 2
+		m.active = (m.active + tabCount - 1) % tabCount
 	case "down", "j":
 		if m.active == tabStepper {
 			m.moveCursor(1)
@@ -116,8 +155,11 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveCursor(-1)
 		}
 	case "enter", " ":
-		if m.active == tabStepper {
+		switch m.active {
+		case tabStepper:
 			m.toggleFold()
+		case tabEditor:
+			return m, m.openEditorCmd()
 		}
 	}
 	return m, nil
@@ -167,10 +209,13 @@ func (m debugModel) stepperBodyHeight() int {
 
 func (m debugModel) View() string {
 	var body string
-	if m.active == tabKPI {
+	switch m.active {
+	case tabKPI:
 		body = m.viewKPI()
-	} else {
+	case tabStepper:
 		body = m.viewStepper()
+	case tabEditor:
+		body = m.viewEditor()
 	}
 
 	var b strings.Builder
@@ -181,24 +226,74 @@ func (m debugModel) View() string {
 	b.WriteString(body)
 	b.WriteByte('\n')
 	b.WriteString(styleHelp.Render(m.helpText()))
-	return b.String()
+	return clampHeight(b.String(), m.height)
+}
+
+// clampHeight trims s to at most n lines when n > 0, replacing
+// whatever's left over with a one-line note. The stepper already
+// clamps its own body to stepperBodyHeight, but the KPI tab's two pie
+// charts don't scale down for a small terminal — without this, their
+// full (uncapped) height flows past the bottom of the window and the
+// terminal's own scrolling (there's no fixed scroll region) carries
+// the tab bar and header, printed first, right off the top with it.
+// Clamping the whole frame to the window's actual height keeps those
+// first lines on screen no matter how tall a tab's content gets.
+func clampHeight(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	lines = lines[:n-1]
+	lines = append(lines, styleFaint.Render("… (grow the terminal to see the rest)"))
+	return strings.Join(lines, "\n")
 }
 
 func (m debugModel) helpText() string {
-	if m.active == tabKPI {
+	switch m.active {
+	case tabStepper:
+		return "tab/←→: switch tab   ↑↓: move   enter: open/close   q: quit"
+	case tabEditor:
+		return "tab/←→: switch tab   enter: open in nvim (saving reruns + reopens)   q: quit"
+	default:
 		return "tab/←→: switch tab   q: quit"
 	}
-	return "tab/←→: switch tab   ↑↓: move   enter: open/close   q: quit"
 }
 
 func (m debugModel) viewTabs() string {
-	kpi, stepper := styleTabIdle, styleTabIdle
-	if m.active == tabKPI {
+	kpi, stepper, editor := styleTabIdle, styleTabIdle, styleTabIdle
+	switch m.active {
+	case tabKPI:
 		kpi = styleTabActive
-	} else {
+	case tabStepper:
 		stepper = styleTabActive
+	case tabEditor:
+		editor = styleTabActive
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, kpi.Render("KPIs"), stepper.Render("Stepper"))
+	return lipgloss.JoinHorizontal(lipgloss.Top, kpi.Render("KPIs"), stepper.Render("Stepper"), editor.Render("Editor"))
+}
+
+// viewEditor is the Editor tab's placeholder. It hands off to a real
+// nvim (debug_editor.go) rather than drawing an editor pane inline —
+// embedding one would mean shipping a full terminal emulator inside
+// this TUI just to render nvim's own screen, a much bigger and more
+// fragile build than reusing a real editor wholesale — so there's
+// nothing to render here but instructions and whatever the last
+// attempt to launch nvim came back with.
+func (m debugModel) viewEditor() string {
+	lines := []string{
+		fmt.Sprintf("file: %s", m.view.path),
+		"",
+		"enter: open it in nvim",
+		"saving (:w) reruns the file, refreshes the KPI/Stepper tabs, and reopens nvim",
+		"quitting without saving (:q) returns you here",
+	}
+	if m.editorErr != "" {
+		lines = append(lines, "", styleError.Render("last attempt failed: "+m.editorErr))
+	}
+	return styleMuted.Render(strings.Join(lines, "\n"))
 }
 
 // viewKPI is the time and memory pie charts, side by side when there's
@@ -271,7 +366,7 @@ func slowestStep(rows []visRow, t *debugger.Timing) (*debugger.TraceNode, bool) 
 		}
 	}
 	for _, r := range rows {
-		if r.depth == 0 {
+		if r.depth == 0 && !r.closing {
 			walk(r.node)
 		}
 	}
@@ -307,6 +402,9 @@ func (m debugModel) viewStepper() string {
 
 func (m debugModel) renderRow(i int, t *debugger.Timing) string {
 	row := m.rows[i]
+	if row.closing {
+		return m.renderClosingRow(i)
+	}
 	n := row.node
 	indent := strings.Repeat("  ", row.depth)
 	nt := t.Of(n)
@@ -331,14 +429,34 @@ func (m debugModel) renderRow(i int, t *debugger.Timing) string {
 	return "  " + style.Render(line)
 }
 
-// runDebugTUI drives the stepper on a real terminal.
-func runDebugTUI(view *debugView, stdin io.Reader, stdout, stderr io.Writer) int {
-	m := newDebugModel(view)
-	opts := []tea.ProgramOption{tea.WithOutput(stdout)}
-	if f, ok := stdin.(*os.File); ok {
-		opts = append(opts, tea.WithInput(f))
+// renderClosingRow draws the synthetic "// end ..." marker buildRows
+// inserts after a node's children — the same node as its opening row,
+// so pressing enter/space on a closing row folds a foldable node back
+// up exactly like pressing it on the opening row would.
+func (m debugModel) renderClosingRow(i int) string {
+	row := m.rows[i]
+	line := strings.Repeat("  ", row.depth) + "// end " + closingLabel(row.node.Label())
+	if i == m.cursor {
+		return styleSelectedRow.Render("> " + line)
 	}
-	prog := tea.NewProgram(m, opts...)
+	return "  " + styleFaint.Render(line)
+}
+
+// runDebugTUI drives the stepper on a real terminal. AltScreen keeps
+// the whole session inside the terminal's alternate buffer (restored
+// to the normal buffer and scrollback on exit) rather than scrolling
+// the ordinary window as frames redraw — the standard choice for a
+// full-screen app like this one, and it pairs with View's clampHeight
+// call to keep the tab bar on screen regardless of window size.
+func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
+	m := newDebugModel(view)
+	m.opts = opts
+	m.stdin = stdin
+	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
+	if f, ok := stdin.(*os.File); ok {
+		progOpts = append(progOpts, tea.WithInput(f))
+	}
+	prog := tea.NewProgram(m, progOpts...)
 	if _, err := prog.Run(); err != nil {
 		fmt.Fprintf(stderr, "crust debug: %v\n", err)
 		return 1

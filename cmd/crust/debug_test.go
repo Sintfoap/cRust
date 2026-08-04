@@ -82,6 +82,35 @@ func TestRunDebugPlainProgramWithNoEntryPoint(t *testing.T) {
 	}
 }
 
+func TestRunDebugPlainMarksFrameCloseWithComment(t *testing.T) {
+	path := writeDebugFile(t, `recipe store() {
+    total = 1 + 1
+    deliver(total)
+}
+`)
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "// end call(...)") {
+		t.Errorf("stdout = %q, want a // end closing marker for the store() entry-point frame", out)
+	}
+}
+
+func TestRunDebugPlainOmitsCloseCommentForChildlessNode(t *testing.T) {
+	path := writeDebugFile(t, "x = 1\n")
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "// end") {
+		t.Errorf("stdout = %q, a leaf statement should get no closing marker", stdout.String())
+	}
+}
+
 func TestRunDebugCallsBareStoreEntryPoint(t *testing.T) {
 	path := writeDebugFile(t, `recipe store() {
     total = 1 + 1

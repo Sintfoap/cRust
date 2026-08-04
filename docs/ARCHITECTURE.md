@@ -1666,32 +1666,39 @@ code was written.
   every command here is actually handed) is both a legitimate mode on
   its own (scriptable — grep it, diff it, assert on it in CI) and what
   makes the whole command unit-testable without a pty.
-- **The interactive TUI** (`cmd/crust/debug_tui.go`, `debug_style.go`) —
-  bubbletea + lipgloss, cRust's first non-stdlib Go dependency (added
-  specifically for this; everything else in the project stayed
-  zero-dependency, see the Nix section). Two tabs, switched with
-  tab/←→/shift+tab: **KPIs** (two pie charts — self-time and
-  self-memory per function/loop, `Timing.KPIs()`'s own ranked order —
-  plus overall step count, total time, and the single slowest
-  statement by its own self time) and **Stepper** (the recorded tree,
-  ↑↓ to move a highlighted cursor with the visible window scrolling to
+- **The interactive TUI** (`cmd/crust/debug_tui.go`, `debug_style.go`,
+  `debug_editor.go`) — bubbletea + lipgloss, cRust's first non-stdlib Go
+  dependency (added specifically for this; everything else in the
+  project stayed zero-dependency, see the Nix section). Three tabs,
+  switched with tab/←→/shift+tab: **KPIs** (two pie charts — self-time
+  and self-memory per function/loop, `Timing.KPIs()`'s own ranked
+  order — plus overall step count, total time, and the single slowest
+  statement by its own self time), **Stepper** (the recorded tree, ↑↓
+  to move a highlighted cursor with the visible window scrolling to
   follow it, enter/space to open or close a *folded* run of loop laps —
   the only rows that ever need toggling, since an ordinary frame or
   step already shows everything under it; ​`recorder.go`'s fold
   mechanism is what keeps a huge run from flooding the view in the
   first place, so a second general-purpose collapse-everything UI on
-  top of that would just be more interface for the same job).
+  top of that would just be more interface for the same job), and
+  **Editor** (hands the terminal to a real `nvim` on the file being
+  debugged; see the dedicated note below).
   - **Tested the way `repl_tty.go` is: by driving the model directly**
     (`newDebugModel`, then `Update(tea.KeyMsg{...})`/`Update(tea.WindowSizeMsg{...})`,
     asserting on the returned model and `View()`'s text) rather than
     through a real pty — a bubbletea `Model` is a plain Go value with
     `Init`/`Update`/`View` methods, so nothing about testing it needs a
-    terminal at all. 25 tests this way cover tab switching (both
-    directions, including the backward wrap), cursor movement and
-    clamping at both ends, scroll-window following the cursor, fold
-    toggling (open, close, and confirming a non-folded row is a
-    no-op), and view content for both tabs including the zero-KPI/
-    empty-recording edge case.
+    terminal at all. Tests this way cover tab switching (all three,
+    both directions, including the wrap), cursor movement and clamping
+    at both ends, scroll-window following the cursor, fold toggling
+    (open, close, and confirming a non-folded row is a no-op), view
+    content for every tab including the zero-KPI/empty-recording edge
+    case, the closing-marker rows `buildRows` inserts, `clampHeight`'s
+    truncation, and the Editor tab's reload/nvim-exit state machine
+    (`handleNvimExit`/`handleReload`/`reloadCmd`) driven directly with
+    synthetic `nvimExitMsg`/`reloadMsg` values — real subprocess
+    spawning is left to the pty pass below, the same split every other
+    debugger real-vs-simulated test already follows.
   - **Also verified against the real compiled binary in an actual pty**
     (Python's `pty.openpty()` + `subprocess.Popen`, not just the Go
     unit tests above) — confirmed the real ANSI background-color
@@ -1724,12 +1731,119 @@ code was written.
     fragmenting a single recursive recipe's cost across as many wedges
     as it has call sites in the source, which would have made the
     pie chart actively misleading rather than merely less useful.
+  - **A real bug, found from actual use: a small terminal made the tab
+    bar itself disappear on the KPI tab.** Neither pie chart scales
+    down for a short window, and — combined with there being no
+    alt-screen and no height clamp — a KPI tab taller than the terminal
+    just scrolled the ordinary way, carrying the tab bar and header
+    (the first two lines printed every frame) right off the top with
+    it, since there was no fixed scroll region to stop them. Confirmed
+    with a real pty at 80×24: the tab labels were completely absent
+    from what actually reached the screen, even though `View()` was
+    still generating them correctly — the bug was in what the terminal
+    did with the *output*, not in the string itself, which is exactly
+    the class of bug Go unit tests asserting on `View()`'s return value
+    can't catch. Fixed two ways: `tea.WithAltScreen()` (the standard
+    choice for a full-screen app, confining rendering to a fixed
+    viewport instead of the ordinary scrolling window), and a new
+    `clampHeight(s string, n int)` that trims the *entire* rendered
+    frame to at most `m.height` lines, replacing whatever's cut with a
+    one-line "grow the terminal" note — so the tab bar and header,
+    always the first lines `View()` writes, can never be pushed off no
+    matter how tall a given tab's content gets or how small the window
+    is. `viewStepper` already self-limited via `stepperBodyHeight`;
+    `clampHeight` is the same idea applied once, generally, to the
+    whole frame, so nothing else needs its own per-tab height logic.
+  - **Frame/step rows with children get a `// end ...` closing marker,
+    from a second real-use report: a long recipe call or loop body can
+    run for dozens of screen rows, and indentation alone doesn't make
+    it easy to tell where one actually ends** — the same problem
+    unbraced code would have. `buildRows` (the tree-to-`visRow`
+    flattener) now appends a synthetic row after any node's children,
+    at the same depth as the node's own opening row, tagged
+    `closing: true`; `renderRow` special-cases it to draw a faint
+    `// end <label>` line instead of the usual step/frame columns
+    (`closingLabel` strips the opening row's dangling `{ …`/`…`
+    continuation marker, since a one-line closer has nothing left to
+    continue into, and truncates separately from the table's own
+    column width). The identical marker was added to `writePlain`'s
+    walk for the same reason — this is a readability fix for the
+    *debugger's own display*, not something that touches the `.crust`
+    source file being debugged, so both render paths need it or they'd
+    disagree about what the trace actually shows. A collapsed fold row
+    gets no closer (nothing under it is visible, so there's nothing to
+    mark the end of); expanding it produces one, like any other node
+    with visible children.
+  - **The Editor tab hands the whole terminal to a real `nvim` via
+    `tea.ExecProcess` rather than drawing an editor pane inline** — the
+    standard bubbletea pattern for shelling out to another full-screen
+    program (`Program.ReleaseTerminal`, run the command with the
+    terminal's own stdin/stdout, then `RestoreTerminal` and resume).
+    The alternative — capturing nvim's own screen output through a
+    terminal emulator and drawing it inside a bordered pane next to the
+    tab bar, the way `tmux`/`zellij` panes work — was considered and
+    explicitly turned down (asked of the user directly, since it's a
+    real fork in both effort and behavior, not something to guess at):
+    it would mean shipping a full VT100-class emulator inside this TUI
+    just to render nvim's own screen, a much bigger and more fragile
+    build for a debugging tool's third tab than reusing a real editor
+    wholesale.
+    - **An autocmd (`autocmd BufWritePost <buffer> quitall!`, passed via
+      `nvim -c`) makes nvim quit the instant the buffer is saved** — the
+      mechanism that turns "hand off to a separate program" into
+      something that reads, from the user's chair, as "save and the
+      debugger updates." Telling "saved and quit" apart from "quit
+      without saving" (`:q`, `ZQ`, closing the terminal) can't use
+      nvim's exit status, which is 0 either way; it uses the file's
+      mtime, captured immediately before `ExecProcess` runs and
+      compared again in the exit callback, which is enough since the
+      whole point is "did *this* invocation touch the file," not a
+      general "is the file dirty" check.
+    - **A save triggers `reloadCmd`, which re-parses and re-records the
+      file with the exact same `--store`/`--max-steps` the original run
+      used** (`buildDebugView`, factored out of `runDebug` specifically
+      so both the initial CLI invocation and this reload share one
+      implementation rather than two that could drift). Its
+      interpreter's program output (`deliver`, etc.) goes to
+      `io.Discard`, not the real terminal — unlike the very first
+      recording, built *before* the TUI ever took the screen, a reload
+      runs while the alt-screen buffer is already active, and writing
+      straight to the terminal from inside it would corrupt the
+      display. A reload that fails (the save left the file with a
+      parse error) surfaces the error on the Editor tab without
+      touching the previous, still-valid recording — a mid-edit typo
+      shouldn't blank out the KPI/Stepper tabs — and still reopens nvim
+      immediately, since the user is mid-edit and wants to fix the
+      typo, not get bounced to a placeholder screen.
+    - **A successful reload reopens nvim automatically**
+      (`handleReload`/`handleNvimExit` both end by returning
+      `openEditorCmd()` again), which is what makes the whole thing a
+      *loop* rather than a single hand-off: edit, save (nvim quits,
+      crust reruns and refreshes, nvim reopens), edit again, with no
+      keypress needed in between beyond the saves themselves. Quitting
+      without saving breaks the loop and returns to the Editor tab's
+      placeholder rather than reopening nvim, which is the deliberate
+      way to stop editing.
+    - **Verified against a real `nvim`, not just Go unit tests**: a pty
+      running the actual compiled binary, with `nvim` genuinely
+      installed, confirmed the missing-binary error path (surfaces on
+      the Editor tab, doesn't crash the TUI), that appending a line and
+      `:w`-saving inside nvim actually persists to disk and triggers a
+      rerun (the KPI tab's step count changed to match), that nvim
+      reopens automatically afterward, and that `:q!` on the reopened
+      session cleanly returns to the Editor tab. The parts that
+      genuinely can't run under `go test` (spawning a real interactive
+      subprocess, a live `Program.Run()` against a terminal) are the
+      same shape of gap `runDebugTUI` itself already had — covered by
+      this real-pty pass instead, the project's established substitute
+      for what a unit test can't reach.
   - Not built: resizing the pie chart radius to the terminal's actual
-    size (fixed at 7 regardless of window dimensions — reasonable for
-    the terminal sizes this was tested against, but a very small
-    terminal could clip it) and a search/filter over the stepper tree
-    the way the source project's visualizer has; both are natural
-    follow-ons noted in `TODO.md` rather than guessed at.
+    size (fixed at 7 regardless of window dimensions — `clampHeight`
+    above stops a small terminal from losing the tab bar over this, but
+    the chart itself can still get cut off rather than shrinking to
+    fit) and a search/filter over the stepper tree the way the source
+    project's visualizer has; both are natural follow-ons noted in
+    `TODO.md` rather than guessed at.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

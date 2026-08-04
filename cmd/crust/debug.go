@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -86,25 +87,46 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // including its failure, not just to report one. It's still shown, in
 // place, as the step that produced it.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
-	src, err := os.ReadFile(path)
+	view, err := buildDebugView(path, opts, stdin, stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "crust debug: %s\n", err)
 		return 1
+	}
+	if opts.Plain || !isColorTerminal(stdout) {
+		view.writePlain(stdout)
+		return 0
+	}
+	return runDebugTUI(view, opts, stdin, stdout, stderr)
+}
+
+// buildDebugView parses and records one run of path exactly as runDebug
+// always has, without deciding how (or whether) to display it — shared
+// with the TUI's Editor tab (debug_editor.go), which needs the same
+// recording rebuilt from scratch after every save. progOut is where the
+// program's own output (deliver, etc.) goes; the initial run writes it
+// straight to the real terminal since nothing owns the screen yet, but
+// a reload triggered from inside an already-running TUI must not — see
+// debug_editor.go's reloadCmd.
+func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.Writer) (*debugView, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
 
 	l := lexer.New(string(src))
 	p := parser.New(l)
 	program := p.ParseProgram()
 	if errs := p.Errors(); len(errs) > 0 {
-		fmt.Fprintf(stderr, "crust debug: %d parse error(s):\n", len(errs))
+		var b strings.Builder
+		fmt.Fprintf(&b, "%d parse error(s):", len(errs))
 		for _, e := range errs {
-			fmt.Fprintf(stderr, "  %s\n", e)
+			fmt.Fprintf(&b, "\n  %s", e)
 		}
-		return 1
+		return nil, errors.New(b.String())
 	}
 
 	rec := debugger.NewRecorder(opts.MaxSteps)
-	interp := interpreter.New(stdout, stdin)
+	interp := interpreter.New(progOut, stdin)
 	interp.Trace = rec
 	env := object.NewEnvironment()
 
@@ -117,12 +139,7 @@ func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io
 		runDebugEntryPoint(interp, env, opts.Store)
 	}
 
-	view := &debugView{path: path, rec: rec}
-	if opts.Plain || !isColorTerminal(stdout) {
-		view.writePlain(stdout)
-		return 0
-	}
-	return runDebugTUI(view, stdin, stdout, stderr)
+	return &debugView{path: path, rec: rec}, nil
 }
 
 // isColorTerminal reports whether w is an interactive terminal worth

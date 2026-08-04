@@ -52,8 +52,13 @@ func TestDebugModelTabSwitchesBackAndForth(t *testing.T) {
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(debugModel)
+	if m.active != tabEditor {
+		t.Errorf("after second tab: active = %v, want tabEditor", m.active)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(debugModel)
 	if m.active != tabKPI {
-		t.Errorf("after second tab: active = %v, want tabKPI", m.active)
+		t.Errorf("after third tab: active = %v, want tabKPI (wrapped around)", m.active)
 	}
 }
 
@@ -61,8 +66,8 @@ func TestDebugModelShiftTabGoesBackward(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(debugModel)
-	if m.active != tabStepper {
-		t.Errorf("active = %v, want tabStepper (wrapped backward from KPI)", m.active)
+	if m.active != tabEditor {
+		t.Errorf("active = %v, want tabEditor (wrapped backward from KPI)", m.active)
 	}
 }
 
@@ -176,7 +181,7 @@ func TestDebugModelViewContainsBothTabLabels(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.width, m.height = 100, 30
 	out := m.View()
-	if !strings.Contains(out, "KPIs") || !strings.Contains(out, "Stepper") {
+	if !strings.Contains(out, "KPIs") || !strings.Contains(out, "Stepper") || !strings.Contains(out, "Editor") {
 		t.Errorf("View() missing a tab label: %q", out)
 	}
 }
@@ -334,6 +339,143 @@ func TestRenderRowStylesAFailedStep(t *testing.T) {
 func TestTruncateRunesSingleRuneBudget(t *testing.T) {
 	if got := truncateRunes("hello", 1); got != "h" {
 		t.Errorf("truncateRunes(_, 1) = %q, want %q", got, "h")
+	}
+}
+
+func TestBuildRowsAddsClosingRowForFrameWithChildren(t *testing.T) {
+	view := viewFor(t, `
+recipe double(x) {
+    serve x * 2
+}
+y = double(21)
+`)
+	rows := buildRows(view.rec.Roots(), 0, map[*debugger.TraceNode]bool{})
+	var openIdx, closeIdx = -1, -1
+	for i, r := range rows {
+		if r.node.IsFrame() && r.node.Frame == "double(...)" {
+			if r.closing {
+				closeIdx = i
+			} else {
+				openIdx = i
+			}
+		}
+	}
+	if openIdx == -1 || closeIdx == -1 {
+		t.Fatalf("expected both an opening and closing row for double(...), got open=%d close=%d", openIdx, closeIdx)
+	}
+	if closeIdx <= openIdx {
+		t.Errorf("closing row at %d, want it after the opening row at %d", closeIdx, openIdx)
+	}
+	if rows[openIdx].depth != rows[closeIdx].depth {
+		t.Errorf("closing row depth = %d, want it to match the opening row's depth %d", rows[closeIdx].depth, rows[openIdx].depth)
+	}
+}
+
+func TestBuildRowsNoClosingRowForLeafStep(t *testing.T) {
+	view := viewFor(t, "x = 1")
+	rows := buildRows(view.rec.Roots(), 0, map[*debugger.TraceNode]bool{})
+	for _, r := range rows {
+		if r.closing {
+			t.Errorf("unexpected closing row for a leaf statement: %+v", r)
+		}
+	}
+}
+
+func TestBuildRowsNoClosingRowWhenFoldCollapsed(t *testing.T) {
+	view := viewFor(t, `
+total = 0
+knead n in [1, 2, 3, 4, 5] {
+    total += n
+}
+`)
+	rows := buildRows(view.rec.Roots(), 0, map[*debugger.TraceNode]bool{})
+	for _, r := range rows {
+		if r.node.Folded && r.closing {
+			t.Error("a collapsed fold row should have no closing row, since its children aren't shown")
+		}
+	}
+}
+
+func TestRenderClosingRowHighlightsCursor(t *testing.T) {
+	m := newDebugModel(viewFor(t, `
+recipe double(x) {
+    serve x * 2
+}
+y = double(21)
+`))
+	m.active = tabStepper
+	closeIdx := -1
+	for i, r := range m.rows {
+		if r.closing && r.node.IsFrame() && r.node.Frame == "double(...)" {
+			closeIdx = i
+		}
+	}
+	if closeIdx == -1 {
+		t.Fatal("expected a closing row for the double(...) frame")
+	}
+	m.cursor = closeIdx
+	out := m.renderClosingRow(closeIdx)
+	if !strings.Contains(out, "// end double(...)") {
+		t.Errorf("renderClosingRow() = %q, want it to mention // end double(...)", out)
+	}
+}
+
+func TestClosingLabelStripsContinuationMarkers(t *testing.T) {
+	cases := map[string]string{
+		"knead r in (0.<5) { …": "knead r in (0.<5)",
+		"recipe double(x) { …":  "recipe double(x)",
+		"step(...)":             "step(...)",
+	}
+	for in, want := range cases {
+		if got := closingLabel(in); got != want {
+			t.Errorf("closingLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestClosingLabelTruncatesLongLabels(t *testing.T) {
+	long := strings.Repeat("x", 100)
+	got := closingLabel(long)
+	if len([]rune(got)) != 50 {
+		t.Errorf("closingLabel(long) length = %d, want 50", len([]rune(got)))
+	}
+}
+
+func TestClampHeightNoLimitReturnsInput(t *testing.T) {
+	s := "a\nb\nc"
+	if got := clampHeight(s, 0); got != s {
+		t.Errorf("clampHeight(_, 0) = %q, want unchanged input", got)
+	}
+}
+
+func TestClampHeightUnderLimitReturnsInput(t *testing.T) {
+	s := "a\nb\nc"
+	if got := clampHeight(s, 10); got != s {
+		t.Errorf("clampHeight(_, 10) = %q, want unchanged input", got)
+	}
+}
+
+func TestClampHeightOverLimitTruncatesWithNote(t *testing.T) {
+	s := "a\nb\nc\nd\ne"
+	got := clampHeight(s, 3)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("clampHeight(_, 3) produced %d lines, want 3", len(lines))
+	}
+	if lines[0] != "a" || lines[1] != "b" {
+		t.Errorf("clampHeight(_, 3) kept lines = %v, want the first two original lines preserved", lines[:2])
+	}
+	if !strings.Contains(lines[2], "grow the terminal") {
+		t.Errorf("clampHeight(_, 3) last line = %q, want a truncation note", lines[2])
+	}
+}
+
+func TestDebugModelViewNeverExceedsHeight(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 24
+	out := m.View()
+	if got := len(strings.Split(out, "\n")); got > m.height {
+		t.Errorf("View() produced %d lines, want at most %d", got, m.height)
 	}
 }
 
