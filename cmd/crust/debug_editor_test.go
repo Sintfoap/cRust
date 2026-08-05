@@ -138,8 +138,8 @@ knead n in [1, 2, 3, 4, 5] {
 	if m.editorErr != "" {
 		t.Errorf("editorErr = %q, want cleared on a successful reload", m.editorErr)
 	}
-	if m.active != tabKPI {
-		t.Errorf("active = %v, want tabKPI after a successful reload (back to the dashboard)", m.active)
+	if m.active != tabTime {
+		t.Errorf("active = %v, want tabTime after a successful reload (back to the dashboard)", m.active)
 	}
 	if cmd != nil {
 		t.Error("a successful reload should not reopen nvim -- the user already chose to quit")

@@ -3,11 +3,13 @@
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
 //
-// Three tabs, switched with tab/left/right: KPIs (two pie charts — time
-// and memory per function/loop — plus a few overall numbers), Stepper
-// (the recorded tree, navigable with the arrow keys), and Editor (hands
-// the terminal to nvim on the file being debugged; see debug_editor.go
-// for the save-triggered reload loop).
+// Five tabs, switched with tab/left/right: Time and Memory (one pie
+// chart each, self-time/self-memory per function/loop, plus a few
+// overall numbers), Stepper (the recorded tree, navigable with the
+// arrow keys), Editor (hands the terminal to nvim on the file being
+// debugged; see debug_editor.go for the save-triggered reload loop),
+// and Run (type a path and press enter to run the file with it as
+// stdin and see the raw output, command-line style; see debug_run.go).
 package main
 
 import (
@@ -22,19 +24,21 @@ import (
 	"github.com/Sintfoap/cRust/internal/debugger"
 )
 
-// tab is which of the three panes is showing.
+// tab is which of the five panes is showing.
 type tab int
 
 const (
-	tabKPI tab = iota
+	tabTime tab = iota
+	tabMemory
 	tabStepper
 	tabEditor
+	tabRun
 )
 
 // tabCount is how many tabs there are, for wrapping cursor arithmetic —
-// named rather than inlined as a literal 3 so handleKey's wraparound
-// math stays correct if a fourth tab ever shows up.
-const tabCount = 3
+// named rather than inlined as a literal so handleKey's wraparound math
+// stays correct if another tab ever shows up.
+const tabCount = 5
 
 // visRow is one visible line of the stepper's tree: a node plus its
 // indentation depth. closing marks a synthetic row generated after a
@@ -74,6 +78,15 @@ type debugModel struct {
 	// editorErr is the last nvim launch/exit error, if any, shown on
 	// the Editor tab — e.g. nvim isn't on PATH. Cleared on success.
 	editorErr string
+
+	// runInput/runOutput/runFailed back the Run tab (debug_run.go):
+	// runInput is the input-file path field, runOutput is the raw
+	// stdout+stderr text from the last run (or an error opening the
+	// input file), and runFailed is whether that run's exit code was
+	// non-zero, purely to decide whether runOutput renders as an error.
+	runInput  runInputModel
+	runOutput string
+	runFailed bool
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -134,11 +147,21 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleNvimExit(msg)
 	case reloadMsg:
 		return m.handleReload(msg)
+	case runResultMsg:
+		return m.handleRunResult(msg)
 	}
 	return m, nil
 }
 
 func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The Run tab's input field wants almost every key for itself
+	// (including letters bound to actions everywhere else, like q for
+	// quit or h/j/k/l for movement, since a file path can contain any
+	// of them), so it gets a completely separate handler rather than a
+	// case or two threaded through the switch below.
+	if m.active == tabRun {
+		return m.handleRunTabKey(msg)
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -224,12 +247,16 @@ func (m debugModel) stepperBodyHeight() int {
 func (m debugModel) View() string {
 	var body string
 	switch m.active {
-	case tabKPI:
-		body = m.viewKPI()
+	case tabTime:
+		body = m.viewTime()
+	case tabMemory:
+		body = m.viewMemory()
 	case tabStepper:
 		body = m.viewStepper()
 	case tabEditor:
 		body = m.viewEditor()
+	case tabRun:
+		body = m.viewRun()
 	}
 
 	var b strings.Builder
@@ -245,10 +272,10 @@ func (m debugModel) View() string {
 
 // clampHeight trims s to at most n lines when n > 0, replacing
 // whatever's left over with a one-line note. The stepper already
-// clamps its own body to stepperBodyHeight, but the KPI tab's two pie
-// charts don't scale down for a small terminal — without this, their
-// full (uncapped) height flows past the bottom of the window and the
-// terminal's own scrolling (there's no fixed scroll region) carries
+// clamps its own body to stepperBodyHeight, but the Time/Memory tabs'
+// pie charts don't scale down for a small terminal — without this,
+// their full (uncapped) height flows past the bottom of the window and
+// the terminal's own scrolling (there's no fixed scroll region) carries
 // the tab bar and header, printed first, right off the top with it.
 // Clamping the whole frame to the window's actual height keeps those
 // first lines on screen no matter how tall a tab's content gets.
@@ -271,22 +298,30 @@ func (m debugModel) helpText() string {
 		return "tab/←→: switch tab   ↑↓: move   enter: open/close   q: quit"
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
+	case tabRun:
+		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
 	}
 }
 
 func (m debugModel) viewTabs() string {
-	kpi, stepper, editor := styleTabIdle, styleTabIdle, styleTabIdle
+	timeS, memS, stepper, editor, run := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
 	switch m.active {
-	case tabKPI:
-		kpi = styleTabActive
+	case tabTime:
+		timeS = styleTabActive
+	case tabMemory:
+		memS = styleTabActive
 	case tabStepper:
 		stepper = styleTabActive
 	case tabEditor:
 		editor = styleTabActive
+	case tabRun:
+		run = styleTabActive
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, kpi.Render("KPIs"), stepper.Render("Stepper"), editor.Render("Editor"))
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		timeS.Render("Time"), memS.Render("Memory"), stepper.Render("Stepper"),
+		editor.Render("Editor"), run.Render("Run"))
 }
 
 // viewEditor is the Editor tab's placeholder. It hands off to a real
@@ -302,7 +337,7 @@ func (m debugModel) viewEditor() string {
 		"",
 		"nvim opens automatically whenever you switch to this tab (enter reopens it too)",
 		"nvim behaves normally in there: :w saves and keeps editing",
-		"quitting after a save (:wq, :x, ZZ, ...) reruns the file and takes you to the KPIs tab",
+		"quitting after a save (:wq, :x, ZZ, ...) reruns the file and takes you to the Time tab",
 		"quitting without ever saving (:q) just returns you here",
 	}
 	if m.editorErr != "" {
@@ -311,38 +346,40 @@ func (m debugModel) viewEditor() string {
 	return styleMuted.Render(strings.Join(lines, "\n"))
 }
 
-// viewKPI is the time and memory pie charts, side by side when there's
-// room, plus a few overall numbers a pie chart can't show on its own
-// (step count, whether the recording was capped, the single slowest
-// statement) — the "whatever other KPIs might be useful" the user
-// asked for, kept to a short list rather than a whole extra tab.
-func (m debugModel) viewKPI() string {
+// viewTime is the self-time pie chart plus the overall time numbers a
+// chart can't show on its own (step count, whether the recording was
+// capped, the single slowest statement) — the "whatever other KPIs
+// might be useful" the user originally asked for, kept to a short list
+// rather than yet another tab. Split from viewMemory (below) into its
+// own tab specifically so each chart gets the full window rather than
+// squeezing two into one, per direct user feedback.
+func (m debugModel) viewTime() string {
 	kpis := m.view.timing().KPIs()
-
-	timeChart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfTime) },
+	chart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfTime) },
 		func(k debugger.KPI) string { return k.SelfTime.String() })
-	sizeChart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfSize) },
-		func(k debugger.KPI) string { return fmt.Sprintf("%d", k.SelfSize) })
-
-	timeCol := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("time by function"), timeChart)
-	sizeCol := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("memory by function"), sizeChart)
-
-	var charts string
-	if m.width > 0 && m.width < 70 {
-		charts = lipgloss.JoinVertical(lipgloss.Left, timeCol, "", sizeCol)
-	} else {
-		charts = lipgloss.JoinHorizontal(lipgloss.Top, timeCol, "   ", sizeCol)
-	}
-
-	return charts + "\n\n" + m.viewOverallStats()
+	col := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("time by function"), chart)
+	return col + "\n\n" + m.viewTimeStats()
 }
 
-// viewOverallStats is the handful of numbers that don't fit naturally
-// into a per-function breakdown: how big the run was, whether the
-// recorder had to stop early, and which single statement cost the most
-// on its own (as opposed to which *family* did — a KPI bucket answers
-// "which function", this answers "which line").
-func (m debugModel) viewOverallStats() string {
+// viewMemory is viewTime's counterpart for self-size — same chart
+// function, same overall-numbers idea, but sized/labeled for the
+// question "where did the memory go" instead of "where did the time
+// go" (largest single value in place of slowest statement, since
+// duration doesn't apply to a memory reading).
+func (m debugModel) viewMemory() string {
+	kpis := m.view.timing().KPIs()
+	chart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfSize) },
+		func(k debugger.KPI) string { return fmt.Sprintf("%d", k.SelfSize) })
+	col := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("memory by function"), chart)
+	return col + "\n\n" + m.viewMemoryStats()
+}
+
+// viewTimeStats is the handful of time-related numbers that don't fit
+// naturally into a per-function breakdown: how big the run was,
+// whether the recorder had to stop early, and which single statement
+// cost the most on its own (as opposed to which *family* did — a KPI
+// bucket answers "which function", this answers "which line").
+func (m debugModel) viewTimeStats() string {
 	rec := m.view.rec
 	t := m.view.timing()
 	lines := []string{
@@ -351,6 +388,21 @@ func (m debugModel) viewOverallStats() string {
 	}
 	if slow, ok := slowestStep(m.rows, t); ok {
 		lines = append(lines, fmt.Sprintf("slowest statement: %s (%s self)", slow.Label(), t.Of(slow).Self))
+	}
+	return styleMuted.Render(strings.Join(lines, "\n"))
+}
+
+// viewMemoryStats mirrors viewTimeStats for the Memory tab: step count
+// (there's no single "total memory" the way there's a total time, since
+// sizes of different values don't sum into one meaningful number) plus
+// the single biggest value recorded anywhere in the run.
+func (m debugModel) viewMemoryStats() string {
+	rec := m.view.rec
+	lines := []string{
+		fmt.Sprintf("steps recorded: %d%s", rec.Steps(), truncatedNote(rec)),
+	}
+	if big, ok := largestValue(m.rows); ok {
+		lines = append(lines, fmt.Sprintf("largest single value: %s (size %d)", big.Label(), big.Step.Size))
 	}
 	return styleMuted.Render(strings.Join(lines, "\n"))
 }
@@ -374,6 +426,36 @@ func slowestStep(rows []visRow, t *debugger.Timing) (*debugger.TraceNode, bool) 
 		if !n.IsFrame() {
 			if self := int64(t.Of(n).Self); best == nil || self > bestSelf {
 				best, bestSelf = n, self
+			}
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	for _, r := range rows {
+		if r.depth == 0 && !r.closing {
+			walk(r.node)
+		}
+	}
+	if best == nil {
+		return nil, false
+	}
+	return best, true
+}
+
+// largestValue is slowestStep's counterpart for the Memory tab: the
+// single step (not frame) with the biggest recorded value size across
+// every row currently known, including inside collapsed folds. Steps
+// whose size wasn't captured (SizeOK false — a scalar, see
+// trace.SizeOf) never win, since there's nothing to compare.
+func largestValue(rows []visRow) (*debugger.TraceNode, bool) {
+	var best *debugger.TraceNode
+	var bestSize int
+	var walk func(n *debugger.TraceNode)
+	walk = func(n *debugger.TraceNode) {
+		if !n.IsFrame() && n.Step.SizeOK {
+			if best == nil || n.Step.Size > bestSize {
+				best, bestSize = n, n.Step.Size
 			}
 		}
 		for _, c := range n.Children {

@@ -103,13 +103,13 @@ func (m debugModel) reloadCmd() tea.Cmd {
 // handleReload applies a reload's result. Failure (e.g. a save that
 // left the file with a parse error) is shown on the Editor tab without
 // touching the previous — still valid — recording, so a typo mid-edit
-// doesn't blank out the KPI/Stepper tabs; the user already chose to
-// quit nvim, so this leaves them on the Editor tab to read the error
-// and reopen it themselves (enter, or tab away and back) rather than
-// forcing them straight back in. Success replaces the view, resets the
-// stepper's fold/cursor state (the new recording's tree has no
-// relationship to the old one's), and switches to the KPI tab — the
-// save is done and nvim already closed, so landing back on the
+// doesn't blank out the Time/Memory/Stepper tabs; the user already
+// chose to quit nvim, so this leaves them on the Editor tab to read the
+// error and reopen it themselves (enter, or tab away and back) rather
+// than forcing them straight back in. Success replaces the view,
+// resets the stepper's fold/cursor state (the new recording's tree has
+// no relationship to the old one's), and switches to the Time tab —
+// the save is done and nvim already closed, so landing back on the
 // dashboard is the point, not another editing pass.
 func (m debugModel) handleReload(msg reloadMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -121,6 +121,6 @@ func (m debugModel) handleReload(msg reloadMsg) (tea.Model, tea.Cmd) {
 	m.expanded = map[*debugger.TraceNode]bool{}
 	m.cursor, m.top = 0, 0
 	m.rebuildRows()
-	m.active = tabKPI
+	m.active = tabTime
 	return m, nil
 }

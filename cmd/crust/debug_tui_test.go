@@ -36,29 +36,22 @@ func viewFor(t *testing.T, src string) *debugView {
 	return &debugView{path: "x.crust", rec: rec}
 }
 
-func TestDebugModelStartsOnKPITab(t *testing.T) {
+func TestDebugModelStartsOnTimeTab(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	if m.active != tabKPI {
-		t.Errorf("active = %v, want tabKPI", m.active)
+	if m.active != tabTime {
+		t.Errorf("active = %v, want tabTime", m.active)
 	}
 }
 
 func TestDebugModelTabSwitchesBackAndForth(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = next.(debugModel)
-	if m.active != tabStepper {
-		t.Errorf("after tab: active = %v, want tabStepper", m.active)
-	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = next.(debugModel)
-	if m.active != tabEditor {
-		t.Errorf("after second tab: active = %v, want tabEditor", m.active)
-	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = next.(debugModel)
-	if m.active != tabKPI {
-		t.Errorf("after third tab: active = %v, want tabKPI (wrapped around)", m.active)
+	want := []tab{tabMemory, tabStepper, tabEditor, tabRun, tabTime}
+	for _, w := range want {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = next.(debugModel)
+		if m.active != w {
+			t.Fatalf("after tab: active = %v, want %v", m.active, w)
+		}
 	}
 }
 
@@ -66,15 +59,16 @@ func TestDebugModelShiftTabGoesBackward(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(debugModel)
-	if m.active != tabEditor {
-		t.Errorf("active = %v, want tabEditor (wrapped backward from KPI)", m.active)
+	if m.active != tabRun {
+		t.Errorf("active = %v, want tabRun (wrapped backward from Time)", m.active)
 	}
 }
 
 func TestDebugModelSwitchingToEditorTabAutoLaunchesNvim(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.view.path = writeDebugFile(t, "x = 1\n")
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab}) // KPI -> Editor, wrapping backward
+	m.active = tabStepper
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab}) // Stepper -> Editor
 	if cmd == nil {
 		t.Error("switching to the Editor tab should return a non-nil Cmd (auto-launch nvim)")
 	}
@@ -82,9 +76,9 @@ func TestDebugModelSwitchingToEditorTabAutoLaunchesNvim(t *testing.T) {
 
 func TestDebugModelSwitchingToOtherTabsDoesNotLaunchNvim(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab}) // KPI -> Stepper
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab}) // Time -> Memory
 	if cmd != nil {
-		t.Error("switching to the Stepper tab should not launch nvim")
+		t.Error("switching to the Memory tab should not launch nvim")
 	}
 }
 
@@ -136,13 +130,13 @@ func TestDebugModelCursorMovesWithinBounds(t *testing.T) {
 	}
 }
 
-func TestDebugModelCursorIgnoredOnKPITab(t *testing.T) {
+func TestDebugModelCursorIgnoredOnTimeTab(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
-	// active stays tabKPI (the default).
+	// active stays tabTime (the default).
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = next.(debugModel)
 	if m.cursor != 0 {
-		t.Errorf("cursor = %d, want 0 (down should do nothing on the KPI tab)", m.cursor)
+		t.Errorf("cursor = %d, want 0 (down should do nothing on the Time tab)", m.cursor)
 	}
 }
 
@@ -194,12 +188,14 @@ func TestDebugModelToggleFoldOnNonFoldedRowIsANoOp(t *testing.T) {
 	}
 }
 
-func TestDebugModelViewContainsBothTabLabels(t *testing.T) {
+func TestDebugModelViewContainsAllTabLabels(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.width, m.height = 100, 30
 	out := m.View()
-	if !strings.Contains(out, "KPIs") || !strings.Contains(out, "Stepper") || !strings.Contains(out, "Editor") {
-		t.Errorf("View() missing a tab label: %q", out)
+	for _, label := range []string{"Time", "Memory", "Stepper", "Editor", "Run"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("View() missing tab label %q: %q", label, out)
+		}
 	}
 }
 
@@ -213,7 +209,7 @@ func TestDebugModelViewStepperShowsStatements(t *testing.T) {
 	}
 }
 
-func TestDebugModelViewKPIShowsFamilyNames(t *testing.T) {
+func TestDebugModelViewTimeShowsFamilyNames(t *testing.T) {
 	m := newDebugModel(viewFor(t, `
 recipe double(x) {
     serve x * 2
@@ -223,7 +219,25 @@ y = double(21)
 	m.width, m.height = 100, 30
 	out := m.View()
 	if !strings.Contains(out, "double(...)") {
-		t.Errorf("View() (KPI tab) missing the double(...) family: %q", out)
+		t.Errorf("View() (Time tab) missing the double(...) family: %q", out)
+	}
+}
+
+func TestDebugModelViewMemoryShowsFamilyNames(t *testing.T) {
+	// Uses a List result, not a scalar -- trace.SizeOf only sizes
+	// container-like values, so a purely-integer recipe wouldn't show
+	// up on the memory chart at all (there'd be nothing to rank).
+	m := newDebugModel(viewFor(t, `
+recipe makeList(x) {
+    serve [x, x, x]
+}
+y = makeList(21)
+`))
+	m.active = tabMemory
+	m.width, m.height = 100, 30
+	out := m.View()
+	if !strings.Contains(out, "makeList(...)") {
+		t.Errorf("View() (Memory tab) missing the makeList(...) family: %q", out)
 	}
 }
 
@@ -287,7 +301,7 @@ func TestDebugModelIgnoresUnknownKeys(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("unexpected cmd for an unbound key: %v", cmd)
 	}
-	if next.(debugModel).active != tabKPI {
+	if next.(debugModel).active != tabTime {
 		t.Error("unbound key should not change tabs")
 	}
 }
@@ -317,12 +331,40 @@ func TestDebugModelScrollsWhenCursorLeavesVisibleWindow(t *testing.T) {
 	}
 }
 
-func TestViewKPINarrowWidthStacksVertically(t *testing.T) {
+func TestViewTimeShowsTimeChartOnly(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	m.width = 40
-	out := m.viewKPI()
-	if !strings.Contains(out, "time by function") || !strings.Contains(out, "memory by function") {
-		t.Errorf("viewKPI narrow output missing a chart title: %q", out)
+	out := m.viewTime()
+	if !strings.Contains(out, "time by function") {
+		t.Errorf("viewTime() missing its chart title: %q", out)
+	}
+	if strings.Contains(out, "memory by function") {
+		t.Errorf("viewTime() should not include the memory chart: %q", out)
+	}
+}
+
+func TestViewMemoryShowsMemoryChartOnly(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	out := m.viewMemory()
+	if !strings.Contains(out, "memory by function") {
+		t.Errorf("viewMemory() missing its chart title: %q", out)
+	}
+	if strings.Contains(out, "time by function") {
+		t.Errorf("viewMemory() should not include the time chart: %q", out)
+	}
+}
+
+func TestViewMemoryStatsShowsLargestValue(t *testing.T) {
+	m := newDebugModel(viewFor(t, `x = "a very large string value here"
+y = 1`))
+	out := m.viewMemoryStats()
+	if !strings.Contains(out, "largest single value") {
+		t.Errorf("viewMemoryStats() = %q, want a largest-single-value line", out)
+	}
+}
+
+func TestLargestValueOnEmptyRows(t *testing.T) {
+	if _, ok := largestValue(nil); ok {
+		t.Error("expected no largest value for an empty row set")
 	}
 }
 

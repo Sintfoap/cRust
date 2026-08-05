@@ -122,13 +122,17 @@ function/loop by *self* time — the work it's actually responsible for,
 not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
 not one row per call site. On a real terminal this opens an
-interactive three-tab TUI (KPI pie charts, the tree stepper, and an
-Editor tab that opens `nvim` on the file being debugged as soon as you
-switch to it — `nvim` behaves normally in there, so `:w` just saves and
-keeps you editing; quitting after a save, e.g. `:wq`, reruns the
-recording, refreshes the other two tabs, and takes you to the KPIs
-tab); piped or redirected, or with `--plain`, it prints the same
-information as text:
+interactive five-tab TUI: **Time** and **Memory** (one pie chart each,
+so both get the full window), **Stepper** (the tree), **Editor**
+(opens `nvim` on the file being debugged as soon as you switch to
+it — `nvim` behaves normally in there, so `:w` just saves and keeps you
+editing; quitting after a save, e.g. `:wq`, reruns the recording,
+refreshes the other tabs, and takes you to the Time tab), and **Run**
+(type a path to an input file and press enter to run the file with it
+as stdin, showing the raw output exactly like `crust run day01.crust <
+input.txt` would — no tracing, just the program's own stdout/stderr).
+Piped or redirected, or with `--plain`, it prints the same information
+as text:
 
 ```
 crust debug day01.crust

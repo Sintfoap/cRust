@@ -361,17 +361,43 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       nvim actually exits (however the user chose to: `:wq`, `:x`,
       `ZZ`, plain `:q`), tells "something was saved" apart from
       "nothing was" by comparing the file's mtime before/after, and — on
-      a save — reruns the file, refreshes the KPI/Stepper tabs, and
-      switches to the KPI tab; it does not reopen nvim, respecting that
-      the user already chose to quit. All of this verified via a real
-      pty (a small terminal no longer loses the tab bar; `// end`
+      a save — reruns the file, refreshes the Time/Memory/Stepper tabs,
+      and switches to the Time tab; it does not reopen nvim, respecting
+      that the user already chose to quit. All of this verified via a
+      real pty (a small terminal no longer loses the tab bar; `// end`
       markers appear in both the TUI and `--plain`; a real `nvim`
       session confirmed the tab-switch auto-launch, that `:w` alone
       leaves nvim open, and that `:wq` persists the save, reruns the
-      file, and lands on the KPI tab), not just Go unit tests — see
+      file, and lands on the Time tab), not just Go unit tests — see
       ARCHITECTURE.md's debugger section for the design notes,
       including why the Editor tab is a hand-off and not an embedded
       pane.
+- [x] (Stretch) two more debugger tabs, from direct user requests:
+      (1) the KPI tab's two pie charts were split into their own **Time**
+      and **Memory** tabs, each getting the full window instead of
+      sharing one (the old tab also had width-dependent stacked/
+      side-by-side layout logic for the two charts, which the split
+      removed outright rather than kept unused) — Memory's overall
+      numbers swap "total time"/"slowest statement" for "largest single
+      value" (`largestValue`, `slowestStep`'s size-based counterpart),
+      since a duration doesn't apply to a memory reading. (2) A new
+      **Run** tab: type a path to an input file and press enter to run
+      the file being debugged with it as stdin, showing the raw output —
+      genuinely "the command line" (`runFile`, the same function `crust
+      run` itself calls, not `debugger.Recorder` at all, so there's no
+      tracing overhead or KPI bucketing in the way). The path field is
+      hand-rolled (insert/delete/cursor around a rune slice) rather than
+      pulling in a components library (e.g. `charmbracelet/bubbles`)
+      for a single-line text box — a third TUI dependency, after
+      bubbletea + lipgloss, wasn't worth it for this. Getting the field
+      to work at all meant a real design point: on every other tab, `q`
+      quits and `h`/`j`/`k`/`l` navigate, but a file path can contain
+      any of those letters, so the Run tab needed its own key handler
+      (`handleRunTabKey`) that gives the field almost everything typed
+      and reserves only Tab/Shift+Tab (switch tabs), Enter (run), and
+      Ctrl+C/Esc (quit) — verified via a real pty typing a path
+      containing every one of those letters and confirming none of them
+      quit or navigated.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

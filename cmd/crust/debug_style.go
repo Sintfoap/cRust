@@ -45,6 +45,11 @@ var (
 	styleSelectedRow = lipgloss.NewStyle().Bold(true).Foreground(colorSelected)
 
 	styleHelp = lipgloss.NewStyle().Foreground(colorFaint)
+
+	// styleCursor renders the Run tab's text-field cursor: reverse
+	// video reads as a terminal cursor block regardless of theme,
+	// without needing its own color choice.
+	styleCursor = lipgloss.NewStyle().Reverse(true)
 )
 
 // legendSwatch renders one KPI's color legend entry: a colored block,

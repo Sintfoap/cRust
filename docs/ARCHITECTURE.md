@@ -1667,28 +1667,34 @@ code was written.
   its own (scriptable — grep it, diff it, assert on it in CI) and what
   makes the whole command unit-testable without a pty.
 - **The interactive TUI** (`cmd/crust/debug_tui.go`, `debug_style.go`,
-  `debug_editor.go`) — bubbletea + lipgloss, cRust's first non-stdlib Go
-  dependency (added specifically for this; everything else in the
-  project stayed zero-dependency, see the Nix section). Three tabs,
-  switched with tab/←→/shift+tab: **KPIs** (two pie charts — self-time
-  and self-memory per function/loop, `Timing.KPIs()`'s own ranked
-  order — plus overall step count, total time, and the single slowest
-  statement by its own self time), **Stepper** (the recorded tree, ↑↓
-  to move a highlighted cursor with the visible window scrolling to
-  follow it, enter/space to open or close a *folded* run of loop laps —
-  the only rows that ever need toggling, since an ordinary frame or
-  step already shows everything under it; ​`recorder.go`'s fold
-  mechanism is what keeps a huge run from flooding the view in the
-  first place, so a second general-purpose collapse-everything UI on
-  top of that would just be more interface for the same job), and
-  **Editor** (hands the terminal to a real `nvim` on the file being
-  debugged; see the dedicated note below).
+  `debug_editor.go`, `debug_run.go`) — bubbletea + lipgloss, cRust's
+  first non-stdlib Go dependency (added specifically for this;
+  everything else in the project stayed zero-dependency, see the Nix
+  section). Five tabs, switched with tab/←→/shift+tab: **Time** and
+  **Memory** (one pie chart each — self-time or self-memory per
+  function/loop, `Timing.KPIs()`'s own ranked order — plus overall
+  numbers specific to that dimension: step count/total time/slowest
+  statement for Time, step count/largest single value for Memory; split
+  into two tabs, see the dedicated note below, from the original single
+  KPI tab that showed both charts at once), **Stepper** (the recorded
+  tree, ↑↓ to move a highlighted cursor with the visible window
+  scrolling to follow it, enter/space to open or close a *folded* run
+  of loop laps — the only rows that ever need toggling, since an
+  ordinary frame or step already shows everything under it;
+  ​`recorder.go`'s fold mechanism is what keeps a huge run from flooding
+  the view in the first place, so a second general-purpose
+  collapse-everything UI on top of that would just be more interface
+  for the same job), **Editor** (hands the terminal to a real `nvim` on
+  the file being debugged; see the dedicated note below), and **Run**
+  (type a path to an input file and press enter to run the debugged
+  file with it as stdin, command-line style; see the dedicated note
+  below).
   - **Tested the way `repl_tty.go` is: by driving the model directly**
     (`newDebugModel`, then `Update(tea.KeyMsg{...})`/`Update(tea.WindowSizeMsg{...})`,
     asserting on the returned model and `View()`'s text) rather than
     through a real pty — a bubbletea `Model` is a plain Go value with
     `Init`/`Update`/`View` methods, so nothing about testing it needs a
-    terminal at all. Tests this way cover tab switching (all three,
+    terminal at all. Tests this way cover tab switching (all five,
     both directions, including the wrap), cursor movement and clamping
     at both ends, scroll-window following the cursor, fold toggling
     (open, close, and confirming a non-folded row is a no-op), view
@@ -1732,10 +1738,11 @@ code was written.
     as it has call sites in the source, which would have made the
     pie chart actively misleading rather than merely less useful.
   - **A real bug, found from actual use: a small terminal made the tab
-    bar itself disappear on the KPI tab.** Neither pie chart scales
-    down for a short window, and — combined with there being no
-    alt-screen and no height clamp — a KPI tab taller than the terminal
-    just scrolled the ordinary way, carrying the tab bar and header
+    bar itself disappear on the original combined KPI tab** (before it
+    split into Time/Memory, below). Neither pie chart scales down for a
+    short window, and — combined with there being no alt-screen and no
+    height clamp — a tab taller than the terminal just scrolled the
+    ordinary way, carrying the tab bar and header
     (the first two lines printed every frame) right off the top with
     it, since there was no fixed scroll region to stop them. Confirmed
     with a real pty at 80×24: the tab labels were completely absent
@@ -1831,12 +1838,12 @@ code was written.
       choice is respected either way.** Success (`handleReload`)
       replaces the view, resets the stepper's fold/cursor state (the
       new tree has no relationship to the old one's), and switches
-      `active` to the KPI tab — the save is done, nvim already closed,
+      `active` to the Time tab — the save is done, nvim already closed,
       landing back on the dashboard is the point. Failure (a save that
       left the file with a parse error) surfaces the error on the
       Editor tab without touching the previous, still-valid recording —
-      a mid-edit typo shouldn't blank out the KPI/Stepper tabs — and
-      leaves the user there to read it and reopen nvim themselves
+      a mid-edit typo shouldn't blank out the Time/Memory/Stepper
+      tabs — and leaves the user there to read it and reopen nvim themselves
       (`enter`, or tab away and back) rather than forcing them straight
       back in against their own quit.
     - **Verified against a real `nvim`, not just Go unit tests**: a pty
@@ -1845,13 +1852,66 @@ code was written.
       no keypress beyond the tab switch itself; that `:w` alone saves
       and leaves nvim running (no forced exit); that appending a line
       and quitting with `:wq` persists the save, reruns the file (the
-      KPI tab's step count changed to match), and lands on the KPI
+      Time tab's step count changed to match), and lands on the Time
       tab — not back in nvim. The parts that genuinely can't run under
       `go test` (spawning a real interactive subprocess, a live
       `Program.Run()` against a terminal) are the same shape of gap
       `runDebugTUI` itself already had — covered by this real-pty pass
       instead, the project's established substitute for what a unit
       test can't reach.
+  - **The original single KPI tab (two pie charts, side by side or
+    stacked depending on window width) split into dedicated Time and
+    Memory tabs, from a direct request that each chart get the full
+    window instead of sharing one.** `viewKPI`'s width-dependent
+    `lipgloss.JoinHorizontal`/`JoinVertical` layout branch — the code
+    that decided whether the two charts sat side by side or stacked —
+    was removed outright rather than kept unused, since a single-chart
+    tab never needs it; `viewTime`/`viewMemory` are what's left once
+    that branching is gone, each just a chart plus its own stats block.
+    Memory's stats (`viewMemoryStats`) aren't a copy of Time's with the
+    numbers swapped: "total time" has no memory equivalent (summing the
+    sizes of unrelated values isn't a meaningful number the way summing
+    their durations is), so it's dropped, and "slowest statement"
+    becomes "largest single value" (`largestValue`, `slowestStep`'s
+    exact structure but comparing `Step.Size` instead of a node's self
+    time) — the same shape of answer, "which one row explains this
+    number," just asked about size instead of duration.
+  - **The Run tab types a path and, on enter, runs the file being
+    debugged with it as stdin, showing raw output — genuinely "the
+    command line," not another view onto the trace.** It calls
+    `runFile` (`run.go`) directly, the exact function `crust run`
+    itself uses, rather than going anywhere near `debugger.Recorder`:
+    no tracing overhead, no KPI bucketing, just the program's own
+    stdout/stderr exactly as `crust run day01.crust < input.txt` would
+    produce them. An empty path runs with no stdin at all (empty
+    reader, not the real terminal — the alt-screen already owns it);
+    a path that fails to open surfaces that error in the output area
+    without ever calling `runFile`, and a runtime error inside the
+    program shows up the normal way `crust run` would show it (via
+    `runFile`'s own stderr reporting), not as a separate error path.
+    - **The input-file field is hand-rolled** (`runInputModel`:
+      insert/backspace/delete/left/right around a rune slice plus a
+      cursor index, rendered with a reverse-video cell standing in for
+      a terminal cursor) **rather than reaching for a components
+      library** like `charmbracelet/bubbles`' `textinput` — a single-
+      line path editor is a small enough job that a third TUI
+      dependency, after bubbletea + lipgloss, wasn't worth it under
+      this project's add-a-dependency-only-when-needed policy (the same
+      reasoning that kept the project at zero third-party dependencies
+      through Phase 5, see the dependency-policy row further down).
+    - **The Run tab needed its own key handler
+      (`handleRunTabKey`), separate from every other tab's, because a
+      file path can legitimately contain any letter** — including `q`
+      (quit everywhere else), `h`/`j`/`k`/`l` (tab-switch/movement
+      everywhere else), and the arrow keys (cursor movement in the
+      field here, but tab-switching on every other tab). Only Tab/
+      Shift+Tab (switch tabs), Enter (run), and Ctrl+C/Esc (quit) stay
+      reserved — the small set of keys a path could never plausibly
+      need — and everything else, including those normally-bound
+      letters, goes straight to the field. Verified via a real pty:
+      typing a path containing every one of `q`/`h`/`j`/`k`/`l` in a
+      row landed in the field intact, with no quit or tab change along
+      the way.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but
