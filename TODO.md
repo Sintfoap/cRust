@@ -441,6 +441,28 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       into exactly that kind of collection. Verified both the happy
       path and the unhashable-element error via a real `crust run`
       subprocess, not just Go unit tests.
+- [x] (Stretch) `contains(collection, item)` builtin, for a general
+      membership test — asked as "an `in` keyword for dictionaries and
+      lists and sets," a real `in` infix expression was offered as the
+      fuller option, and a plain function was picked once asked, since
+      it needs zero parser changes (`in` keeps its one existing role,
+      the `knead item in collection` loop header). Covers List/Tuple
+      (linear scan, compared with the same value-equality `==` uses),
+      Set (`topped`'s own `Has`, reused rather than duplicated), and
+      Map (membership by *key*, matching Python's `k in dict`
+      convention). Building this is what moved the interpreter's
+      `==`/`!=` equality logic out of `internal/interpreter` and into
+      `internal/object` as an exported `object.Equal` — `contains()`
+      needed the identical rule `==` already implements, and
+      `internal/builtins` can't import `internal/interpreter` to reach
+      it (the dependency runs the other way), so the choice was
+      reimplement-and-risk-drift vs. relocate-and-share; relocating
+      won. A pure move, not a behavior change — every existing
+      `==`/`!=` test still passes unmodified, and `internal/object`
+      picked up its own direct test suite for the relocated logic to
+      keep that package back at 100% coverage. Verified via a real
+      `crust run` subprocess across List/Tuple/Set/Map, including that
+      a Map's *values* don't register as members, only its keys.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

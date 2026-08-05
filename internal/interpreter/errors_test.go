@@ -122,7 +122,7 @@ func TestIndexIncDecOnNonIndexableType(t *testing.T) {
 	wantError(t, testEval(t, "x = 5\nx[0]++"), "not indexable")
 }
 
-// --- objectsEqual edge cases ---------------------------------------------------
+// --- object.Equal edge cases (via the == operator) ------------------------------
 
 func TestFunctionEqualityIsByIdentity(t *testing.T) {
 	input := `

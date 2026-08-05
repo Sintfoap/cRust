@@ -57,6 +57,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"sprinkle":   {Fn: sprinkleFn},
 		"scrape":     {Fn: scrapeFn},
 		"topped":     {Fn: toppedFn},
+		"contains":   {Fn: containsFn},
 		"combine":    {Fn: combineFn},
 		"shared":     {Fn: sharedFn},
 		"strip":      {Fn: stripFn},
@@ -749,7 +750,7 @@ func scrapeFn(args ...object.Object) object.Object {
 	return object.NULL
 }
 
-// toppedFn is `topped(set, item)` (SPEC.md §7) — membership test.
+// toppedFn is `topped(set, item)` (SPEC.md §7) — Set membership test.
 func toppedFn(args ...object.Object) object.Object {
 	if len(args) != 2 {
 		return wrongArgCount("topped", "2", len(args))
@@ -759,6 +760,45 @@ func toppedFn(args ...object.Object) object.Object {
 		return wrongArgType("topped", 0, "a Set", args[0])
 	}
 	return object.NativeBoolToBooleanObject(set.Has(args[1]))
+}
+
+// containsFn is `contains(collection, item)` (SPEC.md §7) — the
+// general membership test `topped` doesn't cover on its own: a List or
+// Tuple (linear scan, comparing with object.Equal — the exact same
+// notion of "equal" `==` uses, so contains(xs, y)` agrees with
+// `xs[i] == y` for whichever i), a Set (topped's own O(1) Hashable
+// lookup, reused rather than re-implemented), or a Map (membership by
+// *key*, the same "is this key present" question `sauce`/nobox
+// indexing already answers less directly).
+func containsFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("contains", "2", len(args))
+	}
+	switch v := args[0].(type) {
+	case *object.List:
+		return object.NativeBoolToBooleanObject(elementsContain(v.Elements, args[1]))
+	case *object.Tuple:
+		return object.NativeBoolToBooleanObject(elementsContain(v.Elements, args[1]))
+	case *object.Set:
+		return object.NativeBoolToBooleanObject(v.Has(args[1]))
+	case *object.Map:
+		_, ok := v.Get(args[1])
+		return object.NativeBoolToBooleanObject(ok)
+	default:
+		return wrongArgType("contains", 0, "a List, Tuple, Set, or Map", args[0])
+	}
+}
+
+// elementsContain reports whether item equals (object.Equal) any
+// element of elements — the linear-scan half of contains(), shared by
+// its List and Tuple cases since both compare contents the same way.
+func elementsContain(elements []object.Object, item object.Object) bool {
+	for _, e := range elements {
+		if object.Equal(e, item) {
+			return true
+		}
+	}
+	return false
 }
 
 // twoSets validates both arguments of a binary Set builtin at once.

@@ -547,7 +547,7 @@ themselves.
   - `Tuple` otherwise behaves like a read-only `List`: indexable
     (`readIndex`), iterable (`evalForEachLoop`), included in `slices`
     (`internal/builtins`), and compared by contents in
-    `objectsEqual`/`listsEqual` (factored to take `[]object.Object`
+    `object.Equal`/`equalSlices` (factored to take `[]object.Object`
     directly so `List` and `Tuple` — which only differ in mutability,
     not in what "equal" means — share one implementation). `writeIndex`
     is the one place it diverges: a `Tuple` index-assignment is a
@@ -1036,6 +1036,45 @@ own section below describes.
   `enumerate()` can't pair positions with a List/Map/Grid value
   directly (an ordinary counted loop, `knead i in 0.<slices(xs)`,
   already covers indexing into one of those).
+- **`contains(collection, item)` generalizes `topped` from "Set
+  membership" to "membership in whatever you've got"** — the request
+  was specifically "an `in` keyword for dictionaries and lists and
+  sets," and a full `in` infix expression (`item in collection ->
+  Boolean`) was the first option offered; a builtin function was picked
+  instead once asked, since it needed no parser changes at all
+  (`in` stays exactly where it already was, `knead item in
+  collection`'s loop header, rather than gaining a second grammatical
+  role). List/Tuple membership is a linear scan compared with
+  `object.Equal` — the same notion of "equal" `==` uses, so
+  `contains(xs, y)` agrees with `xs[i] == y` for whichever `i`; Set
+  reuses `topped`'s own `Set.Has` (O(1) via `Hashable`, not
+  re-implemented); Map membership means "is `item` a *key*", not a
+  value, matching Python's `k in dict` convention and reusing `Map.Get`
+  the same way `sauce`/nobox indexing already does.
+  - **This is what moved the interpreter's `==`/`!=` equality logic
+    (`objectsEqual` and its `gridsEqual`/`listsEqual`/`mapsEqual`/
+    `setsEqual` helpers) out of `internal/interpreter` and into
+    `internal/object` as an exported `object.Equal`.** `contains()`
+    needed the exact same value-equality rule `==` already implements
+    (Lists/Tuples/Maps/Sets/Grids compare contents, Integer/Float are
+    one number category, cross-category is always false) — and
+    `internal/builtins` can't import `internal/interpreter` to reach
+    the existing private function (the dependency runs the other way:
+    the interpreter imports builtins for the `Call` callback `map()`
+    needs, so the reverse import would cycle). Reimplementing the same
+    tree of cases a second time in `internal/builtins` was the
+    alternative, and got rejected specifically because it's exactly the
+    kind of duplication that drifts silently — a future fix to how,
+    say, Grid equality handles offsets would need to land in both
+    copies, and nothing would fail loudly if it only landed in one.
+    Moving the real implementation to `internal/object` (both
+    interpreter and builtins already depend on it) and having
+    `evalInfixOperator`'s `==`/`!=` cases call `object.Equal` instead
+    means there is exactly one implementation of "equal" in the whole
+    interpreter, not two that happen to agree today. No behavior
+    changed — every existing `==`/`!=` test still passes unmodified —
+    this was a pure relocation, verified by keeping the full existing
+    equality test suite green throughout.
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1182,8 +1221,9 @@ own section below describes.
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
-  `unbox`/`lines`/`split`/`join`/`trim` (input), and `str`/`int`/`float`/`bool`
-  (conversion). These names were chosen specifically because dropping
+  `contains` (general List/Tuple/Set/Map membership, `topped`'s
+  broader counterpart), `unbox`/`lines`/`split`/`join`/`trim` (input),
+  and `str`/`int`/`float`/`bool` (conversion). These names were chosen specifically because dropping
   `topping`/`sauce` as declaration
   keywords (Phase 1 revision) freed them up to mean something more
   useful as functions — `sauce` in particular reuses the "base layer

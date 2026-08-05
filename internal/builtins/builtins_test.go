@@ -107,7 +107,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "enumerate", "join", "split", "idiv",
-		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
+		"gather", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
 	}
@@ -358,6 +358,56 @@ func TestTopped(t *testing.T) {
 
 	wantBoolean(t, call(t, table, "topped", set, object.NewInteger(1)), true)
 	wantBoolean(t, call(t, table, "topped", set, object.NewInteger(2)), false)
+}
+
+func TestContainsList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantBoolean(t, call(t, table, "contains", list, object.NewInteger(2)), true)
+	wantBoolean(t, call(t, table, "contains", list, object.NewInteger(9)), false)
+}
+
+func TestContainsListUsesValueEquality(t *testing.T) {
+	// 1 (Integer) and 1.0 (Float) are one "number" category for ==
+	// (SPEC.md §6) -- contains() has to agree, not just do a type-and-
+	// value check.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantBoolean(t, call(t, table, "contains", list, &object.Float{Value: 1.0}), true)
+}
+
+func TestContainsTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	wantBoolean(t, call(t, table, "contains", tup, object.NewInteger(2)), true)
+	wantBoolean(t, call(t, table, "contains", tup, object.NewInteger(9)), false)
+}
+
+func TestContainsSet(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := setOf(1, 2, 3)
+	wantBoolean(t, call(t, table, "contains", set, object.NewInteger(2)), true)
+	wantBoolean(t, call(t, table, "contains", set, object.NewInteger(9)), false)
+}
+
+func TestContainsMapChecksKeys(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := object.NewMap()
+	m.Set(&object.String{Value: "cheese"}, object.NewInteger(1))
+	wantBoolean(t, call(t, table, "contains", m, &object.String{Value: "cheese"}), true)
+	wantBoolean(t, call(t, table, "contains", m, &object.String{Value: "pepperoni"}), false)
+	// The value, not the key, must not register as present.
+	wantBoolean(t, call(t, table, "contains", m, object.NewInteger(1)), false)
+}
+
+func TestContainsWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "contains", object.NewInteger(1), object.NewInteger(1)))
+}
+
+func TestContainsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "contains", object.NewList(nil)))
 }
 
 func setOf(vals ...int64) *object.Set {

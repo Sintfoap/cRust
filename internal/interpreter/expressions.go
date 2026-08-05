@@ -100,9 +100,9 @@ func (i *Interpreter) evalInfixOperator(tok token.Token, operator string, left, 
 	case "+", "-", "*", "/", "%":
 		return evalArithmetic(tok, operator, left, right)
 	case "==":
-		return object.NativeBoolToBooleanObject(objectsEqual(left, right))
+		return object.NativeBoolToBooleanObject(object.Equal(left, right))
 	case "!=":
-		return object.NativeBoolToBooleanObject(!objectsEqual(left, right))
+		return object.NativeBoolToBooleanObject(!object.Equal(left, right))
 	case "<", ">", "<=", ">=":
 		return evalComparison(tok, operator, left, right)
 	default:
@@ -204,7 +204,7 @@ func evalArithmetic(tok token.Token, operator string, left, right object.Object)
 // evalComparison implements SPEC.md §6's ordering rule: `< > <= >=`
 // only accept number-vs-number (Integer/Float freely mixed) or
 // string-vs-string; anything else is a runtime Error, unlike `==`'s
-// "always false across types" (evaluated separately via objectsEqual).
+// "always false across types" (evaluated separately via object.Equal).
 func evalComparison(tok token.Token, operator string, left, right object.Object) object.Object {
 	if lf, ok := numericValue(left); ok {
 		if rf, ok := numericValue(right); ok {

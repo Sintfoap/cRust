@@ -594,6 +594,7 @@ it's directly tied to the Set type this doc introduces.
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
 | `scrape(set, item)` | `(Set, Any) -> Nil` | removes `item` from `set` in place, no error if absent |
 | `topped(set, item)` | `(Set, Any) -> Boolean` | membership test — is `item` in `set`? |
+| `contains(collection, item)` | `(List \| Tuple \| Set \| Map, Any) -> Boolean` | general membership test: for a List/Tuple, is `item` equal (`==`) to any element; for a Set, the same question `topped` answers; for a Map, is `item` a *key* (not a value) |
 | `combine(a, b)` | `(Set, Set) -> Set` | union |
 | `shared(a, b)` | `(Set, Set) -> Set` | intersection |
 | `strip(a, b)` | `(Set, Set) -> Set` | difference — items in `a` not in `b` |
