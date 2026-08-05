@@ -359,3 +359,259 @@ func TestDebugModelUpdateDispatchesRunResultMsg(t *testing.T) {
 		t.Error("Update() should route runResultMsg to handleRunResult")
 	}
 }
+
+func TestScanEntryPointsFindsStoreAndNamed(t *testing.T) {
+	path := writeDebugFile(t, `
+recipe store_part1() {
+    deliver(1)
+}
+recipe store_part2() {
+    deliver(2)
+}
+`)
+	got := scanEntryPoints(path)
+	want := map[string]bool{"part1": true, "part2": true}
+	if len(got) != 2 {
+		t.Fatalf("scanEntryPoints() = %v, want 2 entries", got)
+	}
+	for _, g := range got {
+		if !want[g] {
+			t.Errorf("unexpected entry point %q", g)
+		}
+	}
+}
+
+func TestScanEntryPointsBareStore(t *testing.T) {
+	path := writeDebugFile(t, `recipe store() { deliver(1) }`)
+	got := scanEntryPoints(path)
+	if len(got) != 1 || got[0] != "" {
+		t.Errorf("scanEntryPoints() = %v, want [\"\"] (the bare store)", got)
+	}
+}
+
+func TestScanEntryPointsNoneFound(t *testing.T) {
+	path := writeDebugFile(t, "x = 1\n")
+	if got := scanEntryPoints(path); got != nil {
+		t.Errorf("scanEntryPoints() = %v, want nil for a file with no entry points", got)
+	}
+}
+
+func TestScanEntryPointsParseErrorReturnsNil(t *testing.T) {
+	path := writeDebugFile(t, "x = (\n")
+	if got := scanEntryPoints(path); got != nil {
+		t.Errorf("scanEntryPoints() = %v, want nil for an unparseable file", got)
+	}
+}
+
+func TestScanEntryPointsMissingFileReturnsNil(t *testing.T) {
+	if got := scanEntryPoints("/does/not/exist.crust"); got != nil {
+		t.Errorf("scanEntryPoints() = %v, want nil for a missing file", got)
+	}
+}
+
+func TestDebugViewEntryPointsIsCached(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	v := &debugView{path: path}
+	first := v.entryPoints()
+	// Change the file on disk; entryPoints should still return the
+	// cached answer rather than re-scanning.
+	if err := os.WriteFile(path, []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second := v.entryPoints()
+	if len(first) != 1 || len(second) != 1 {
+		t.Errorf("entryPoints() changed after the file changed on disk: first=%v second=%v", first, second)
+	}
+}
+
+func TestIndexOfEntryFound(t *testing.T) {
+	options := []string{"", "part1", "part2"}
+	if got := indexOfEntry(options, "part2"); got != 2 {
+		t.Errorf("indexOfEntry(_, part2) = %d, want 2", got)
+	}
+}
+
+func TestIndexOfEntryNotFoundDefaultsToZero(t *testing.T) {
+	options := []string{"part1", "part2"}
+	if got := indexOfEntry(options, "nope"); got != 0 {
+		t.Errorf("indexOfEntry(_, nope) = %d, want 0", got)
+	}
+}
+
+func TestIndexOfEntryEmptyOptions(t *testing.T) {
+	if got := indexOfEntry(nil, "part1"); got != 0 {
+		t.Errorf("indexOfEntry(nil, _) = %d, want 0", got)
+	}
+}
+
+func TestRunEntryOptionsReflectsView(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	got := m.runEntryOptions()
+	if len(got) != 2 {
+		t.Errorf("runEntryOptions() = %v, want 2 entries", got)
+	}
+}
+
+func TestSelectedRunEntryNoOptionsIsEmpty(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	if got := m.selectedRunEntry(); got != "" {
+		t.Errorf("selectedRunEntry() = %q, want \"\" when there are no entry points", got)
+	}
+}
+
+func TestSelectedRunEntryReturnsSelectedOption(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 1
+	got := m.selectedRunEntry()
+	options := m.runEntryOptions()
+	if got != options[1] {
+		t.Errorf("selectedRunEntry() = %q, want %q", got, options[1])
+	}
+}
+
+func TestSelectedRunEntryOutOfRangeFallsBackToFirst(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 99
+	if got := m.selectedRunEntry(); got != "part1" {
+		t.Errorf("selectedRunEntry() = %q, want %q (fallback to index 0)", got, "part1")
+	}
+}
+
+func TestToggleRunFocusWithOptions(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	if m.runEntryFocused {
+		t.Fatal("expected runEntryFocused to start false")
+	}
+	m.toggleRunFocus()
+	if !m.runEntryFocused {
+		t.Error("expected runEntryFocused true after one toggle")
+	}
+	m.toggleRunFocus()
+	if m.runEntryFocused {
+		t.Error("expected runEntryFocused false after a second toggle")
+	}
+}
+
+func TestToggleRunFocusNoOptionsIsNoOp(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.toggleRunFocus()
+	if m.runEntryFocused {
+		t.Error("toggleRunFocus should be a no-op when there are no entry points")
+	}
+}
+
+func TestCycleRunEntryWraps(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 0
+	m.cycleRunEntry(-1)
+	if m.runEntryIndex != 1 {
+		t.Errorf("runEntryIndex after wrapping backward = %d, want 1 (len-1)", m.runEntryIndex)
+	}
+	m.cycleRunEntry(1)
+	if m.runEntryIndex != 0 {
+		t.Errorf("runEntryIndex after wrapping forward = %d, want 0", m.runEntryIndex)
+	}
+}
+
+func TestCycleRunEntryNoOptionsIsNoOp(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.cycleRunEntry(1)
+	if m.runEntryIndex != 0 {
+		t.Errorf("runEntryIndex = %d, want unchanged 0", m.runEntryIndex)
+	}
+}
+
+func TestHandleRunTabKeyUpDownTogglesFocus(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.active = tabRun
+	next, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(debugModel)
+	if !m.runEntryFocused {
+		t.Error("Down should move focus to the entry-point row")
+	}
+}
+
+func TestHandleRunTabKeyLeftRightCyclesEntryWhenFocused(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.active = tabRun
+	m.runEntryFocused = true
+	next, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(debugModel)
+	if m.runEntryIndex != 1 {
+		t.Errorf("runEntryIndex after Right = %d, want 1", m.runEntryIndex)
+	}
+}
+
+func TestHandleRunTabKeyTypingIgnoredWhenEntryFocused(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.active = tabRun
+	m.runEntryFocused = true
+	next, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(debugModel)
+	if m.runInput.String() != "" {
+		t.Errorf("runInput = %q, want unchanged when the entry-point row has focus", m.runInput.String())
+	}
+}
+
+func TestRunProgramCmdUsesSelectedEntry(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() {
+    deliver("one")
+}
+recipe store_part2() {
+    deliver("two")
+}`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 1 // part2
+	msg := m.runProgramCmd()().(runResultMsg)
+	if !strings.Contains(msg.stdout, "two") {
+		t.Errorf("stdout = %q, want the part2 entry point's output", msg.stdout)
+	}
+}
+
+func TestViewRunShowsEntryPointSelector(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	out := m.viewRun()
+	if !strings.Contains(out, "part1") || !strings.Contains(out, "part2") {
+		t.Errorf("viewRun() = %q, want both entry points listed", out)
+	}
+}
+
+func TestViewRunHidesSelectorWhenNoEntryPoints(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	out := m.viewRun()
+	if strings.Contains(out, "entry point") {
+		t.Errorf("viewRun() = %q, want no entry-point row for a file with none", out)
+	}
+}
+
+func TestRenderEntryOptionsShowsDefaultLabel(t *testing.T) {
+	out := renderEntryOptions([]string{""}, 0)
+	if !strings.Contains(out, "(default)") {
+		t.Errorf("renderEntryOptions([\"\"]) = %q, want it labeled (default)", out)
+	}
+}
+
+func TestRunDebugTUISetsDefaultEntryIndexFromOpts(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.opts = debugOptions{Store: "part2"}
+	m.runEntryIndex = indexOfEntry(m.view.entryPoints(), m.opts.Store)
+	if m.runEntryIndex != 1 {
+		t.Errorf("runEntryIndex = %d, want 1 (part2)", m.runEntryIndex)
+	}
+}

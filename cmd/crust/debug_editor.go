@@ -108,9 +108,11 @@ func (m debugModel) reloadCmd() tea.Cmd {
 // error and reopen it themselves (enter, or tab away and back) rather
 // than forcing them straight back in. Success replaces the view,
 // resets the stepper's fold/cursor state (the new recording's tree has
-// no relationship to the old one's), and switches to the Time tab —
-// the save is done and nvim already closed, so landing back on the
-// dashboard is the point, not another editing pass.
+// no relationship to the old one's) and the Run tab's entry-point
+// selection (the edit could have added, removed, or renamed
+// store/store_<name> recipes), and switches to the Time tab — the save
+// is done and nvim already closed, so landing back on the dashboard is
+// the point, not another editing pass.
 func (m debugModel) handleReload(msg reloadMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.editorErr = msg.err.Error()
@@ -121,6 +123,8 @@ func (m debugModel) handleReload(msg reloadMsg) (tea.Model, tea.Cmd) {
 	m.expanded = map[*debugger.TraceNode]bool{}
 	m.cursor, m.top = 0, 0
 	m.rebuildRows()
+	m.runEntryIndex = indexOfEntry(m.view.entryPoints(), m.opts.Store)
+	m.runEntryFocused = false
 	m.active = tabTime
 	return m, nil
 }

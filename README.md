@@ -130,9 +130,11 @@ editing; quitting after a save, e.g. `:wq`, reruns the recording,
 refreshes the other tabs, and takes you to the Time tab), and **Run**
 (type a path to an input file and press enter to run the file with it
 as stdin, showing the raw output exactly like `crust run day01.crust <
-input.txt` would — no tracing, just the program's own stdout/stderr).
-Piped or redirected, or with `--plain`, it prints the same information
-as text:
+input.txt` would — no tracing, just the program's own stdout/stderr; if
+the file declares more than one `store`/`store_<name>` entry point,
+↑↓ moves down to a selector row listing them and ←→ picks one before
+you hit enter). Piped or redirected, or with `--plain`, it prints the
+same information as text:
 
 ```
 crust debug day01.crust

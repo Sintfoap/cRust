@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Sintfoap/cRust/internal/debugger"
+	"github.com/Sintfoap/cRust/internal/lexer"
 	"github.com/Sintfoap/cRust/internal/object"
+	"github.com/Sintfoap/cRust/internal/parser"
 )
 
 // debugView is everything the TUI (debug_tui.go) or the plain printer
@@ -18,10 +21,17 @@ type debugView struct {
 	rec  *debugger.Recorder
 
 	// Computed once on first use, so every caller gets the same answer
-	// without needing to remember to ask for it, and so the TUI's KPI
-	// tab doesn't recompute the whole timing pass on every redraw.
+	// without needing to remember to ask for it, and so the TUI's Time/
+	// Memory tabs don't recompute the whole timing pass on every redraw.
 	timingOnce bool
 	timingVal  *debugger.Timing
+
+	// entryOnce/entryVal cache entryPoints() the same way — the Run
+	// tab's selector (debug_run.go) asks on every render, and a fresh
+	// parse per keystroke would be silly when the file hasn't changed
+	// since this debugView was built.
+	entryOnce bool
+	entryVal  []string
 }
 
 // timing returns the recording's timing/KPI profile, computing it once.
@@ -31,6 +41,38 @@ func (v *debugView) timing() *debugger.Timing {
 		v.timingVal = v.rec.Timing()
 	}
 	return v.timingVal
+}
+
+// entryPoints returns the store/store_<name> entry points v.path
+// declares (run.go's collectEntryPoints, "" for the bare `store`), for
+// the Run tab's selector — computed once by re-reading and re-parsing
+// the file independently of the current recording, since nothing else
+// needs to keep an *ast.Program around. A parse failure returns no
+// entry points rather than an error: an unparseable file already shows
+// its own error on every other tab, so the Run tab just falls back to
+// no selector instead of a second, redundant error message.
+func (v *debugView) entryPoints() []string {
+	if !v.entryOnce {
+		v.entryOnce = true
+		v.entryVal = scanEntryPoints(v.path)
+	}
+	return v.entryVal
+}
+
+// scanEntryPoints is entryPoints' actual work, split out so it needs
+// no debugView receiver — handy for calling straight from a test.
+func scanEntryPoints(path string) []string {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	l := lexer.New(string(src))
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return nil
+	}
+	return collectEntryPoints(program)
 }
 
 // header is the one-line description of the recording.

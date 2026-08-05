@@ -44,6 +44,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
 		"combos":     {Fn: combosFn},
+		"enumerate":  {Fn: enumerateFn},
 		"grid":       {Fn: gridFn},
 		"newGrid":    {Fn: newGridFn},
 		"at":         {Fn: atFn},
@@ -345,6 +346,51 @@ func combosFn(args ...object.Object) object.Object {
 		for j := i + 1; j < n; j++ {
 			indices[j] = indices[j-1] + 1
 		}
+	}
+	return object.NewList(out)
+}
+
+// enumerateFn is `enumerate(collection)` (SPEC.md §7) — pairs each
+// element of a List or Tuple with its 0-based position, as a
+// (index, value) Tuple, so `knead pair in enumerate(items) { i, x =
+// pair; ... }` gets both using the tuple-unpack assignment sugar
+// (statements.go's evalUnpackAssign) already built for exactly this
+// shape.
+//
+// The pair is a Tuple, not a two-element List, on purpose: List-unpack
+// follows the classic "last target catches everything left over as its
+// own List" rule (so `i, x = [0, "a"]` binds `x` to `["a"]`, not `"a"`
+// bare) — right for a variable-length remainder, wrong for a fixed
+// index/value pair, where `x` should always be the bare value. A Tuple
+// unpacks with exact arity instead, giving `x` the bare element every
+// time. That does mean every element must be Hashable (SPEC.md §2.3,
+// checked up front the same way combos() above checks it, and for the
+// same reason: a Tuple has to be safe to use as a Set element or Map
+// key wherever one ends up), so enumerate() can't pair positions with
+// an unhashable value like a List/Map/Grid row -- reasonable, since
+// cRust already has an ordinary counted loop (`knead i in
+// 0.<slices(xs)`) for indexing into exactly that kind of collection.
+func enumerateFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("enumerate", "1", len(args))
+	}
+	var elements []object.Object
+	switch v := args[0].(type) {
+	case *object.List:
+		elements = v.Elements
+	case *object.Tuple:
+		elements = v.Elements
+	default:
+		return wrongArgType("enumerate", 0, "a List or Tuple", args[0])
+	}
+	for _, elem := range elements {
+		if _, ok := elem.(object.Hashable); !ok {
+			return newError("enumerate: unhashable type %s cannot be a Tuple element", elem.Type())
+		}
+	}
+	out := make([]object.Object, len(elements))
+	for i, e := range elements {
+		out[i] = object.NewTuple([]object.Object{&object.Integer{Value: int64(i)}, e})
 	}
 	return object.NewList(out)
 }

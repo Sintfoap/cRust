@@ -42,6 +42,7 @@ var builtinDocs = map[string]string{
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":        "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"combos":     "`combos(list, n) -> List` — every n-element combination of list's elements, each as a Tuple (order within a group doesn't matter, no repeats). combos(xs, 2) is every pair, combos(xs, 3) every triple, etc.",
+	"enumerate":  "`enumerate(list) -> List` — pairs each element with its 0-based index, as a (index, value) Tuple. Pair with tuple-unpack: `knead pair in enumerate(xs) { i, x = pair ... }`.",
 	"grid":       "`grid(s) -> Grid` — parses s into a Grid at offset (0,0): row-major, one character per cell. Pair with at/setAt/gridBounds/neighbors4/neighbors8.",
 	"newGrid":    "`newGrid() -> Grid` — an empty Grid, for building one up entirely through setAt rather than parsing one from text.",
 	"at":         "`at(g, pos) -> Any` — bounds-checked read from a Grid (or a plain List of rows) at (row, col) Tuple pos; reads as nobox if out of range instead of erroring, unlike plain g[row][col].",

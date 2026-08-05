@@ -87,6 +87,16 @@ type debugModel struct {
 	runInput  runInputModel
 	runOutput string
 	runFailed bool
+
+	// runEntryIndex/runEntryFocused back the Run tab's entry-point
+	// selector: which of m.view.entryPoints() is picked, and whether
+	// up/down has moved focus to that row (false = the input-file
+	// field has focus). runDebugTUI/handleReload set runEntryIndex to
+	// match m.opts.Store right after computing a fresh view, so the
+	// selector starts pointed at whichever entry point the rest of the
+	// TUI is already showing.
+	runEntryIndex   int
+	runEntryFocused bool
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -299,6 +309,9 @@ func (m debugModel) helpText() string {
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	case tabRun:
+		if len(m.runEntryOptions()) > 0 {
+			return "↑↓: field/entry point   ←→: move/change   enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
@@ -549,6 +562,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m := newDebugModel(view)
 	m.opts = opts
 	m.stdin = stdin
+	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
 		progOpts = append(progOpts, tea.WithInput(f))

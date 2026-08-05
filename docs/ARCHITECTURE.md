@@ -1007,6 +1007,35 @@ own section below describes.
   List either — it's a List containing exactly one element, the empty
   Tuple `()`, matching the standard math convention that there's
   exactly one way to choose nothing.
+- **`enumerate(list)` exists so an enumerated loop doesn't need its own
+  syntax** — the request was "an easy way to make an enumerated loop,"
+  and cRust's `knead item in collection` only ever binds one loop
+  variable (`ast.ForEachLoop.Identifier` is a single `*Identifier`, not
+  a list of them), so `knead i, x in enumerate(xs)` isn't something the
+  parser accepts today. Extending the loop header to bind multiple
+  names would be the more ambitious fix; pairing a new builtin with the
+  tuple-unpack assignment sugar that already exists (§3.1) was the
+  smaller, immediately-available one, and got picked for exactly that
+  reason — `knead pair in enumerate(xs) { i, x = pair; ... }` is one
+  extra line, not a grammar change. Each pair comes back as a Tuple, not
+  a two-element List, and that choice isn't arbitrary: List-unpack's
+  rule (SPEC.md §3.1) is "the last target catches everything left over
+  as its own List," which exists for a variable-length remainder
+  (`a, *rest`-style) — apply that same rule to a fixed 2-element pair
+  and `i, x = [0, "a"]` binds `x` to `["a"]`, not the bare `"a"` a
+  reader would expect. A Tuple's exact-arity unpack doesn't have that
+  trap. The cost is the same Hashable requirement `combos` above
+  already has to enforce, and for the identical underlying reason:
+  `Tuple.HashKey()` does an unchecked type assertion on each element
+  (`internal/object/tuple.go`), so an unhashable one wouldn't error
+  gracefully, it would panic — but only the moment the pair actually
+  got used as a Set element or Map key, which could be far from where
+  the bad Tuple was built. Checking eagerly, right where the Tuple is
+  constructed, turns a delayed Go panic into an immediate, accurately-
+  located cRust runtime error — worth the restriction that
+  `enumerate()` can't pair positions with a List/Map/Grid value
+  directly (an ordinary counted loop, `knead i in 0.<slices(xs)`,
+  already covers indexing into one of those).
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1149,7 +1178,7 @@ own section below describes.
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
   `map` (apply a function across a List/Tuple), `min`/`max`, `combos`
-  (n-element combinations),
+  (n-element combinations), `enumerate` (index/value pairs),
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
@@ -1905,13 +1934,41 @@ code was written.
       (quit everywhere else), `h`/`j`/`k`/`l` (tab-switch/movement
       everywhere else), and the arrow keys (cursor movement in the
       field here, but tab-switching on every other tab). Only Tab/
-      Shift+Tab (switch tabs), Enter (run), and Ctrl+C/Esc (quit) stay
-      reserved — the small set of keys a path could never plausibly
-      need — and everything else, including those normally-bound
-      letters, goes straight to the field. Verified via a real pty:
-      typing a path containing every one of `q`/`h`/`j`/`k`/`l` in a
-      row landed in the field intact, with no quit or tab change along
-      the way.
+      Shift+Tab (switch tabs), Up/Down (move focus between the field
+      and the entry-point selector below, when there is one — see
+      next), Enter (run), and Ctrl+C/Esc (quit) stay reserved — the
+      small set of keys a path could never plausibly need — and
+      everything else, including those normally-bound letters, goes
+      straight to the field. Verified via a real pty: typing a path
+      containing every one of `q`/`h`/`j`/`k`/`l` in a row landed in
+      the field intact, with no quit or tab change along the way.
+    - **A second row, the entry-point selector, lets the Run tab pick
+      which `store`/`store_<name>` recipe to call — added from a
+      follow-up request once the tab already existed, since a file with
+      more than one entry point had no way to choose which to run
+      without restarting `crust debug` with a different `--store`.**
+      `debugView.entryPoints()` scans the file independently of the
+      current recording (its own lex/parse pass, cached like `timing()`
+      already is) and calls `collectEntryPoints` — `run.go`'s own
+      function for picking `crust run`'s default entry point, reused
+      rather than duplicated — so the Run tab's list is exactly the set
+      of names `--store` would ever accept for this file. A file with
+      none (the common case: a small top-to-bottom script) shows no
+      selector row at all, and Up/Down from the input field is a no-op,
+      rather than a selector with nothing meaningful in it.
+      `runEntryFocused` (a bool, not a bigger enum — there are only ever
+      two rows) decides where Left/Right and typed keys go: cursor
+      movement/typing in the field, or cycling the selection (wrapping,
+      like the tab bar's own) when the selector has focus instead. The
+      selection starts wherever `m.opts.Store` already points
+      (`indexOfEntry`), so the Run tab defaults to matching whatever the
+      Time/Stepper tabs are already showing rather than always resetting
+      to the first entry point, and gets recomputed the same way after
+      every Editor-tab reload, since an edit could have added, renamed,
+      or removed a `store_` recipe. Verified via a real pty: the
+      selector lists both entry points, cycling to the second and
+      pressing enter runs that recipe specifically (its own output, not
+      the default's).
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

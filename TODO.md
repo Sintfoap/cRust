@@ -398,6 +398,49 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       Ctrl+C/Esc (quit) — verified via a real pty typing a path
       containing every one of those letters and confirming none of them
       quit or navigated.
+- [x] (Stretch) Run tab entry-point selector, from a follow-up request:
+      a file can declare more than one `store`/`store_<name>` recipe
+      (SPEC.md §9), and the Run tab had no way to pick which one to
+      call — it always ran with whatever `--store` the original `crust
+      debug` invocation used. Added a second row below the input-file
+      field, populated by scanning the file for its entry points
+      (`debug_view.go`'s `scanEntryPoints`, reusing `run.go`'s
+      `collectEntryPoints` — the exact same question `crust run`
+      itself answers when picking a default) and listing them (`""`,
+      the bare `store`, labeled `(default)`); the row is hidden
+      entirely for the common case of a file with no store recipes at
+      all. ↑↓ moves focus between the input field and this row; ←→
+      cycles the selection when the row has focus (and still moves the
+      text cursor when the field does — same keys, different meaning
+      depending on which row is active) or lets Enter run without ever
+      touching it, defaulting to whichever entry point the rest of the
+      TUI is already showing. Re-scanned after every Editor-tab reload,
+      since a save could have added, renamed, or removed a `store_`
+      recipe. Verified via a real pty: switching focus to the row,
+      cycling to a second entry point, and pressing enter actually ran
+      that recipe's own output, not the default's.
+- [x] (Stretch) `enumerate(list)` builtin, for an easy enumerated loop:
+      pairs each element with its 0-based index, as a `(index, value)`
+      Tuple, so `knead pair in enumerate(xs) { i, x = pair; ... }` gets
+      both using the tuple-unpack assignment sugar (§3.1) that already
+      existed — no new loop syntax needed. Deliberately a Tuple, not a
+      two-element List: List-unpack's "last target catches everything
+      left over as its own List" rule (right for a variable-length
+      remainder) would silently wrap the value in `i, x = pair` as
+      `[value]` rather than binding `x` to the bare value, since a
+      2-element List unpacked into exactly 2 targets isn't the same
+      case list-unpack's rule was built for; a Tuple's exact-arity
+      unpack avoids that trap. That does mean every element must be
+      Hashable, checked up front the same way `combos()` already checks
+      it (a Tuple's `HashKey()` does an unchecked type assertion on
+      each element, so an unhashable one would panic rather than error
+      gracefully the moment the pair was ever used as a Set element or
+      Map key) — so `enumerate()` can't pair positions with a List/Map/
+      Grid value directly, which is fine, since cRust already has an
+      ordinary counted loop (`knead i in 0.<slices(xs)`) for indexing
+      into exactly that kind of collection. Verified both the happy
+      path and the unhashable-element error via a real `crust run`
+      subprocess, not just Go unit tests.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

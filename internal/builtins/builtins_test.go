@@ -106,7 +106,7 @@ func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -711,6 +711,67 @@ func TestCombosNNotInteger(t *testing.T) {
 func TestCombosWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "combos", object.NewList(nil)))
+}
+
+func TestEnumerateOfList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{&object.String{Value: "a"}, &object.String{Value: "b"}, &object.String{Value: "c"}})
+	got := call(t, table, "enumerate", list).(*object.List)
+	if len(got.Elements) != 3 {
+		t.Fatalf("got %d pairs, want 3", len(got.Elements))
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		pair, ok := got.Elements[i].(*object.Tuple)
+		if !ok {
+			t.Fatalf("element %d = %T, want *object.Tuple", i, got.Elements[i])
+		}
+		if len(pair.Elements) != 2 {
+			t.Fatalf("pair %d has %d elements, want 2", i, len(pair.Elements))
+		}
+		idx, ok := pair.Elements[0].(*object.Integer)
+		if !ok || idx.Value != int64(i) {
+			t.Errorf("pair %d's index = %v, want %d", i, pair.Elements[0], i)
+		}
+		wantString(t, pair.Elements[1], want)
+	}
+}
+
+func TestEnumerateOfTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(10), object.NewInteger(20)})
+	got := call(t, table, "enumerate", tup).(*object.List)
+	if len(got.Elements) != 2 {
+		t.Fatalf("got %d pairs, want 2", len(got.Elements))
+	}
+	wantTupleOfInts(t, got.Elements[0], 0, 10)
+	wantTupleOfInts(t, got.Elements[1], 1, 20)
+}
+
+func TestEnumerateEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "enumerate", object.NewList(nil)).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d pairs, want 0 for an empty List", len(got.Elements))
+	}
+}
+
+func TestEnumerateUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewList(nil)})
+	errObj := wantError(t, call(t, table, "enumerate", list))
+	if !strings.Contains(errObj.Message, "unhashable") {
+		t.Errorf("Message = %q, want it to mention \"unhashable\"", errObj.Message)
+	}
+}
+
+func TestEnumerateWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "enumerate", object.NewInteger(1)))
+}
+
+func TestEnumerateWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "enumerate", object.NewList(nil), object.NewList(nil)))
 }
 
 func TestGridParsesRowsAndCols(t *testing.T) {
