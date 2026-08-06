@@ -674,6 +674,29 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       is. Verified via a real `crust develop` subprocess reproducing
       the exact reported scenario before and after the fix; two new Go
       tests cover both new error paths.
+- [x] Run tab's entry point now also drives Time/Memory/Stepper, on
+      direct request: "make it so whatever store is selected in the run
+      tab... is the one it does timings and memory checks and step
+      debugging against." Before this, the Run tab's selector only
+      affected the Run tab's own raw output -- the rest of the TUI
+      stayed pinned to whatever `--store` the session started with.
+      Tied to pressing enter (run), not to cycling the selector itself,
+      since running is the only point an input file actually gets
+      read -- retracing then means the KPI data reflects a real run
+      against real input, not a phantom trace against nothing.
+      `runProgramCmd` now reads the input file's bytes once and feeds
+      two independent readers to two separate executions: the existing
+      untraced `runFile` call for the Run tab's raw output (unchanged),
+      and a second, traced run via `buildDebugView` (the same function
+      the Editor tab's save-triggered reload already uses) whose
+      recording replaces `m.view`. `m.opts.Store` gets updated too, so
+      the selection stays "current" for the rest of the session,
+      including later Editor-tab reloads. A failed retrace leaves the
+      previous recording in place rather than blanking those tabs out.
+      Verified with three Go tests: the retrace reflects the selected
+      entry point's body and not the other one's, reads the same input
+      file the raw run used, and a failed retrace leaves `m.view`
+      untouched.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

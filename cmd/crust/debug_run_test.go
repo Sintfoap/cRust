@@ -334,6 +334,48 @@ func TestHandleRunResultNonZeroCodeMarksFailed(t *testing.T) {
 	}
 }
 
+// TestHandleRunResultAppliesRetracedView confirms a successful retrace
+// replaces the model's view (what Time/Memory/Stepper read from),
+// makes the run's store "current" in m.opts, and resets the Stepper's
+// fold/cursor state the same way a successful Editor reload does.
+func TestHandleRunResultAppliesRetracedView(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.cursor, m.top = 5, 2
+	newView := viewFor(t, `recipe store_part2() { deliver("two") }`)
+
+	next, cmd := m.handleRunResult(runResultMsg{stdout: "two\n", code: 0, view: newView, store: "part2"})
+	m = next.(debugModel)
+
+	if m.view != newView {
+		t.Error("expected m.view to be replaced with the retraced view")
+	}
+	if m.opts.Store != "part2" {
+		t.Errorf("m.opts.Store = %q, want %q", m.opts.Store, "part2")
+	}
+	if m.cursor != 0 || m.top != 0 {
+		t.Errorf("cursor/top = %d/%d, want reset to 0/0", m.cursor, m.top)
+	}
+	if cmd != nil {
+		t.Error("handleRunResult should not return a follow-up Cmd")
+	}
+}
+
+// TestHandleRunResultNilViewLeavesExistingViewAlone confirms a failed
+// retrace (view nil, e.g. the debugged file vanished mid-run) doesn't
+// blank out or otherwise disturb whatever the Time/Memory/Stepper tabs
+// were already showing.
+func TestHandleRunResultNilViewLeavesExistingViewAlone(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	original := m.view
+
+	next, _ := m.handleRunResult(runResultMsg{stdout: "hi\n", code: 0})
+	m = next.(debugModel)
+
+	if m.view != original {
+		t.Error("expected m.view to stay unchanged when the retrace produced no view")
+	}
+}
+
 func TestViewRunShowsInstructionsBeforeAnyRun(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.view.path = "day01.crust"
@@ -577,6 +619,65 @@ recipe store_part2() {
 	msg := m.runProgramCmd()().(runResultMsg)
 	if !strings.Contains(msg.stdout, "two") {
 		t.Errorf("stdout = %q, want the part2 entry point's output", msg.stdout)
+	}
+}
+
+// TestRunProgramCmdRetracesSelectedEntryForKPITabs is the feature this
+// was all built for: running the Run tab's currently-selected entry
+// point should also produce a fresh trace of that same entry point,
+// not whichever one the session originally started with.
+func TestRunProgramCmdRetracesSelectedEntryForKPITabs(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() {
+    deliver("one")
+}
+recipe store_part2() {
+    deliver("two")
+}`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 1 // part2
+	msg := m.runProgramCmd()().(runResultMsg)
+	if msg.view == nil {
+		t.Fatal("expected a non-nil retraced view")
+	}
+	if msg.store != "part2" {
+		t.Errorf("store = %q, want %q", msg.store, "part2")
+	}
+	var buf strings.Builder
+	msg.view.writePlain(&buf)
+	out := buf.String()
+	if !strings.Contains(out, `deliver("two")`) {
+		t.Errorf("retraced view = %q, want store_part2's body traced", out)
+	}
+	if strings.Contains(out, `deliver("one")`) {
+		t.Errorf("retraced view = %q, should not have traced store_part1's body", out)
+	}
+}
+
+// TestRunProgramCmdRetraceUsesTheSameInputFile confirms the retrace
+// reads the same input file the raw run does, not empty stdin -- a
+// trace against no real input wouldn't reflect what actually ran.
+func TestRunProgramCmdRetraceUsesTheSameInputFile(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newDebugModel(viewFor(t, "x = 1"))
+	// deliver()'s own step always shows nobox (that's deliver's return
+	// value, not what it printed -- and printed output goes to
+	// io.Discard for a retrace anyway) -- binding unbox()'s result to a
+	// variable first is what makes the traced value itself show up as
+	// a step's Out, confirming the retrace actually read the file.
+	m.view.path = writeDebugFile(t, `recipe store() { line = unbox(); deliver(line) }`)
+	m.runInput = runInputModel{value: []rune(inputPath)}
+	msg := m.runProgramCmd()().(runResultMsg)
+	if msg.view == nil {
+		t.Fatal("expected a non-nil retraced view")
+	}
+	var buf strings.Builder
+	msg.view.writePlain(&buf)
+	if !strings.Contains(buf.String(), "42") {
+		t.Errorf("retraced view = %q, want the input file's contents reflected", buf.String())
 	}
 }
 

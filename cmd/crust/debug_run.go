@@ -3,9 +3,22 @@
 // showing the raw output — exactly what `crust run file.crust <
 // input.txt` would print, not the structured per-statement trace the
 // KPI/Stepper tabs show. It reuses runFile (run.go) directly rather
-// than going through debugger.Recorder at all, so this tab's output is
-// genuinely "the command line," with no tracing overhead or KPI
-// bucketing in the way.
+// than going through debugger.Recorder at all for that output, so
+// what's shown here is genuinely "the command line," with no tracing
+// overhead or KPI bucketing in the way.
+//
+// Running here also re-records the same entry point + input file
+// through debugger.Recorder in the background and swaps it in as the
+// Time/Memory/Stepper tabs' recording (handleRunResult) — so whichever
+// store/store_<name> (and whichever input file) you just ran with the
+// Run tab's own selector is what the rest of the TUI shows too,
+// instead of staying pinned to whatever `--store` the session started
+// with. That happens on "run" specifically, not the moment the
+// selector is cycled, since running is also the only point an input
+// file actually gets read — retracing on every arrow-key tap would
+// either mean re-reading a possibly-large file on every keystroke, or
+// tracing against no real input at all, neither of which is "what
+// happened when I ran it."
 package main
 
 import (
@@ -17,6 +30,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/Sintfoap/cRust/internal/debugger"
 )
 
 // runInputModel is a minimal single-line text field for the input-file
@@ -207,35 +222,60 @@ func indexOfEntry(options []string, store string) int {
 	return 0
 }
 
-// runResultMsg carries one Run-tab execution's result.
+// runResultMsg carries one Run-tab execution's result: the raw
+// command-line-style output (stdout/stderr/code/err, as before), plus
+// a freshly retraced view of that same run for the Time/Memory/
+// Stepper tabs. view is nil if the retrace itself couldn't run (e.g.
+// the input file vanished between the two reads) — handleRunResult
+// leaves the previous recording in place rather than blanking those
+// tabs out over what the Run tab still managed to execute and show.
 type runResultMsg struct {
 	stdout string
 	stderr string
 	code   int
 	err    error // couldn't open the given input file; distinct from a program-level failure, which shows up in stderr/code instead
+
+	view  *debugView // retraced with the same store + input; nil if the retrace failed
+	store string     // the store the retrace used, so handleRunResult can make it "current"
 }
 
 // runProgramCmd runs m.view.path exactly the way `crust run` would —
 // same runFile (run.go), with whichever entry point the Run tab's
 // selector currently has picked — with the Run tab's input-file path
-// (if any) opened as stdin. An empty path means no stdin at all, same
-// as running with input redirected from /dev/null.
+// (if any) read once and fed as stdin to two independent runs: the
+// untraced one whose raw output lands on the Run tab (unchanged from
+// before), and a second, traced one (via buildDebugView, same as the
+// Editor tab's save-triggered reload) whose recording becomes the new
+// Time/Memory/Stepper data. Reading the input file once and reusing
+// its bytes for both, rather than opening it twice, means the two runs
+// can't ever see different content even if the file changes between
+// them, and doubles as the "no input file selected" case for free:
+// inputPath == "" leaves data nil, and bytes.NewReader(nil) reads as
+// immediate EOF exactly like the old strings.NewReader("") did.
 func (m debugModel) runProgramCmd() tea.Cmd {
 	path, store := m.view.path, m.selectedRunEntry()
 	inputPath := strings.TrimSpace(m.runInput.String())
+	maxSteps := m.opts.MaxSteps
 	return func() tea.Msg {
-		stdin := io.Reader(strings.NewReader(""))
+		var data []byte
 		if inputPath != "" {
-			f, err := os.Open(inputPath)
+			d, err := os.ReadFile(inputPath)
 			if err != nil {
 				return runResultMsg{err: err}
 			}
-			defer f.Close()
-			stdin = f
+			data = d
 		}
+
 		var stdout, stderr bytes.Buffer
-		code := runFile(path, store, stdin, &stdout, &stderr)
-		return runResultMsg{stdout: stdout.String(), stderr: stderr.String(), code: code}
+		code := runFile(path, store, bytes.NewReader(data), &stdout, &stderr)
+
+		traceOpts := debugOptions{Store: store, MaxSteps: maxSteps}
+		view, _ := buildDebugView(path, traceOpts, bytes.NewReader(data), io.Discard)
+
+		return runResultMsg{
+			stdout: stdout.String(), stderr: stderr.String(), code: code,
+			view: view, store: store,
+		}
 	}
 }
 
@@ -245,6 +285,18 @@ func (m debugModel) runProgramCmd() tea.Cmd {
 // the program doesn't interleave them faster than its own buffering —
 // good enough for "what did this do", which is the question this tab
 // answers.
+//
+// When the accompanying retrace succeeded (msg.view != nil), it also
+// replaces the Time/Memory/Stepper tabs' recording and resets the
+// Stepper's fold/cursor state, the same way a successful Editor-tab
+// reload does (handleReload) — the new tree has no relationship to the
+// old one's. m.opts.Store is updated too, so this selection becomes
+// "current" for the rest of the session: a later Editor-tab save
+// reloads with this same store rather than reverting to whatever
+// --store the session originally started with. Staying on the Run tab
+// (not switching to Time, unlike a reload) is deliberate — the user is
+// still mid-interaction here, picking entry points and input files,
+// not asking to be taken to the dashboard.
 func (m debugModel) handleRunResult(msg runResultMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.runOutput = msg.err.Error()
@@ -263,6 +315,14 @@ func (m debugModel) handleRunResult(msg runResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.runOutput = out
 	m.runFailed = msg.code != 0
+
+	if msg.view != nil {
+		m.view = msg.view
+		m.opts.Store = msg.store
+		m.expanded = map[*debugger.TraceNode]bool{}
+		m.cursor, m.top = 0, 0
+		m.rebuildRows()
+	}
 	return m, nil
 }
 
@@ -297,7 +357,7 @@ func (m debugModel) viewRun() string {
 
 	if m.runOutput == "" {
 		b.WriteString(styleMuted.Render(fmt.Sprintf(
-			"enter: run %s (with the path above as stdin, if any) and show its output here, like running it from the command line",
+			"enter: run %s (with the path above as stdin, if any) and show its output here, like running it from the command line — also updates the Time/Memory/Stepper tabs to match this run",
 			m.view.path)))
 	} else {
 		style := lipgloss.NewStyle()

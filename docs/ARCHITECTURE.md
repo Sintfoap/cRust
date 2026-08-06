@@ -2305,6 +2305,47 @@ code was written.
       selector lists both entry points, cycling to the second and
       pressing enter runs that recipe specifically (its own output, not
       the default's).
+    - **Running from the Run tab also retraces that same entry point +
+      input file and swaps it in as the Time/Memory/Stepper tabs'
+      recording** — a direct follow-up request: "make it so whatever
+      store is selected in the run tab... is the one it does timings
+      and memory checks and step debugging against." Until this,
+      cycling the Run tab's selector only ever affected the Run tab's
+      own raw output; the rest of the TUI stayed pinned to whichever
+      `--store` the session started with, so picking a different entry
+      point there didn't do what its name implied it should. Tied to
+      pressing enter specifically, not to cycling the selector itself —
+      running is also the only point an input file actually gets read,
+      so retracing then means the KPI data reflects a real run against
+      real input, not a phantom trace against nothing (or a re-read of
+      a possibly-large file on every arrow-key tap). `runProgramCmd`
+      reads the input file's bytes once (if any) and feeds independent
+      readers built from those same bytes to two separate executions:
+      the existing untraced `runFile` call for the Run tab's own raw
+      output (unchanged — still "genuinely the command line," no
+      tracing overhead in the way), and a second, traced run via
+      `buildDebugView` (the same function the Editor tab's
+      save-triggered reload already uses) whose recording becomes the
+      new `m.view`. `handleRunResult` applies it the same way a
+      successful Editor reload does — replace the view, reset the
+      Stepper's fold/cursor state — except it deliberately does *not*
+      switch to the Time tab or reset Run-tab focus, since the user is
+      still mid-interaction on the Run tab, not asking to be taken
+      anywhere else. `m.opts.Store` is updated too, so the selection
+      becomes "current" for the rest of the session: a later Editor-tab
+      save reload keeps using this same store rather than reverting to
+      whatever `--store` the session originally launched with. A failed
+      retrace (`view` nil — realistically only if the debugged file
+      itself vanished between the two runs) leaves the previous
+      recording in place rather than blanking those tabs out over what
+      the Run tab still managed to show. Verified with three targeted
+      Go tests: the retrace reflects the selected entry point's body
+      (not the other one's), reads the same input file the raw run
+      used (confirmed via a value the trace actually shows, since
+      `deliver`'s own step always reads `nobox` — that's `deliver`'s
+      return value, not its printed side effect, which goes to
+      `io.Discard` for a retrace the same way the Editor reload's does),
+      and a failed retrace leaves `m.view` untouched.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

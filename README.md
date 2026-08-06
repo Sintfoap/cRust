@@ -133,8 +133,10 @@ as stdin, showing the raw output exactly like `crust run day01.crust <
 input.txt` would — no tracing, just the program's own stdout/stderr; if
 the file declares more than one `store`/`store_<name>` entry point,
 ↑↓ moves down to a selector row listing them and ←→ picks one before
-you hit enter). Piped or redirected, or with `--plain`, it prints the
-same information as text:
+you hit enter. Running here also retraces that same entry point and
+input file for the Time/Memory/Stepper tabs, so whichever one you just
+ran with is what the rest of the TUI shows too). Piped or redirected,
+or with `--plain`, it prints the same information as text:
 
 ```
 crust develop day01.crust
