@@ -62,6 +62,8 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"tuple":      {Fn: tupleFn},
 		"set":        {Fn: setFn},
 		"freq":       {Fn: freqFn},
+		"keys":       {Fn: keysFn},
+		"values":     {Fn: valuesFn},
 		"sprinkle":   {Fn: sprinkleFn},
 		"scrape":     {Fn: scrapeFn},
 		"topped":     {Fn: toppedFn},
@@ -909,6 +911,65 @@ func freqFn(args ...object.Object) object.Object {
 		}
 	}
 	return counts
+}
+
+// sortedMapPairs returns m's pairs sorted by each key's Inspect()
+// text — a fixed order derived only from m's current contents, chosen
+// specifically so keys(m) and a separate, later values(m) call agree
+// on which index is which entry. Go's own map iteration order is
+// randomized independently on every range statement (even two ranges
+// over the very same map in the same process can differ), so without
+// an explicit, content-derived order here, keys(m)[i] and values(m)[i]
+// could silently end up referring to two different original pairs —
+// exactly the kind of bug that wouldn't show up until someone actually
+// zipped the two Lists together and got nonsense.
+func sortedMapPairs(m *object.Map) []object.MapPair {
+	pairs := make([]object.MapPair, 0, len(m.Pairs))
+	for _, pair := range m.Pairs {
+		pairs = append(pairs, pair)
+	}
+	slices.SortFunc(pairs, func(a, b object.MapPair) int {
+		return strings.Compare(a.Key.Inspect(), b.Key.Inspect())
+	})
+	return pairs
+}
+
+// keysFn is `keys(m)` (SPEC.md §7) — m's keys as a new List, in the
+// same order values(m) uses (see sortedMapPairs), so `keys(m)[i]` and
+// `values(m)[i]` are always the same entry.
+func keysFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("keys", "1", len(args))
+	}
+	m, ok := args[0].(*object.Map)
+	if !ok {
+		return wrongArgType("keys", 0, "a Map", args[0])
+	}
+	pairs := sortedMapPairs(m)
+	out := make([]object.Object, len(pairs))
+	for i, pair := range pairs {
+		out[i] = pair.Key
+	}
+	return object.NewList(out)
+}
+
+// valuesFn is `values(m)` (SPEC.md §7) — m's values as a new List, in
+// the same order keys(m) uses (see sortedMapPairs), so `keys(m)[i]`
+// and `values(m)[i]` are always the same entry.
+func valuesFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("values", "1", len(args))
+	}
+	m, ok := args[0].(*object.Map)
+	if !ok {
+		return wrongArgType("values", 0, "a Map", args[0])
+	}
+	pairs := sortedMapPairs(m)
+	out := make([]object.Object, len(pairs))
+	for i, pair := range pairs {
+		out[i] = pair.Value
+	}
+	return object.NewList(out)
 }
 
 // sprinkleFn is `sprinkle(set, item)` (SPEC.md §7) — adds item to set

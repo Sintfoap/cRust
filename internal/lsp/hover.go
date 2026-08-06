@@ -59,6 +59,8 @@ var builtinDocs = map[string]string{
 	"tuple":      "`tuple(x) -> Tuple` — x's elements (a List, Tuple, or Set) collected into a new Tuple. Every element must be Hashable, same requirement as a (a, b) Tuple literal.",
 	"set":        "`set(x) -> Set` — x's elements (a List, Tuple, or Set) collected into a new Set, dropping duplicates. The general counterpart to gather, which only ever took a List.",
 	"freq":       "`freq(x) -> Map` — a Map from each element of x (a List, Tuple, or Set) to how many times it appears, same job as Python's collections.Counter.",
+	"keys":       "`keys(m) -> List` — m's keys, in the same order values(m) uses, so keys(m)[i] and values(m)[i] are always the same entry.",
+	"values":     "`values(m) -> List` — m's values, in the same order keys(m) uses, so keys(m)[i] and values(m)[i] are always the same entry.",
 	"sprinkle":   "`sprinkle(set, item)` — adds item to set in place.",
 	"scrape":     "`scrape(set, item)` — removes item from set in place, no error if absent.",
 	"topped":     "`topped(set, item) -> Boolean` — Set membership test: is item in set?",

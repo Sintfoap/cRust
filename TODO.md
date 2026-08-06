@@ -608,6 +608,28 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       real `crust run` subprocess: counts across repeated Strings and
       Integers, a Tuple argument, a Set argument, an empty List, and an
       unhashable-element error.
+- [x] `keys(m)`/`values(m)` builtins, asked for directly: "a keys and
+      values function for dictionaries." The obvious first
+      implementation -- each function independently ranging over the
+      Map's own backing Go map -- has a real correctness trap: Go
+      randomizes map iteration order per range statement, not per map,
+      so two separate calls (`keys(m)` then a later `values(m)`)
+      aren't guaranteed to visit entries in the same relative order --
+      `keys(m)[i]`/`values(m)[i]` could silently end up as two
+      different pairs. Fixed with a shared `sortedMapPairs(m)` helper
+      that sorts by each key's `Inspect()` text -- a plain function of
+      the Map's current contents, so both calls agree by construction.
+      The sort order itself is arbitrary (lexicographic text, not
+      numeric for Integer keys); the only property that matters is
+      `keys`/`values` always agreeing with each other. `knead k in m`
+      still iterates a Map's keys directly for an ordinary loop;
+      `keys`/`values` are for wanting real Lists back, e.g. to zip by
+      index. Verified via a real `crust run` subprocess, run 3 times in
+      a row specifically to catch the flake this was built to prevent,
+      confirming `keys(m)[i]`/`values(m)[i]` always matched a direct
+      `m[keys(m)[i]]` lookup -- and a Go test
+      (`TestKeysAndValuesCorrespondAcrossSeparateCalls`) makes the same
+      check permanent rather than relying on manual reruns.
 - [x] Fixed: a single-recipe program's whole `crust debug` run showed
       up in the KPI/stepper as one anonymous `call(...)` frame instead
       of the recipe's own name -- reported as "if I have a single

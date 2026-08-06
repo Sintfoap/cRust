@@ -1333,6 +1333,41 @@ own section below describes.
   across repeated Strings and Integers, a Tuple argument, a Set
   argument (all 1s), an empty List (empty Map back), and an
   unhashable-element error.
+- **`keys(m)`/`values(m)` sort by each key's `Inspect()` text instead
+  of just handing back whatever order Map's own backing Go map
+  happens to visit** — the request was literally "a keys and values
+  function for dictionaries," and the obvious first implementation
+  (each function doing its own `for _, pair := range m.Pairs`) has a
+  real correctness trap Go's own map semantics create: iteration order
+  over a `map[K]V` is randomized *per range statement*, not fixed per
+  map, so two separate range loops over the very same map — which is
+  exactly what `keys(m)` and a later `values(m)` call would each be —
+  aren't guaranteed to visit entries in the same relative order.
+  Silently, `keys(m)[i]` and `values(m)[i]` could end up as two
+  different original pairs, which wouldn't be obvious from either call
+  alone; it would only surface once someone actually zipped the two
+  Lists together by index (`knead i in 0.<slices(ks) { deliver(ks[i],
+  vs[i]) }`, the obvious reason to want both functions in the first
+  place) and got nonsense. Fixed by routing both through a shared
+  `sortedMapPairs(m) []MapPair` helper that sorts by
+  `pair.Key.Inspect()` — a plain function of `m`'s *current contents*,
+  not of when or how many times something ranges over it, so the two
+  calls agree by construction rather than by luck. The sort order
+  itself is arbitrary (lexicographic over each key's text form, so
+  Integer keys `2`/`10` sort as strings, not numerically) and not
+  claimed to be meaningful on its own — the only property that
+  actually matters is that `keys`/`values` agree with each other every
+  time. `knead k in m` (already existing, SPEC.md §8) still iterates a
+  Map's keys directly for an ordinary loop; `keys`/`values` are for the
+  specific case of wanting real Lists back, e.g. to zip by index or
+  pass to `map`/`pizzasort`. Verified via a real `crust run`
+  subprocess, including running the same program 3 times in a row
+  (to catch exactly the kind of flake `sortedMapPairs` exists to
+  prevent) confirming `keys(m)[i]`/`values(m)[i]` always agreed with
+  direct `m[keys(m)[i]]` lookups; a Go test
+  (`TestKeysAndValuesCorrespondAcrossSeparateCalls`) makes the same
+  check part of the permanent suite rather than relying on manual
+  reruns alone.
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1481,6 +1516,7 @@ own section below describes.
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
   `list`/`tuple`/`set` (collection conversion), `freq` (occurrence counts),
+  `keys`/`values` (Map keys/values as Lists),
   `contains` (general List/Tuple/Set/Map membership, `topped`'s
   broader counterpart), `unbox`/`lines`/`split`/`join`/`trim` (input),
   and `str`/`int`/`float`/`bool` (conversion). These names were chosen specifically because dropping

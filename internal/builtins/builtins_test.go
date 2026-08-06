@@ -107,7 +107,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
-		"gather", "list", "tuple", "set", "freq", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
+		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
 	}
@@ -735,6 +735,108 @@ func TestFreqWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "freq"))
 	wantError(t, call(t, table, "freq", object.NewList(nil), object.NewList(nil)))
+}
+
+func newTestMap(pairs ...object.Object) *object.Map {
+	m := object.NewMap()
+	for i := 0; i+1 < len(pairs); i += 2 {
+		m.Set(pairs[i], pairs[i+1])
+	}
+	return m
+}
+
+func TestKeysReturnsAllKeys(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := newTestMap(
+		&object.String{Value: "a"}, object.NewInteger(1),
+		&object.String{Value: "b"}, object.NewInteger(2),
+	)
+	got := call(t, table, "keys", m)
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	if len(list.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(list.Elements))
+	}
+}
+
+func TestValuesReturnsAllValues(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := newTestMap(
+		&object.String{Value: "a"}, object.NewInteger(1),
+		&object.String{Value: "b"}, object.NewInteger(2),
+	)
+	got := call(t, table, "values", m)
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	if len(list.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(list.Elements))
+	}
+}
+
+// TestKeysAndValuesCorrespondAcrossSeparateCalls is the important
+// contract keys/values must uphold: keys(m)[i] and values(m)[i] must
+// always refer to the same original pair, even though they're two
+// completely separate calls and Go's own map iteration order is
+// randomized independently on every range statement -- without an
+// explicit, content-derived order (sortedMapPairs), this would flake.
+func TestKeysAndValuesCorrespondAcrossSeparateCalls(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := newTestMap(
+		&object.String{Value: "c"}, object.NewInteger(3),
+		&object.String{Value: "a"}, object.NewInteger(1),
+		&object.String{Value: "z"}, object.NewInteger(26),
+		&object.String{Value: "m"}, object.NewInteger(13),
+		&object.String{Value: "b"}, object.NewInteger(2),
+	)
+
+	ks := call(t, table, "keys", m).(*object.List)
+	vs := call(t, table, "values", m).(*object.List)
+	if len(ks.Elements) != len(vs.Elements) {
+		t.Fatalf("keys has %d elements, values has %d", len(ks.Elements), len(vs.Elements))
+	}
+	for i, k := range ks.Elements {
+		want, ok := m.Get(k)
+		if !ok {
+			t.Fatalf("key %v at index %d not found in original map", k.Inspect(), i)
+		}
+		if !object.Equal(vs.Elements[i], want) {
+			t.Errorf("values[%d] = %v, want %v (the value for key %v)", i, vs.Elements[i].Inspect(), want.Inspect(), k.Inspect())
+		}
+	}
+}
+
+func TestKeysOfEmptyMapIsEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "keys", object.NewMap()).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d elements, want 0", len(got.Elements))
+	}
+}
+
+func TestKeysWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "keys", object.NewList(nil)))
+}
+
+func TestKeysWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "keys"))
+	wantError(t, call(t, table, "keys", object.NewMap(), object.NewMap()))
+}
+
+func TestValuesWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "values", object.NewList(nil)))
+}
+
+func TestValuesWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "values"))
+	wantError(t, call(t, table, "values", object.NewMap(), object.NewMap()))
 }
 
 func TestSprinkleUnhashableItem(t *testing.T) {
