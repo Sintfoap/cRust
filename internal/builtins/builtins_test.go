@@ -106,7 +106,7 @@ func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "find", "min", "max", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -738,6 +738,87 @@ func TestMinMaxMismatchedTypesIsError(t *testing.T) {
 	if !strings.Contains(errObj.Message, "cannot compare") {
 		t.Errorf("Message = %q, want it to mention \"cannot compare\"", errObj.Message)
 	}
+}
+
+func TestPizzasortIntegers(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(5), object.NewInteger(3), object.NewInteger(8), object.NewInteger(1)})
+	got := call(t, table, "pizzasort", list).(*object.List)
+	want := []int64{1, 3, 5, 8}
+	if len(got.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(got.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, got.Elements[i], w)
+	}
+}
+
+func TestPizzasortStrings(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{&object.String{Value: "banana"}, &object.String{Value: "apple"}, &object.String{Value: "cherry"}})
+	got := call(t, table, "pizzasort", list).(*object.List)
+	want := []string{"apple", "banana", "cherry"}
+	if len(got.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(got.Elements), len(want))
+	}
+	for i, w := range want {
+		wantString(t, got.Elements[i], w)
+	}
+}
+
+func TestPizzasortMixesIntAndFloat(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{&object.Float{Value: 3.5}, object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "pizzasort", tup).(*object.List)
+	if len(got.Elements) != 3 {
+		t.Fatalf("got %d elements, want 3", len(got.Elements))
+	}
+	wantInteger(t, got.Elements[0], 1)
+	wantInteger(t, got.Elements[1], 2)
+	wantFloat(t, got.Elements[2], 3.5)
+}
+
+func TestPizzasortDoesNotMutateOriginal(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(3), object.NewInteger(1)})
+	call(t, table, "pizzasort", list)
+	wantInteger(t, list.Elements[0], 3)
+	wantInteger(t, list.Elements[1], 1)
+}
+
+func TestPizzasortEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "pizzasort", object.NewList(nil)).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d elements, want 0", len(got.Elements))
+	}
+}
+
+func TestPizzasortSingleElement(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(7)})
+	got := call(t, table, "pizzasort", list).(*object.List)
+	wantInteger(t, got.Elements[0], 7)
+}
+
+func TestPizzasortMismatchedTypesIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), &object.String{Value: "x"}})
+	errObj := wantError(t, call(t, table, "pizzasort", list))
+	if !strings.Contains(errObj.Message, "cannot compare") {
+		t.Errorf("Message = %q, want it to mention \"cannot compare\"", errObj.Message)
+	}
+}
+
+func TestPizzasortWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pizzasort", object.NewInteger(1)))
+}
+
+func TestPizzasortWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pizzasort"))
+	wantError(t, call(t, table, "pizzasort", object.NewList(nil), object.NewList(nil)))
 }
 
 func TestCombosOfPairs(t *testing.T) {

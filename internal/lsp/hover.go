@@ -42,6 +42,7 @@ var builtinDocs = map[string]string{
 	"find":       "`find(iterable, fn) -> Any` — the lowest-index element of a List or Tuple where fn(element) is stuffed, or nobox if none is.",
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":        "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
+	"pizzasort":  "`pizzasort(list) -> List` — list's elements (a List or Tuple), sorted into natural order (numbers together, Strings together — same ordering as `<`/`min`/`max`). Returns a new List; the original is untouched.",
 	"combos":     "`combos(list, n) -> List` — every n-element combination of list's elements, each as a Tuple (order within a group doesn't matter, no repeats). combos(xs, 2) is every pair, combos(xs, 3) every triple, etc.",
 	"enumerate":  "`enumerate(list) -> List` — pairs each element with its 0-based index, as a (index, value) Tuple. Pair with tuple-unpack: `knead pair in enumerate(xs) { i, x = pair ... }`.",
 	"grid":       "`grid(s) -> Grid` — parses s into a Grid at offset (0,0): row-major, one character per cell. Pair with at/setAt/gridBounds/neighbors4/neighbors8.",

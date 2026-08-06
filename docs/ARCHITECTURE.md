@@ -1007,6 +1007,54 @@ own section below describes.
   (SPEC.md §6). An empty List/Tuple is a runtime error (`min([])` has no
   answer), and comparing across categories (`min(1, "x")`) is too, the
   same way `1 < "x"` already is.
+- **`pizzasort(list)` delegates the actual sorting to Go's own
+  `slices.SortFunc` rather than a hand-rolled algorithm** — the request
+  was for "whatever sorting method is smartest," and three approaches
+  were pitched before building anything: hand-roll an introsort
+  (quicksort + insertion sort for small partitions + a heapsort
+  fallback to bound the worst case); detect input shape up front and
+  pick a specialized algorithm per shape (e.g. counting sort for a
+  narrow range of integers); or reuse Go's own sort, which — since Go
+  1.19 — already *is* pattern-defeating quicksort (pdqsort): insertion
+  sort for small partitions, a heapsort fallback bounding the worst
+  case at O(n log n), and cheap detection of already-sorted/
+  reverse-sorted/many-duplicate-key input. The third option won,
+  specifically because it delivers everything "smartest" implies
+  without cRust owning and debugging a sort implementation of its own —
+  reusing well-tested machinery over hand-rolling it is the same
+  instinct that already shaped `min`/`max` (below) and the equality/
+  truthiness relocation two builtins ago. `slices.SortFunc` isn't
+  guaranteed stable, but stability only matters when equal-comparing
+  elements are still distinguishable by something else (a secondary
+  key) — natural order has none: two equal numbers or two equal Strings
+  are genuinely interchangeable, so there's nothing for stability to
+  preserve here, and the faster unstable sort costs nothing observable.
+  A follow-up question ("should sorting take a custom comparator or key
+  function, for descending order or sorting by a derived value?") was
+  raised and explicitly deferred — natural-order-only shipped first,
+  with a comparator-function variant noted as a real, larger follow-on
+  if it's ever asked for (it would need the same `Call`-injection
+  `map`/`find` already use, not just `compareTwo`).
+  - **Reuses `compareTwo` directly rather than adding a second
+    comparison helper** — the exact ordering rule (numbers freely
+    mixed, Strings lexicographic, cross-category is an error) `min`/
+    `max` already needed is the same one sorting needs, and it was
+    already sitting in `internal/builtins` with nowhere else to import
+    it from. Every element is checked against a single shared reference
+    (`elements[0]`) once, before sorting starts, rather than trusting
+    `slices.SortFunc`'s own comparator closure to surface a
+    mid-algorithm error — `compareTwo` only ever succeeds within one of
+    exactly two categories, so each element comparing successfully
+    against one reference transitively proves every element shares a
+    category with every other, and the actual sort pass never needs to
+    re-check or handle an error path at all.
+  - Always returns a new List, whether the input was a List or a
+    Tuple — the same convention `map`/`combos`/`enumerate` already
+    settled on, and the only one that even makes sense here, since a
+    Tuple can't be sorted in place (it's immutable) and a List
+    shouldn't have its identity/contents silently mutated by a function
+    that reads like it's just answering a question, not performing an
+    action.
 - **`combos(list, n)` generalizes to any n instead of shipping separate
   `pairs`/`triples` functions** — the request that motivated it was
   specifically "every combination of n elements," and hardcoding a
@@ -1240,8 +1288,8 @@ own section below describes.
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
   `map` (apply a function across a List/Tuple), `find` (lowest-index
-  predicate match), `min`/`max`, `combos`
-  (n-element combinations), `enumerate` (index/value pairs),
+  predicate match), `min`/`max`, `pizzasort` (natural-order sort),
+  `combos` (n-element combinations), `enumerate` (index/value pairs),
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,

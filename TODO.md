@@ -482,6 +482,37 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       real `crust run` subprocess: `find` on a List and a Tuple, no
       match, and confirming it returns the *lowest*-index match (not
       just any match) when several elements satisfy the predicate.
+- [x] (Stretch) `pizzasort(list)` builtin, asked for as "whatever
+      sorting method is smartest" — three implementation approaches
+      were pitched before writing any code: hand-roll an introsort,
+      detect the input's shape and dispatch to a specialized algorithm
+      per shape (e.g. counting sort for narrow-range integers), or
+      delegate to Go's own `slices.SortFunc`, which since Go 1.19
+      already *is* pattern-defeating quicksort — insertion sort for
+      small partitions, a heapsort fallback bounding the worst case,
+      cheap detection of already-sorted/reverse-sorted/many-duplicate
+      input. The third won: it delivers everything "smartest" implies
+      without cRust owning a sort algorithm, matching the same
+      reuse-well-tested-machinery instinct that already shaped `min`/
+      `max` and the equality/truthiness relocation two entries above.
+      A follow-up question — natural order only, or a comparator/key
+      function for custom ordering (descending, sort-by-field) — was
+      asked directly rather than guessed at; natural-order-only (same
+      rule `<`/`min`/`max` already use: numbers freely mixed, or
+      Strings, never both) is what shipped, with a comparator-function
+      variant flagged as a real, larger follow-on if it's ever needed.
+      Reuses `compareTwo` (the exact comparison `min`/`max` already
+      needed) rather than adding a second helper; every element is
+      checked against one shared reference up front, before sorting
+      starts, so the actual sort pass never needs its own error path.
+      Always returns a new List regardless of whether the input was a
+      List or Tuple, the same convention `map`/`combos`/`enumerate`
+      already settled on — a Tuple can't be sorted in place anyway, and
+      a List's own contents shouldn't get silently rewritten by
+      something that reads like a question, not an action. Verified via
+      a real `crust run` subprocess: integers, strings, mixed Int/Float,
+      empty and single-element inputs, and a clean runtime error (not a
+      panic) for a genuinely incomparable mix.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

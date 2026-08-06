@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -44,6 +45,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"find":       {Fn: findFn(call)},
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
+		"pizzasort":  {Fn: pizzasortFn},
 		"combos":     {Fn: combosFn},
 		"enumerate":  {Fn: enumerateFn},
 		"grid":       {Fn: gridFn},
@@ -273,6 +275,61 @@ func compareTwo(name string, a, b object.Object) (int, *object.Error) {
 		}
 	}
 	return 0, newError("%s: cannot compare %s and %s", name, a.Type(), b.Type())
+}
+
+// pizzasortFn is `pizzasort(list)` (SPEC.md §7) — a new List with
+// list's elements (a List or Tuple) sorted into natural order: numbers
+// together (Integer/Float freely mixed, the same "one number category"
+// rule `<`/`min`/`max` already use) or Strings together,
+// lexicographically. Sorting itself is delegated to Go's own
+// `slices.SortFunc` rather than a hand-rolled algorithm — since Go
+// 1.19 that already *is* pattern-defeating quicksort (pdqsort):
+// insertion sort for small partitions, a heapsort fallback bounding
+// the worst case at O(n log n) instead of quicksort's O(n²), and cheap
+// detection of already-sorted/reverse-sorted/many-duplicate-key input
+// shapes. That's well-tested, heavily-used machinery cRust gets for
+// free rather than owning and debugging a sort implementation of its
+// own — reusing it is "the smartest sorting method" in the adaptive
+// sense a user actually cares about. `slices.SortFunc` isn't
+// guaranteed stable, but stability only matters when equal-comparing
+// elements are still distinguishable by something else (a secondary
+// key); natural order has no such thing — two equal numbers or two
+// equal Strings really are interchangeable, so there's nothing for
+// stability to preserve here.
+//
+// Every element has to be mutually comparable the same way `<` already
+// requires — a genuine runtime error, not `==`'s always-false
+// cross-category fallback — checked once, every element against the
+// first, before sorting starts: compareTwo only ever succeeds within
+// one of exactly two categories (numeric or String), so each element
+// comparing successfully against one shared reference transitively
+// proves every element shares a category with every other, and the
+// sort pass itself never needs to re-check.
+func pizzasortFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("pizzasort", "1", len(args))
+	}
+	var elements []object.Object
+	switch v := args[0].(type) {
+	case *object.List:
+		elements = v.Elements
+	case *object.Tuple:
+		elements = v.Elements
+	default:
+		return wrongArgType("pizzasort", 0, "a List or Tuple", args[0])
+	}
+
+	out := append([]object.Object{}, elements...)
+	for i := 1; i < len(out); i++ {
+		if _, errObj := compareTwo("pizzasort", out[i], out[0]); errObj != nil {
+			return errObj
+		}
+	}
+	slices.SortFunc(out, func(a, b object.Object) int {
+		cmp, _ := compareTwo("pizzasort", a, b)
+		return cmp
+	})
+	return object.NewList(out)
 }
 
 // minMaxFn builds `min(...)` / `max(...)` (SPEC.md §7). Accepts either
