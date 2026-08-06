@@ -390,17 +390,159 @@ func (i *Interpreter) applyFunction(tok token.Token, label string, fn object.Obj
 	}
 }
 
-// evalIndexExpression handles `left[index]` (SPEC.md §8, index) reads.
+// evalIndexExpression handles `left[index]` (SPEC.md §8, index) reads,
+// including `left[start..end]` / `left[start.<end]` slices (SPEC.md
+// §8, slice) — Index parses as an *ast.RangeExpression exactly like a
+// standalone range would (RANGE already outranks LOWEST, the
+// precedence parseIndexExpression's Index parses at, so no grammar
+// changed to make `xs[0..4]` parse), but a slice's Start/End must stay
+// unevaluated-as-a-materialized-range: evalRangeExpression would
+// eagerly build `[0, 1, 2, 3, 4]` and hand that List back as the
+// index, which every readIndex case would then reject as "not an
+// Integer." Detecting the RangeExpression here and routing to
+// evalSliceExpression instead is what keeps a bare `0..4` statement
+// and a `[0..4]` slice sharing one AST shape without sharing (wrong)
+// evaluation behavior.
 func (i *Interpreter) evalIndexExpression(ie *ast.IndexExpression, env *object.Environment) object.Object {
 	left := i.Eval(ie.Left, env)
 	if isError(left) {
 		return left
+	}
+	if re, ok := ie.Index.(*ast.RangeExpression); ok {
+		return i.evalSliceExpression(ie.Token, left, re, env)
 	}
 	index := i.Eval(ie.Index, env)
 	if isError(index) {
 		return index
 	}
 	return readIndex(ie.Token, left, index)
+}
+
+// evalSliceExpression handles `left[start..end]` / `left[start.<end]`
+// (SPEC.md §8, slice) on a List, Tuple, or String. A negative bound
+// counts from the end (-1 is the last element, same convention Python
+// slicing popularized), resolved before anything else so the rest of
+// the logic only ever deals with plain non-negative positions.
+//
+// Direction follows the resolved bounds rather than always reading
+// forward: start <= end walks forward same as a plain range, but
+// start > end walks backward, which is what makes
+// `xs[-1..0]` mean "last element back to the first" instead of just
+// coming back empty the way an out-of-order plain range does — a
+// deliberate difference from evalRangeExpression, motivated entirely
+// by what slicing was asked for. `..` keeps both ends; `.<` drops
+// whichever end the walk is heading toward (the upper end walking
+// forward, the lower end walking backward), matching a plain range's
+// own "exclusive of end" rule applied to whichever direction is active.
+//
+// Unlike Python, an out-of-range bound is a runtime error (matching
+// readIndex's own "index out of range" for a plain `xs[i]`) rather
+// than a silent clamp — cRust doesn't have a precedent for indexing
+// operations failing quietly anywhere else.
+func (i *Interpreter) evalSliceExpression(tok token.Token, left object.Object, re *ast.RangeExpression, env *object.Environment) object.Object {
+	startObj := i.Eval(re.Start, env)
+	if isError(startObj) {
+		return startObj
+	}
+	endObj := i.Eval(re.End, env)
+	if isError(endObj) {
+		return endObj
+	}
+	startI, ok := startObj.(*object.Integer)
+	if !ok {
+		return newError(tok, "slice bounds must be Integers, got %s", startObj.Type())
+	}
+	endI, ok := endObj.(*object.Integer)
+	if !ok {
+		return newError(tok, "slice bounds must be Integers, got %s", endObj.Type())
+	}
+
+	switch b := left.(type) {
+	case *object.List:
+		idxs, errObj := sliceIndices(tok, startI.Value, endI.Value, int64(len(b.Elements)), re.Inclusive)
+		if errObj != nil {
+			return errObj
+		}
+		elements := make([]object.Object, len(idxs))
+		for k, v := range idxs {
+			elements[k] = b.Elements[v]
+		}
+		return object.NewList(elements)
+
+	case *object.Tuple:
+		idxs, errObj := sliceIndices(tok, startI.Value, endI.Value, int64(len(b.Elements)), re.Inclusive)
+		if errObj != nil {
+			return errObj
+		}
+		elements := make([]object.Object, len(idxs))
+		for k, v := range idxs {
+			elements[k] = b.Elements[v]
+		}
+		// Every element already satisfied Tuple's Hashable requirement
+		// when b itself was built (evalTupleLiteral) — a subset of an
+		// all-Hashable slice is still all-Hashable, so re-validating
+		// here would only ever re-confirm what's already guaranteed.
+		return object.NewTuple(elements)
+
+	case *object.String:
+		runes := []rune(b.Value)
+		idxs, errObj := sliceIndices(tok, startI.Value, endI.Value, int64(len(runes)), re.Inclusive)
+		if errObj != nil {
+			return errObj
+		}
+		out := make([]rune, len(idxs))
+		for k, v := range idxs {
+			out[k] = runes[v]
+		}
+		return &object.String{Value: string(out)}
+
+	default:
+		return newError(tok, "type %s does not support slicing", left.Type())
+	}
+}
+
+// sliceIndices resolves a slice's start/end bounds against a
+// container of length n into the concrete, in-order sequence of
+// indices the slice reads — see evalSliceExpression for the direction
+// and inclusivity rules this implements. A negative bound is resolved
+// against n once, up front; the resolved bound must then land in
+// [0, n) same as any other index, or this errors exactly like a plain
+// out-of-range `xs[i]` would.
+func sliceIndices(tok token.Token, startVal, endVal, n int64, inclusive bool) ([]int64, *object.Error) {
+	resolve := func(idx int64) int64 {
+		if idx < 0 {
+			return idx + n
+		}
+		return idx
+	}
+	start := resolve(startVal)
+	end := resolve(endVal)
+	if start < 0 || start >= n {
+		return nil, newError(tok, "slice index out of range: %d", startVal)
+	}
+	if end < 0 || end >= n {
+		return nil, newError(tok, "slice index out of range: %d", endVal)
+	}
+
+	var indices []int64
+	if start <= end {
+		upper := end
+		if !inclusive {
+			upper--
+		}
+		for v := start; v <= upper; v++ {
+			indices = append(indices, v)
+		}
+	} else {
+		lower := end
+		if !inclusive {
+			lower++
+		}
+		for v := start; v >= lower; v-- {
+			indices = append(indices, v)
+		}
+	}
+	return indices, nil
 }
 
 // readIndex is the shared index-read core for both plain

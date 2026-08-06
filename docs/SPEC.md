@@ -535,10 +535,36 @@ per-operator special cases:
 - **Division by zero** (`/`, `%`, or the `idiv` builtin, either operand
   a Float or both Integers) is always a runtime error — never an
   implicit `Inf`/`NaN`/silent wraparound.
-- **Indexing is not negative-wrappable.** `list[-1]`/`s[-1]` is an
-  `index out of range` error, the same as any other out-of-bounds
-  index — there's no Python-style "count from the end." Want the last
-  element? Compute the index: `list[slices(list) - 1]`.
+- **A single-element index is not negative-wrappable.** `list[-1]`/
+  `s[-1]` is an `index out of range` error, the same as any other
+  out-of-bounds index — there's no Python-style "count from the end."
+  Want the last element? Compute the index: `list[slices(list) - 1]`.
+  A *slice* (below) is the one place a negative bound does mean
+  something.
+- **Slicing** reuses the range operators (`..`/`.<`, §5.1) inside an
+  index: `list[start..end]` / `list[start.<end]` on a List, Tuple, or
+  String reads a whole sub-sequence back — a new List for a List, a
+  new Tuple for a Tuple, a substring for a String — rather than one
+  element. A negative bound counts from the end (`-1` is the last
+  element), resolved before anything else. Unlike a plain range
+  statement, an out-of-order slice doesn't come back empty: if the
+  resolved start is after the resolved end, the slice reads
+  *backward*, which is what makes `list[-1..0]` mean "the last element
+  back to the first," reversed. `..` keeps both ends; `.<` drops
+  whichever end the walk is heading toward. An out-of-range bound
+  (either side, after resolving negatives) is a runtime error, same as
+  a plain out-of-bounds index — slicing never silently clamps the way
+  Python's does.
+  ```
+  xs = [10, 20, 30, 40, 50]
+  xs[0..2]    // [10, 20, 30]  (inclusive)
+  xs[0.<2]    // [10, 20]      (exclusive)
+  xs[-1..0]   // [50, 40, 30, 20, 10]  (reversed: last back to first)
+  xs[-2..-1]  // [40, 50]
+  "hello"[0..2] // "hel"
+  ```
+  Only a start/end pair is supported — no third "step" component (no
+  `list[::2]`); every element still visits in order, one at a time.
 - **A missing Map key reads as `nobox`**, not an error — this is what
   makes the memoization pattern `cache[n] = cache[n] ?: computeFib(n)`
   (§5.4) work at all: `?:` needs something to fall through *from* on
@@ -683,6 +709,9 @@ callOrIndex    = primary { call | index } ;
 call           = "(" [ argList ] ")" ;
 argList        = expression { "," expression } ;
 index          = "[" expression "]" ;
+(* expression already covers "start..end"/"start.<end" (the range
+   production above) with no extra grammar, which is what makes
+   list[0..4] a slice (§6) rather than a new production. *)
 
 primary        = INT | FLOAT | STRING | "stuffed" | "thin" | "nobox"
                | identifier | "(" expression ")" | tupleLiteral

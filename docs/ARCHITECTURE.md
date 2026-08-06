@@ -1186,6 +1186,80 @@ own section below describes.
   inside a List, a List value inside a Map, and a List cell inside a
   Grid; a self-referential List copies without hanging; a Tuple and a
   scalar both come back unchanged.
+- **`list[start..end]` slice notation reuses the existing `..`/`.<`
+  range operators inside `[...]` instead of adding new grammar** — the
+  request offered two shapes explicitly ("cRust range-flavored" vs.
+  Python's `:`/`::step`), and the range-reuse option won without
+  needing to ask, since it's a strictly smaller change that fits an
+  instinct already established by `pizzasort`, `find`/`contains`, and
+  the equality/truthiness relocations: prefer what the language
+  already has over growing the grammar. It also turned out to need
+  *zero* parser/AST changes at all — `index = "[" expression "]"`
+  (§8) already accepts any expression, `..`/`.<` were already
+  registered as infix operators at `RANGE` precedence (above `LOWEST`,
+  which is what `index`'s inner expression parses at), so
+  `xs[0..4]` was already parsing as `IndexExpression{Index:
+  RangeExpression{...}}` before this feature existed — the only gap
+  was that `evalIndexExpression` had no idea what to do with a
+  `RangeExpression` as an index, and would eagerly materialize it into
+  a List of Integers via the *existing* `evalRangeExpression` (meant
+  for a bare `1..5` range statement) and then reject that List as "not
+  an Integer" the same way any other non-Integer index would. The fix
+  was entirely in `internal/interpreter`: detect `*ast.RangeExpression`
+  in `evalIndexExpression` before evaluating it, and route to a new
+  `evalSliceExpression` that evaluates Start/End itself rather than
+  letting `evalRangeExpression` build a throwaway List first.
+  - **Negative bounds and reversed direction are a deliberate
+    departure from how a bare range statement behaves, not an
+    oversight.** A negative slice bound resolves against the
+    container's length (`-1` is the last element, Python's
+    convention) before anything else, so the rest of the logic only
+    ever sees plain non-negative positions. Direction then follows
+    whichever way the *resolved* bounds point: `start <= end` walks
+    forward exactly like `evalRangeExpression` already does, but
+    `start > end` walks backward instead of coming back empty the way
+    an out-of-order bare range does (`5..1` is `[]`, but
+    `xs[-1..0]` is asked to mean "last element back to the first") —
+    the request was explicit about this being the point of adding
+    negative bounds at all, so an empty result would have missed what
+    was actually asked for. `.<` drops whichever end the walk is
+    currently heading toward (the upper end going forward, the lower
+    end going backward), which is the direction-agnostic reading of
+    "exclusive of end" a plain range's own `.<` already has.
+  - **Out-of-range bounds are a runtime error, not a silent clamp** —
+    Python slicing famously never errors (`[1,2,3][0:100]` just comes
+    back `[1,2,3]`), but every other cRust indexing operation
+    (`readIndex`'s plain `list[i]`) already errors loudly on
+    out-of-bounds, and introducing the one indexing operation that
+    fails silently would be a surprising, hard-to-spot exception to
+    that rule rather than a feature worth having.
+  - **List/Tuple/String are the only sliceable types, matching
+    `readIndex`'s own set of position-indexable types** — Set was
+    already unindexable (`readIndex` rejects it) and stays that way;
+    Map indexes by key, not position, so "a Map slice" isn't a
+    coherent idea; Grid indexes by `(row, col)` Tuple via `at`/`setAt`,
+    a different enough shape that folding it into linear start/end
+    slicing wouldn't actually mean anything.
+  - **A sliced Tuple skips re-validating the Hashable-element
+    invariant** `evalTupleLiteral` enforces on construction — a subset
+    of an already-all-Hashable Tuple's elements is still all-Hashable
+    by construction, so `object.NewTuple` is called directly on the
+    sliced elements rather than routing back through whatever
+    Hashable-checking a literal would do.
+  - **No step component** (`list[start..end:step]` or similar) — the
+    request's own examples were start/end only, and a step is a
+    materially bigger feature (it needs its own operator or syntax
+    slot, and interacts with negative-direction reversal in a way that
+    would need its own design pass) that wasn't asked for. Deferred
+    as a stretch, the same way `pizzasort`'s comparator-function
+    variant was.
+  - Verified via a real `crust run` subprocess across List/Tuple/String:
+    inclusive and exclusive forward slices, a negative-bound reversed
+    slice, a negative-bound forward slice, a single-element slice both
+    inclusive (one element) and exclusive (empty), a backward-exclusive
+    slice, that slicing doesn't mutate or alias the original, an
+    out-of-range bound erroring cleanly, and a Set correctly rejected
+    with "does not support slicing."
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*

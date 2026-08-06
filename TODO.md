@@ -541,6 +541,34 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       List, a List value inside a Map, a List cell inside a Grid, a
       self-referential List (doesn't hang), and pass-through for a Tuple
       and a scalar.
+- [x] (Stretch) `list[start..end]` / `list[start.<end]` slice notation
+      for List/Tuple/String, asked for alongside an explicit choice of
+      syntax ("cRust range-flavored" `..`/`.<` reuse vs. Python's
+      `:`/`::step`) — the range-reuse option won, needing zero
+      parser/AST changes since `index = "[" expression "]"` already
+      accepted any expression and `..`/`.<` were already registered
+      infix operators, so `xs[0..4]` was already parsing as an index
+      whose Index is a RangeExpression before this feature existed;
+      the only gap was `evalIndexExpression` not knowing what to do
+      with one (it would eagerly materialize `0..4` into a List of
+      Integers via the range-statement path and then reject that List
+      as "not an Integer," same as any other bad index). Fixed by
+      detecting a RangeExpression index and routing to a new
+      `evalSliceExpression` instead. Negative bounds count from the
+      end (`-1` is the last element); unlike a bare range statement, an
+      out-of-order slice doesn't come back empty — it reads backward,
+      which is what makes `xs[-1..0]` mean "last element back to the
+      first," exactly what was asked for. `.<` drops whichever end the
+      walk is heading toward. Out-of-range bounds are a runtime error,
+      not a silent Python-style clamp, matching how plain indexing
+      already behaves. Only List/Tuple/String are sliceable (the same
+      position-indexable types plain indexing already supports); no
+      step component, flagged as a real, larger follow-on if it's ever
+      needed. Verified via a real `crust run` subprocess: inclusive/
+      exclusive forward slices, negative-bound forward and reversed
+      slices, single-element inclusive/exclusive slices, a
+      backward-exclusive slice, no mutation of the original, an
+      out-of-range error, and a Set correctly rejected as unsliceable.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

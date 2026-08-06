@@ -497,6 +497,109 @@ func TestRangeRequiresIntegerBounds(t *testing.T) {
 	wantError(t, testEval(t, "1..5.0"), "range bounds must be Integers")
 }
 
+// --- Slices -------------------------------------------------------------------
+
+func wantIntegerList(t *testing.T, got object.Object, want []int64) {
+	t.Helper()
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T (%v), want *object.List", got, got)
+	}
+	if len(list.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d (%v)", len(list.Elements), len(want), want)
+	}
+	for i, w := range want {
+		wantInteger(t, list.Elements[i], w)
+	}
+}
+
+func TestSliceListInclusiveForward(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; xs[0..2]"), []int64{10, 20, 30})
+}
+
+func TestSliceListExclusiveForward(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; xs[0.<2]"), []int64{10, 20})
+}
+
+func TestSliceListNegativeBoundsReverse(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; xs[-1..0]"), []int64{50, 40, 30, 20, 10})
+}
+
+func TestSliceListNegativeBoundsForward(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; xs[-2..-1]"), []int64{40, 50})
+}
+
+func TestSliceListSingleElementInclusive(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30]; xs[1..1]"), []int64{20})
+}
+
+func TestSliceListSingleElementExclusiveIsEmpty(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30]; xs[1.<1]"), []int64{})
+}
+
+func TestSliceListBackwardExclusive(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; xs[3.<0]"), []int64{40, 30, 20})
+}
+
+func TestSliceDoesNotMutateOriginal(t *testing.T) {
+	result := testEval(t, `
+xs = [10, 20, 30, 40, 50]
+ys = xs[0..1]
+push(ys, 99)
+xs
+`)
+	wantIntegerList(t, result, []int64{10, 20, 30, 40, 50})
+}
+
+func TestSliceOutOfRangeIsError(t *testing.T) {
+	wantError(t, testEval(t, "xs = [1, 2, 3]; xs[0..10]"), "slice index out of range")
+	wantError(t, testEval(t, "xs = [1, 2, 3]; xs[-10..0]"), "slice index out of range")
+}
+
+func TestSliceRequiresIntegerBounds(t *testing.T) {
+	wantError(t, testEval(t, `xs = [1, 2, 3]; xs["a"..2]`), "slice bounds must be Integers")
+	wantError(t, testEval(t, `xs = [1, 2, 3]; xs[0.."a"]`), "slice bounds must be Integers")
+}
+
+func TestSliceTuple(t *testing.T) {
+	result := testEval(t, "t = (1, 2, 3, 4, 5); t[1..3]")
+	tuple, ok := result.(*object.Tuple)
+	if !ok {
+		t.Fatalf("got %T, want *object.Tuple", result)
+	}
+	if len(tuple.Elements) != 3 {
+		t.Fatalf("got %d elements, want 3", len(tuple.Elements))
+	}
+	wantInteger(t, tuple.Elements[0], 2)
+	wantInteger(t, tuple.Elements[2], 4)
+}
+
+func TestSliceString(t *testing.T) {
+	wantString(t, testEval(t, `s = "hello world"; s[0..4]`), "hello")
+	wantString(t, testEval(t, `s = "hello world"; s[0.<4]`), "hell")
+	wantString(t, testEval(t, `s = "hello"; s[-1..0]`), "olleh")
+}
+
+func TestSliceUnsupportedTypeIsError(t *testing.T) {
+	wantError(t, testEval(t, "s = toppings{1, 2}; s[0..1]"), "does not support slicing")
+}
+
+func TestSliceExpressionBoundsAreEvaluated(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; a = 1; xs[a..(a+2)]"), []int64{20, 30, 40})
+}
+
+func TestSlicePropagatesStartError(t *testing.T) {
+	wantError(t, testEval(t, "xs = [1, 2, 3]; xs[(1 / 0)..2]"), "division by zero")
+}
+
+func TestSlicePropagatesEndError(t *testing.T) {
+	wantError(t, testEval(t, "xs = [1, 2, 3]; xs[0..(1 / 0)]"), "division by zero")
+}
+
+func TestPlainIndexPropagatesIndexError(t *testing.T) {
+	wantError(t, testEval(t, "xs = [1, 2, 3]; xs[1 / 0]"), "division by zero")
+}
+
 // --- Error short-circuiting ----------------------------------------------------
 
 func TestErrorHaltsFurtherEvaluation(t *testing.T) {
