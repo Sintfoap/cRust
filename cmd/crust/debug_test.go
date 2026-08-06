@@ -150,6 +150,35 @@ recipe store_part2() { deliver("two") }
 	}
 }
 
+// TestRunDebugUsesSavedStoreWhenNoneGiven confirms applySavedStore is
+// actually wired into runDebug: with no explicit --store, a
+// remembered store for this file (debug_state.go) should be used for
+// the very first recording, same as passing --store=part2 by hand
+// would.
+func TestRunDebugUsesSavedStoreWhenNoneGiven(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, `
+recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }
+`)
+	if err := saveDevelState(mustAbs(t, path), develState{Store: "part2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, `deliver("one")`) {
+		t.Errorf("stdout = %q, should not have traced store_part1's body", out)
+	}
+	if !strings.Contains(out, `deliver("two")`) {
+		t.Errorf("stdout = %q, want the remembered store_part2 traced", out)
+	}
+}
+
 // TestRunDebugNoDefaultEntryPointListsAvailableOnes is a regression
 // test for a real bug: a file with store_part1/store_part2 but no
 // bare store(), run with no --store, used to silently record nothing

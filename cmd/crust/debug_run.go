@@ -266,6 +266,13 @@ func (m debugModel) runProgramCmd() tea.Cmd {
 			data = d
 		}
 
+		// Persisted now, not only after a successful trace below --
+		// what matters for "remember my last choice" is that the input
+		// file was actually readable and a run was attempted, not
+		// whether the crust program itself then ran cleanly or the
+		// retrace happened to succeed.
+		saveDevelStateBestEffort(path, store, inputPath)
+
 		var stdout, stderr bytes.Buffer
 		code := runFile(path, store, bytes.NewReader(data), &stdout, &stderr)
 

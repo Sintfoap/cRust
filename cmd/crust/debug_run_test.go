@@ -681,6 +681,33 @@ func TestRunProgramCmdRetraceUsesTheSameInputFile(t *testing.T) {
 	}
 }
 
+// TestRunProgramCmdPersistsSelectionForNextTime confirms running from
+// the Run tab remembers this file's store + input file (debug_state.go)
+// so a later `crust develop` on the same file starts back here.
+func TestRunProgramCmdPersistsSelectionForNextTime(t *testing.T) {
+	withTempDevelStateDir(t)
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newDebugModel(&debugView{
+		path: writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`),
+		rec: viewFor(t, "x = 1").rec,
+	})
+	m.runEntryIndex = 1 // part2
+	m.runInput = runInputModel{value: []rune(inputPath)}
+	m.runProgramCmd()()
+
+	got := loadDevelState()[mustAbs(t, m.view.path)]
+	want := develState{Store: "part2", Input: inputPath}
+	if got != want {
+		t.Errorf("saved state = %+v, want %+v", got, want)
+	}
+}
+
 func TestViewRunShowsEntryPointSelector(t *testing.T) {
 	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
 recipe store_part2() { deliver(2) }`)

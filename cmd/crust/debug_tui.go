@@ -558,11 +558,15 @@ func (m debugModel) renderClosingRow(i int) string {
 // the ordinary window as frames redraw — the standard choice for a
 // full-screen app like this one, and it pairs with View's clampHeight
 // call to keep the tab bar on screen regardless of window size.
+// restoreRunInput pre-fills the Run tab's input field from this file's
+// remembered settings (debug_state.go), same as opts.Store already
+// reflects them via runDebug's applySavedStore.
 func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	m := newDebugModel(view)
 	m.opts = opts
 	m.stdin = stdin
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
+	m.runInput = restoreRunInput(view.path)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
 		progOpts = append(progOpts, tea.WithInput(f))

@@ -2346,6 +2346,57 @@ code was written.
       return value, not its printed side effect, which goes to
       `io.Discard` for a retrace the same way the Editor reload's does),
       and a failed retrace leaves `m.view` untouched.
+    - **Per-file Run tab settings (store + input file) are remembered
+      across invocations** (`debug_state.go`), a direct follow-up: "a
+      saving of user settings for each develop on a crust file... what
+      file is used as input... last entered by the user, and... which
+      store it's using." One JSON file under the user's config
+      directory (`os.UserConfigDir()`, e.g. `~/.config/crust/
+      develop_state.json` on Linux — not a dotfile dropped next to
+      every `.crust` file, which would litter every project directory
+      with something crust itself would then have to know to ignore),
+      keyed by each debugged file's *absolute* path so it works
+      regardless of which directory `crust develop` gets invoked from.
+      Saving is tied to the Run tab's "run" action (`runProgramCmd`),
+      the same action the Time/Memory/Stepper linkage above already
+      hooks — the natural point where both the store and the input
+      file are simultaneously "current" and confirmed, not the moment
+      the selector merely gets cycled past. What gets remembered flows
+      back in two places: `runDebug`'s new `applySavedStore` fills in
+      an unset `--store` from the saved value before the very first
+      recording is even built (so `--plain` and the TUI's initial
+      Time/Memory/Stepper tabs already reflect it, not just the Run tab
+      after one manual re-run) — an *explicit* `--store` flag still
+      always wins, the standard "remembered default, explicit override
+      wins" precedence; and `runDebugTUI`'s new `restoreRunInput`
+      pre-fills the Run tab's input field at startup. Writes go to a
+      temp file in the same directory, then `os.Rename` into place —
+      atomic on every platform Go supports for a same-filesystem
+      rename — so an interrupted write can never leave the whole
+      settings file corrupted for every other remembered project.
+      Every persistence call is best-effort: a write failure (disk
+      full, permissions) is silently dropped rather than interrupting
+      the run it's piggybacking on, and a missing or corrupted
+      settings file on load just comes back as "nothing remembered"
+      rather than an error `crust develop` would have to report before
+      it can even start — remembering settings is a convenience layered
+      on top of the tool working, never a precondition for it.
+      `develStateDir` (defaulting to `os.UserConfigDir`) is a
+      package-level variable purely so tests can point it at a temp
+      directory instead of the real machine's config directory — the
+      same override-a-var-for-tests shape used nowhere else in this
+      codebase before now, but the simplest fix for "this function
+      always touches a real, shared, machine-global path" without a
+      bigger dependency-injection refactor. Verified via a real `crust
+      develop --plain` subprocess (pre-seeding the state file, then
+      confirming an unset `--store` picked it up, and that an explicit
+      `--store` still overrides it) plus Go tests covering the
+      load/save round trip, multiple files coexisting, overwriting an
+      existing entry, and the config-directory/write-failure paths
+      (via a blocking file/directory in the way, not permission bits —
+      this sandbox runs as root, which bypasses permission-based
+      failures entirely, so only a structural filesystem conflict is a
+      portable way to force these errors).
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

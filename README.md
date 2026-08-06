@@ -135,8 +135,11 @@ the file declares more than one `store`/`store_<name>` entry point,
 ↑↓ moves down to a selector row listing them and ←→ picks one before
 you hit enter. Running here also retraces that same entry point and
 input file for the Time/Memory/Stepper tabs, so whichever one you just
-ran with is what the rest of the TUI shows too). Piped or redirected,
-or with `--plain`, it prints the same information as text:
+ran with is what the rest of the TUI shows too — and remembers both
+for next time: reopening the same file later, with no `--store` on the
+command line, starts back on the same entry point with the same input
+path already filled in). Piped or redirected, or with `--plain`, it
+prints the same information as text:
 
 ```
 crust develop day01.crust
@@ -156,7 +159,11 @@ crust develop day01.crust
 
 `--store=<name>` picks the entry point the same way `crust run` does;
 `--max-steps N` bounds the recording for a program that loops far more
-than a terminal (or a human) wants to read through.
+than a terminal (or a human) wants to read through. Each file's
+last-used Run tab settings are remembered in a small JSON file under
+your user config directory (`$XDG_CONFIG_HOME/crust/develop_state.json`,
+or the platform equivalent) — delete it to forget everything, or an
+individual file's entry to forget just that one.
 
 ### With Nix
 

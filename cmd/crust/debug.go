@@ -87,7 +87,13 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // on its own — the whole point of `develop` is to look at a run
 // including its failure, not just to report one. It's still shown, in
 // place, as the step that produced it.
+//
+// applySavedStore fills in an unset --store from this file's
+// remembered settings (debug_state.go) before anything else runs, so
+// the very first recording — not just the Run tab after it's re-run
+// once — already reflects whichever entry point was last used here.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
+	opts = applySavedStore(path, opts)
 	view, err := buildDebugView(path, opts, stdin, stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "crust develop: %s\n", err)

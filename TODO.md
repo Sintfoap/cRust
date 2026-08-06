@@ -697,6 +697,34 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       entry point's body and not the other one's, reads the same input
       file the raw run used, and a failed retrace leaves `m.view`
       untouched.
+- [x] Per-file Run tab settings (store + input file) now persist across
+      `crust develop` invocations, on direct request: "a saving of user
+      settings for each develop on a crust file... what file is used as
+      input... last entered by the user, and... which store it's
+      using." One JSON file under the user's config directory
+      (`os.UserConfigDir()`), keyed by each debugged file's absolute
+      path -- not a dotfile next to every `.crust` file. Saving is tied
+      to the Run tab's "run" action, the same action the previous
+      entry's Time/Memory/Stepper linkage already hooks -- the point
+      both values are simultaneously current. `runDebug`'s new
+      `applySavedStore` fills in an unset `--store` from the saved
+      value before the very first recording is built, so `--plain` and
+      the TUI's initial tabs reflect it too, not just the Run tab after
+      a manual re-run; an explicit `--store` flag still always wins.
+      `runDebugTUI`'s new `restoreRunInput` pre-fills the Run tab's
+      input field at startup. Writes go to a temp file then
+      `os.Rename` into place (atomic, so an interrupted write can't
+      corrupt the whole settings file), and every persistence call is
+      best-effort -- a write failure or a missing/corrupted settings
+      file never blocks or fails `crust develop` itself, since
+      remembering settings is a convenience layered on top of the tool
+      working. Verified via a real `crust develop --plain` subprocess
+      (pre-seeding the state file, confirming an unset `--store` picks
+      it up, and that an explicit `--store` still overrides it) plus Go
+      tests covering the load/save round trip, multiple files
+      coexisting, overwriting an entry, and config-directory/write
+      failures (via a blocking file/directory in the way rather than
+      permission bits, since this sandbox runs as root).
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the
