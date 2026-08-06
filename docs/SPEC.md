@@ -620,6 +620,9 @@ it's directly tied to the Set type this doc introduces.
 | `neighbors4(pos)` / `neighbors8(pos)` | `(Tuple) -> List` | the 4 orthogonal, or 8 orthogonal+diagonal, neighbor positions of `(row, col)` `pos`, each as a Tuple — pure coordinate arithmetic, no bounds checking against any grid. Pair with `at` (nobox on out-of-range) to filter to only the neighbors that actually exist |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
+| `list(x)` | `(List \| Tuple \| Set) -> List` | `x`'s elements collected into a new List — a List in, List out is a shallow copy (same as Python's `list()`; for a deep copy see `copy()`). A Set's elements come back in whatever order Go's own map iteration happens to visit them, matching Set's own unordered contract |
+| `tuple(x)` | `(List \| Tuple \| Set) -> Tuple` | `x`'s elements collected into a new Tuple. Every element must be Hashable (§2.3), the same requirement a `(a, b)` Tuple literal already enforces — `tuple([1, [2, 3]])` is a runtime error, not a Tuple holding an unhashable List |
+| `set(x)` | `(List \| Tuple \| Set) -> Set` | `x`'s elements collected into a new Set, dropping duplicates — the general counterpart to `gather`, which only ever took a List |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
 | `scrape(set, item)` | `(Set, Any) -> Nil` | removes `item` from `set` in place, no error if absent |
 | `topped(set, item)` | `(Set, Any) -> Boolean` | membership test — is `item` in `set`? |

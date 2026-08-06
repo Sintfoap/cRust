@@ -1260,6 +1260,58 @@ own section below describes.
     slice, that slicing doesn't mutate or alias the original, an
     out-of-range bound erroring cleanly, and a Set correctly rejected
     with "does not support slicing."
+- **`list(x)`/`tuple(x)`/`set(x)` are the general collection-conversion
+  builtins, filling the gap `gather` deliberately left** — the request
+  was "a way to convert collections to other collection types," and
+  the survey that answered it first turned up partial coverage that
+  already existed by accident: `gather(list)` only ever went List →
+  Set (never Tuple → Set or Set → anything), and `map`/`pizzasort`
+  happen to always return a List regardless of whether a List or
+  Tuple went in, which is a usable Tuple → List trick but not a named,
+  discoverable one. The three new builtins round that out
+  symmetrically — each accepts any of List/Tuple/Set and normalizes to
+  its own target type — named to match the existing `str`/`int`/
+  `float`/`bool` conversion builtins' convention of keeping standard
+  names rather than a pizza pun (SPEC.md §7's own rationale for those
+  four applies here without change).
+  - **A shared `asElements(x) ([]Object, bool)` helper extracts a
+    List/Tuple/Set's elements once**, used by all three, rather than
+    each repeating its own three-case type switch — a deliberate step
+    up from the two-case (List/Tuple only) switch duplicated inline
+    across `map`/`pizzasort`/`combos` elsewhere in this file: three
+    near-identical copies of a three-armed switch (List/Tuple/Set,
+    where the Set arm also has to drain a Go map into a slice) crossed
+    the line from "small enough to just repeat" to "worth naming."
+    Always returns a fresh slice, never the input's own backing
+    storage, so `list(xs)`/`tuple(xs)`/`set(xs)` can hand that slice
+    straight to a new container without the new container quietly
+    aliasing the old one's memory.
+  - **A Set's element order is whatever Go's own map iteration
+    produces** — arbitrary, and not guaranteed stable between two
+    calls on the same Set — which is a faithful reflection of Set
+    being unordered (SPEC.md §2.2) rather than a limitation; there was
+    never a "correct" order to preserve converting *out* of a Set.
+  - **`list`/`set` on their own type still builds a new container,
+    not the same object back** — `list(xs)` for a List `xs`, or
+    `set(s)` for a Set `s`, is a shallow copy (new backing
+    storage/map, same element references), the same convention
+    Python's own `list()`/`set()` conversion functions use. This is
+    deliberately *not* what `copy()` (above) does — `copy()` goes
+    deep (recursing into nested containers) specifically to break
+    reference-sharing all the way down, while `list()`/`set()` just
+    need to guarantee the *outer* container is independent, which is
+    all a same-type "conversion" ever promised.
+  - **`tuple`/`set` both reject an unhashable element with the same
+    message shape `gather` already used** (`"<name>: unhashable
+    element of type %s cannot go in a <Type>"`) rather than each
+    inventing its own wording — matches how a `(a, b)` Tuple literal
+    and a `toppings{...}` Set literal already fail on the same input.
+  - Verified via a real `crust run` subprocess: List↔Tuple↔Set in
+    every direction (including Set→List and Set→Tuple, the two paths
+    that had no route at all before this), duplicate-dropping on
+    `set()`, `list()`'s shallow-copy-not-mutation behavior, an
+    unhashable-element error from `tuple()`, and a wrong-type error
+    for a non-collection argument.
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1407,6 +1459,7 @@ own section below describes.
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
+  `list`/`tuple`/`set` (collection conversion),
   `contains` (general List/Tuple/Set/Map membership, `topped`'s
   broader counterpart), `unbox`/`lines`/`split`/`join`/`trim` (input),
   and `str`/`int`/`float`/`bool` (conversion). These names were chosen specifically because dropping

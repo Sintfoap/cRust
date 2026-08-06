@@ -107,7 +107,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
-		"gather", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
+		"gather", "list", "tuple", "set", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
 	}
@@ -491,6 +491,170 @@ func TestGatherUnhashableElement(t *testing.T) {
 func TestGatherWrongType(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "gather", object.NewInteger(1)))
+}
+
+func TestListConvertsTupleToList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "list", tup)
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	if len(list.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(list.Elements))
+	}
+	wantInteger(t, list.Elements[0], 1)
+}
+
+func TestListConvertsSetToList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(1))
+	set.Add(object.NewInteger(2))
+	got := call(t, table, "list", set)
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T, want *object.List", got)
+	}
+	if len(list.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(list.Elements))
+	}
+}
+
+func TestListOfListIsAShallowCopy(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	original := object.NewList([]object.Object{object.NewInteger(1)})
+	got := call(t, table, "list", original).(*object.List)
+	if got == original {
+		t.Fatal("list(list) returned the same pointer, want a new List")
+	}
+	got.Elements = append(got.Elements, object.NewInteger(2))
+	if len(original.Elements) != 1 {
+		t.Errorf("mutating the result changed the original: len = %d, want 1", len(original.Elements))
+	}
+}
+
+func TestListWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "list", object.NewInteger(1)))
+}
+
+func TestListWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "list"))
+	wantError(t, call(t, table, "list", object.NewList(nil), object.NewList(nil)))
+}
+
+func TestTupleConvertsListToTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "tuple", list)
+	tup, ok := got.(*object.Tuple)
+	if !ok {
+		t.Fatalf("got %T, want *object.Tuple", got)
+	}
+	if len(tup.Elements) != 2 {
+		t.Fatalf("got %d elements, want 2", len(tup.Elements))
+	}
+	wantInteger(t, tup.Elements[1], 2)
+}
+
+func TestTupleConvertsSetToTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(1))
+	got := call(t, table, "tuple", set)
+	tup, ok := got.(*object.Tuple)
+	if !ok {
+		t.Fatalf("got %T, want *object.Tuple", got)
+	}
+	if len(tup.Elements) != 1 {
+		t.Fatalf("got %d elements, want 1", len(tup.Elements))
+	}
+}
+
+func TestTupleUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewList(nil)})
+	errObj := wantError(t, call(t, table, "tuple", list))
+	if !strings.Contains(errObj.Message, "unhashable") {
+		t.Errorf("Message = %q, want it to mention unhashable", errObj.Message)
+	}
+}
+
+func TestTupleWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "tuple", object.NewInteger(1)))
+}
+
+func TestTupleWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "tuple"))
+	wantError(t, call(t, table, "tuple", object.NewList(nil), object.NewList(nil)))
+}
+
+func TestSetConvertsListToSetDroppingDuplicates(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "set", list)
+	set, ok := got.(*object.Set)
+	if !ok {
+		t.Fatalf("got %T, want *object.Set", got)
+	}
+	if set.Len() != 2 {
+		t.Errorf("Len() = %d, want 2 (duplicates dropped)", set.Len())
+	}
+}
+
+func TestSetConvertsTupleToSet(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "set", tup)
+	set, ok := got.(*object.Set)
+	if !ok {
+		t.Fatalf("got %T, want *object.Set", got)
+	}
+	if set.Len() != 2 {
+		t.Errorf("Len() = %d, want 2", set.Len())
+	}
+}
+
+func TestSetOfSetIsANewObject(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	original := object.NewSet()
+	original.Add(object.NewInteger(1))
+	got := call(t, table, "set", original)
+	set, ok := got.(*object.Set)
+	if !ok {
+		t.Fatalf("got %T, want *object.Set", got)
+	}
+	if set == original {
+		t.Fatal("set(set) returned the same pointer, want a new Set")
+	}
+	if set.Len() != 1 {
+		t.Errorf("Len() = %d, want 1", set.Len())
+	}
+}
+
+func TestSetUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewList(nil)})
+	errObj := wantError(t, call(t, table, "set", list))
+	if !strings.Contains(errObj.Message, "unhashable") {
+		t.Errorf("Message = %q, want it to mention unhashable", errObj.Message)
+	}
+}
+
+func TestSetWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "set", object.NewInteger(1)))
+}
+
+func TestSetWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "set"))
+	wantError(t, call(t, table, "set", object.NewList(nil), object.NewList(nil)))
 }
 
 func TestSprinkleUnhashableItem(t *testing.T) {

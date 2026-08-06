@@ -58,6 +58,9 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"neighbors8": {Fn: neighborsFn("neighbors8", allOffsets)},
 		"idiv":       {Fn: idivFn},
 		"gather":     {Fn: gatherFn},
+		"list":       {Fn: listFn},
+		"tuple":      {Fn: tupleFn},
+		"set":        {Fn: setFn},
 		"sprinkle":   {Fn: sprinkleFn},
 		"scrape":     {Fn: scrapeFn},
 		"topped":     {Fn: toppedFn},
@@ -794,6 +797,89 @@ func gatherFn(args ...object.Object) object.Object {
 		}
 	}
 	return set
+}
+
+// asElements returns the elements of x if it's a List, Tuple, or Set,
+// as a fresh slice safe for a caller to build a new container from
+// without aliasing x's own backing storage. A Set's elements come back
+// in Go's own map iteration order — arbitrary, and different from one
+// call to the next — matching Set's own "unordered" contract (SPEC.md
+// §2.2) rather than promising an order Set was never meant to have.
+func asElements(x object.Object) ([]object.Object, bool) {
+	switch v := x.(type) {
+	case *object.List:
+		return append([]object.Object{}, v.Elements...), true
+	case *object.Tuple:
+		return append([]object.Object{}, v.Elements...), true
+	case *object.Set:
+		elements := make([]object.Object, 0, len(v.Elements))
+		for _, e := range v.Elements {
+			elements = append(elements, e)
+		}
+		return elements, true
+	default:
+		return nil, false
+	}
+}
+
+// listFn is `list(x)` (SPEC.md §7) — x's elements (a List, Tuple, or
+// Set) collected into a new List. Converting a List still returns a
+// distinct List (a shallow copy, same convention as Python's `list()`)
+// rather than x itself, so `list(xs) == xs` by value but mutating one
+// is never seen through the other — for a *deep* copy instead, see
+// `copy()`.
+func listFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("list", "1", len(args))
+	}
+	elements, ok := asElements(args[0])
+	if !ok {
+		return wrongArgType("list", 0, "a List, Tuple, or Set", args[0])
+	}
+	return object.NewList(elements)
+}
+
+// tupleFn is `tuple(x)` (SPEC.md §7) — x's elements (a List, Tuple, or
+// Set) collected into a new Tuple. Every element must be Hashable
+// (SPEC.md §2.3, the same requirement a `(a, b)` Tuple literal already
+// enforces) since that's what makes a Tuple safe to use as a Map key
+// or Set element in the first place — `tuple([1, [2, 3]])` is a
+// runtime error, not a Tuple holding an unhashable List.
+func tupleFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("tuple", "1", len(args))
+	}
+	elements, ok := asElements(args[0])
+	if !ok {
+		return wrongArgType("tuple", 0, "a List, Tuple, or Set", args[0])
+	}
+	for _, elem := range elements {
+		if _, hashable := elem.(object.Hashable); !hashable {
+			return newError("tuple: unhashable element of type %s cannot go in a Tuple", elem.Type())
+		}
+	}
+	return object.NewTuple(elements)
+}
+
+// setFn is `set(x)` (SPEC.md §7) — x's elements (a List, Tuple, or
+// Set) collected into a new Set, dropping duplicates. The general
+// counterpart to `gather`, which only ever took a List; every element
+// must be Hashable, same requirement and same error shape as `gather`.
+func setFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("set", "1", len(args))
+	}
+	elements, ok := asElements(args[0])
+	if !ok {
+		return wrongArgType("set", 0, "a List, Tuple, or Set", args[0])
+	}
+	out := object.NewSet()
+	for _, elem := range elements {
+		if !out.Add(elem) {
+			return newError("set: unhashable element of type %s cannot go in a Set", elem.Type())
+		}
+	}
+	return out
 }
 
 // sprinkleFn is `sprinkle(set, item)` (SPEC.md §7) — adds item to set

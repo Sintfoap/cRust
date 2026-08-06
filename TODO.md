@@ -569,6 +569,33 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       slices, single-element inclusive/exclusive slices, a
       backward-exclusive slice, no mutation of the original, an
       out-of-range error, and a Set correctly rejected as unsliceable.
+- [x] (Stretch) `list(x)`/`tuple(x)`/`set(x)` collection-conversion
+      builtins, asked for as "a way to convert collections to other
+      collection types... like a list to a tuple or vice versa" —
+      answering the question first turned up partial, accidental
+      coverage: `gather(list)` only ever went List -> Set, and
+      `map`/`pizzasort` happen to always return a List regardless of
+      List or Tuple input, a usable but unnamed Tuple -> List trick.
+      The three new builtins round that out symmetrically: each
+      accepts any of List/Tuple/Set and normalizes to its own target
+      type, named to match the existing `str`/`int`/`float`/`bool`
+      conversion builtins rather than a pizza pun. Share a new
+      `asElements(x) ([]Object, bool)` helper for extracting a
+      List/Tuple/Set's elements into a fresh slice (a Set drains its
+      backing Go map into one, coming back in whatever order Go's map
+      iteration happens to visit -- a faithful reflection of Set being
+      unordered, not a limitation). `list`/`set` on their own type
+      still build a new container (shallow copy, same convention as
+      Python's own `list()`/`set()`) rather than handing back the same
+      object -- deliberately not what `copy()` does, since `copy()`
+      goes deep specifically to break reference-sharing at every level,
+      while these only need the outer container to be independent.
+      `tuple`/`set` reject an unhashable element with the same message
+      shape `gather` already used. Verified via a real `crust run`
+      subprocess: every List/Tuple/Set conversion direction (including
+      Set -> List and Set -> Tuple, which had no route at all before),
+      duplicate-dropping on `set()`, `list()`'s shallow-copy behavior,
+      an unhashable-element error, and a wrong-type error.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the
