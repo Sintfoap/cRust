@@ -967,6 +967,29 @@ own section below describes.
   a lambda composing two steps like `ints(split(line))`) is covered by
   `internal/interpreter`'s own test suite instead, where a real `Call`
   is naturally available.
+- **`find(iterable, fn)` reuses `map`'s injected `Call` for the exact
+  same reason** — asked as "a library function that searches for an
+  element in a list and returns the one at the lowest index that
+  matches," which is a predicate search (JS's `Array.find`, Python's
+  `next(filter(...))`), not a value-equality lookup (`contains` above
+  already covers "is this exact value present"). Returning a bare
+  boolean or the matched index would leave the caller to re-derive the
+  actual element they were looking for; returning the element itself is
+  the whole point — `find(users, recipe(u) { serve u.age > 30 })` wants
+  the user, not confirmation that one exists. Iterates left to right,
+  same as `map`, and returns as soon as `object.IsTruthy(fn(elem))` —
+  no need to score or rank candidates, just the first one that counts,
+  so there's no reason to look further once it's found. `nobox` on no
+  match (or an empty collection), matching every other "nothing here"
+  result in the language (`at`'s out-of-range read, a missing Map key)
+  rather than a sentinel value that could collide with a real list
+  element. Needed `object.IsTruthy` to exist outside
+  `internal/interpreter` for the same reason `contains` needed
+  `object.Equal` there (below): `internal/builtins` can't import
+  `internal/interpreter` to reach the original private `isTruthy`, so
+  it moved to `internal/object` alongside `Equal`, and every one of
+  `order`/`bake`/ternary/`hold`/with/or's call sites switched to the
+  relocated version — another pure move, not a behavior change.
 - **`min`/`max` accept two shapes** — `min(a, b, ...)` (2+ direct
   arguments) or `min(list)` (a single List/Tuple) — the same
   "iterable-or-its-unpacked-elements" convention `map`/`ints` already
@@ -1216,7 +1239,8 @@ own section below describes.
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
-  `map` (apply a function across a List/Tuple), `min`/`max`, `combos`
+  `map` (apply a function across a List/Tuple), `find` (lowest-index
+  predicate match), `min`/`max`, `combos`
   (n-element combinations), `enumerate` (index/value pairs),
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins

@@ -41,6 +41,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"ints":       {Fn: intsFn},
 		"push":       {Fn: pushFn},
 		"map":        {Fn: mapFn(call)},
+		"find":       {Fn: findFn(call)},
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
 		"combos":     {Fn: combosFn},
@@ -189,6 +190,46 @@ func mapFn(call Call) object.BuiltinFunction {
 			out[i] = result
 		}
 		return object.NewList(out)
+	}
+}
+
+// findFn is `find(list, fn)` (SPEC.md §7) — the lowest-index element of
+// a List or Tuple that fn accepts, applying fn left to right and
+// stopping at the first result object.IsTruthy calls true, or `nobox`
+// if none does (or the collection is empty). Returns the *element*
+// itself, not its position or fn's own result — searching for "is
+// there a value here matching some condition" would be redundant if
+// what came back was just confirmation of what was already being
+// searched for; the useful answer is the actual matching value (e.g.
+// `find(users, recipe(u) { serve u.age > 30 })` wants the user, not
+// `stuffed`). Injected the same way `map` is (a Call callback, since
+// internal/builtins can't invoke a cRust function directly), and stops
+// on the first fn call that errors, exactly like map does.
+func findFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("find", "2", len(args))
+		}
+		var elements []object.Object
+		switch v := args[0].(type) {
+		case *object.List:
+			elements = v.Elements
+		case *object.Tuple:
+			elements = v.Elements
+		default:
+			return wrongArgType("find", 0, "a List or Tuple", args[0])
+		}
+
+		for _, elem := range elements {
+			result := call(args[1], []object.Object{elem})
+			if result.Type() == object.ERROR_OBJ {
+				return result
+			}
+			if object.IsTruthy(result) {
+				return elem
+			}
+		}
+		return object.NULL
 	}
 }
 

@@ -106,7 +106,7 @@ func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "min", "max", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "find", "min", "max", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -602,6 +602,70 @@ func TestMapWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "map", object.NewList(nil)))
 	wantError(t, call(t, table, "map"))
+}
+
+var isEvenFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+	return object.NativeBoolToBooleanObject(args[0].(*object.Integer).Value%2 == 0)
+}}
+
+func TestFindOnListReturnsLowestIndexMatch(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3), object.NewInteger(4), object.NewInteger(6)})
+	got := call(t, table, "find", list, isEvenFn)
+	wantInteger(t, got, 4)
+}
+
+func TestFindOnTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "find", tup, isEvenFn)
+	wantInteger(t, got, 2)
+}
+
+func TestFindNoMatchReturnsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3)})
+	got := call(t, table, "find", list, isEvenFn)
+	if got != object.NULL {
+		t.Errorf("find() = %v, want NULL (nobox) when nothing matches", got)
+	}
+}
+
+func TestFindEmptyListReturnsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "find", object.NewList(nil), isEvenFn)
+	if got != object.NULL {
+		t.Errorf("find() = %v, want NULL (nobox) for an empty List", got)
+	}
+}
+
+func TestFindPropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "find", list, failFn))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestFindNotCallableIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "find", list, object.NewInteger(5)))
+}
+
+func TestFindWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "find", object.NewInteger(1), isEvenFn))
+}
+
+func TestFindWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "find", object.NewList(nil)))
+	wantError(t, call(t, table, "find"))
 }
 
 func TestMinMaxOfDirectArgs(t *testing.T) {

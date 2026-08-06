@@ -463,6 +463,25 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       keep that package back at 100% coverage. Verified via a real
       `crust run` subprocess across List/Tuple/Set/Map, including that
       a Map's *values* don't register as members, only its keys.
+- [x] (Stretch) `find(iterable, fn)` builtin — asked for "a library
+      function that searches for an element in a list and returns the
+      one at the lowest index that matches," which is a predicate
+      search (JS's `Array.find`), not a value-equality lookup
+      (`contains` above already covers that). Reuses `map`'s injected
+      `Call` mechanism to invoke `fn` (a recipe or another builtin) on
+      each element left to right, returning the first one where
+      `fn(element)` is stuffed — the matched *element*, not its index
+      or a boolean, since re-deriving the element from a bare index
+      would just be extra work for the caller. `nobox` on no match or
+      an empty collection, matching every other "nothing here" result
+      in the language. Needed `object.IsTruthy` to exist outside
+      `internal/interpreter`, for the identical reason `contains`
+      needed `object.Equal` there — moved alongside it, with every
+      `order`/`bake`/ternary/`hold`/with/or call site in the
+      interpreter switched to the relocated version. Verified via a
+      real `crust run` subprocess: `find` on a List and a Tuple, no
+      match, and confirming it returns the *lowest*-index match (not
+      just any match) when several elements satisfy the predicate.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

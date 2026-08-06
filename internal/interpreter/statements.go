@@ -66,7 +66,7 @@ func (i *Interpreter) evalIfStatement(is *ast.IfStatement, env *object.Environme
 	if isError(cond) {
 		return cond
 	}
-	if isTruthy(cond) {
+	if object.IsTruthy(cond) {
 		return i.evalBlockStatement(is.Consequence, env)
 	}
 
@@ -75,7 +75,7 @@ func (i *Interpreter) evalIfStatement(is *ast.IfStatement, env *object.Environme
 		if isError(cond) {
 			return cond
 		}
-		if isTruthy(cond) {
+		if object.IsTruthy(cond) {
 			return i.evalBlockStatement(combo.Body, env)
 		}
 	}
@@ -104,7 +104,7 @@ func (i *Interpreter) evalCountedLoop(cl *ast.CountedLoop, env *object.Environme
 			if isError(cond) {
 				return cond
 			}
-			if !isTruthy(cond) {
+			if !object.IsTruthy(cond) {
 				break
 			}
 		}
@@ -194,7 +194,7 @@ func (i *Interpreter) evalBakeStatement(bs *ast.BakeStatement, env *object.Envir
 		if isError(cond) {
 			return cond
 		}
-		if !isTruthy(cond) {
+		if !object.IsTruthy(cond) {
 			break
 		}
 

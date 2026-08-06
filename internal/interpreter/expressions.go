@@ -36,7 +36,7 @@ func (i *Interpreter) evalPrefixExpression(pe *ast.PrefixExpression, env *object
 			return newError(pe.Token, "unary -: expected a number, got %s", right.Type())
 		}
 	case "hold":
-		return object.NativeBoolToBooleanObject(!isTruthy(right))
+		return object.NativeBoolToBooleanObject(!object.IsTruthy(right))
 	default:
 		return newError(pe.Token, "unknown prefix operator: %s", pe.Operator)
 	}
@@ -77,10 +77,10 @@ func (i *Interpreter) evalLogicalExpression(ie *ast.InfixExpression, env *object
 		return left
 	}
 
-	if ie.Operator == "with" && !isTruthy(left) {
+	if ie.Operator == "with" && !object.IsTruthy(left) {
 		return object.FALSE
 	}
-	if ie.Operator == "or" && isTruthy(left) {
+	if ie.Operator == "or" && object.IsTruthy(left) {
 		return object.TRUE
 	}
 
@@ -88,7 +88,7 @@ func (i *Interpreter) evalLogicalExpression(ie *ast.InfixExpression, env *object
 	if isError(right) {
 		return right
 	}
-	return object.NativeBoolToBooleanObject(isTruthy(right))
+	return object.NativeBoolToBooleanObject(object.IsTruthy(right))
 }
 
 // evalInfixOperator applies operator to two already-evaluated operands
@@ -280,7 +280,7 @@ func (i *Interpreter) evalTernaryExpression(te *ast.TernaryExpression, env *obje
 	if isError(cond) {
 		return cond
 	}
-	if isTruthy(cond) {
+	if object.IsTruthy(cond) {
 		return i.Eval(te.Then, env)
 	}
 	return i.Eval(te.Else, env)

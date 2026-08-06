@@ -151,18 +151,6 @@ func isError(obj object.Object) bool {
 	return obj.Type() == object.ERROR_OBJ
 }
 
-// isTruthy is SPEC.md §6's rule: only `thin` and `nobox` are falsy,
-// applied uniformly by order/bake/ternary conditions, `hold`, and
-// with/or's short-circuiting.
-func isTruthy(obj object.Object) bool {
-	switch obj {
-	case object.NULL, object.FALSE:
-		return false
-	default:
-		return true
-	}
-}
-
 // unwrapReturnValue is what a function call does to the result of
 // evaluating its body — turns a bubbled-up ReturnValue back into the
 // plain value inside, or passes through anything else (NULL for a
