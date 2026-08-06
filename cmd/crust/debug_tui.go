@@ -552,14 +552,31 @@ func (m debugModel) renderClosingRow(i int) string {
 	return "  " + styleFaint.Render(line)
 }
 
+// stdinOnlyReader hides every method of *os.File except Read. Passed
+// to tea.WithInput below specifically so bubbletea's cancelreader
+// dependency can't type-assert its way to a Fd()/Name()-having "File"
+// and take its epoll-based reader on Linux — that path calls
+// EPOLL_CTL_ADD on stdin's fd, which fails outright ("add reader to
+// epoll interest list") under some WSL configurations, crashing
+// `crust develop` before the TUI ever draws a frame. cancelreader's
+// own fallback (a plain blocking Read, used automatically whenever the
+// input isn't recognized as a File) works everywhere epoll doesn't,
+// at the cost of being unable to interrupt an in-progress blocking
+// read from the *outside* — a real tradeoff in general, but not one
+// `crust develop` ever needed: every quit path here (q/ctrl+c/esc, or
+// handing off to nvim) is itself the next keypress being read, not an
+// external cancellation racing a read that's already blocked waiting
+// for one.
+type stdinOnlyReader struct{ io.Reader }
+
 // runDebugTUI drives the stepper on a real terminal. AltScreen keeps
 // the whole session inside the terminal's alternate buffer (restored
 // to the normal buffer and scrollback on exit) rather than scrolling
 // the ordinary window as frames redraw — the standard choice for a
 // full-screen app like this one, and it pairs with View's clampHeight
 // call to keep the tab bar on screen regardless of window size.
-// restoreRunInput pre-fills the Run tab's input field from this file's
-// remembered settings (debug_state.go), same as opts.Store already
+// m.runInput is pre-filled from this file's remembered settings
+// (debug_state.go's restoreRunInput), same as opts.Store already
 // reflects them via runDebug's applySavedStore.
 func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	m := newDebugModel(view)
@@ -569,7 +586,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.runInput = restoreRunInput(view.path)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
-		progOpts = append(progOpts, tea.WithInput(f))
+		progOpts = append(progOpts, tea.WithInput(stdinOnlyReader{f}))
 	}
 	prog := tea.NewProgram(m, progOpts...)
 	if _, err := prog.Run(); err != nil {

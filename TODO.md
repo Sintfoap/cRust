@@ -725,6 +725,34 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       coexisting, overwriting an entry, and config-directory/write
       failures (via a blocking file/directory in the way rather than
       permission bits, since this sandbox runs as root).
+- [x] Fixed: `crust develop` crashed outright on some WSL setups --
+      `error creating cancelreader: bubbletea: error creating cancel
+      reader: add reader to epoll interest list`, reported verbatim.
+      Traced to bubbletea's `github.com/muesli/cancelreader` dependency:
+      on Linux it type-asserts its input to a `File` interface
+      (`io.ReadWriteCloser` + `Fd()` + `Name()`), and when that
+      succeeds (always true for `os.Stdin`) registers the fd with
+      `epoll_ctl` so `Cancel()` can interrupt a blocking read --
+      registration that fails outright under this user's WSL setup,
+      with no fallback, before the TUI ever draws a frame.
+      `runDebugTUI` was opting into this explicitly
+      (`tea.WithInput(f)` on the raw `*os.File`, even though bubbletea
+      already defaults to `os.Stdin` when no `WithInput` is given at
+      all). Fixed with a `stdinOnlyReader{io.Reader}` wrapper: embedding
+      only the `io.Reader` interface promotes just `Read`, so the
+      wrapper has no `Fd`/`Name`/`Write`/`Close`, the type assertion
+      fails, and cancelreader falls back to a plain blocking read (no
+      epoll, works everywhere). The one thing that fallback can't do --
+      interrupt a read that's already blocked, from outside the read
+      call -- was checked against every way `crust develop` actually
+      quits (a keypress, or handing off to nvim) and found to be a
+      non-issue, since every quit path *is* the next keypress arriving.
+      Verified the mechanism directly (can't reproduce a WSL-specific
+      epoll failure in this environment): a Go test confirms `*os.File`
+      satisfies a locally mirrored copy of cancelreader's own `File`
+      shape while `stdinOnlyReader` wrapping that same file does not,
+      plus a read-through test confirming the wrapper still works as an
+      ordinary reader.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

@@ -2397,6 +2397,47 @@ code was written.
       this sandbox runs as root, which bypasses permission-based
       failures entirely, so only a structural filesystem conflict is a
       portable way to force these errors).
+    - **Bug: `crust develop` crashed outright on some WSL setups** —
+      `error creating cancelreader: bubbletea: error creating cancel
+      reader: add reader to epoll interest list`, reported verbatim.
+      Traced into bubbletea's own dependency,
+      `github.com/muesli/cancelreader`: on Linux, `NewReader` type-
+      asserts its input to a `File` interface (`io.ReadWriteCloser` +
+      `Fd() uintptr` + `Name() string`); when that succeeds — which it
+      always does for `os.Stdin`, an `*os.File` — it registers the fd
+      with `epoll_ctl(EPOLL_CTL_ADD, ...)` so a `Cancel()` call can
+      interrupt an in-progress blocking read. That registration is
+      exactly what was failing under this user's WSL configuration
+      (a known class of issue: some virtualized/WSL-interop ttys don't
+      support epoll registration the way a native Linux tty does), and
+      bubbletea has no fallback for an epoll setup failure — it's a
+      hard error out of `initCancelReader`, thrown before the TUI ever
+      draws a frame. `runDebugTUI` was explicitly opting into this
+      path: `tea.WithInput(f)` with `stdin`'s underlying `*os.File`,
+      which is what makes the type assertion succeed at all (bubbletea
+      defaults to `os.Stdin` anyway when no `WithInput` is given, so
+      this wasn't adding a capability, just making the epoll path
+      reachable explicitly). Fixed with a `stdinOnlyReader{io.Reader}`
+      wrapper passed to `WithInput` instead of the raw `*os.File` —
+      embedding only the `io.Reader` interface promotes just `Read`,
+      so the concrete wrapper type has no `Fd`/`Name`/`Write`/`Close`
+      methods at all, which makes cancelreader's type assertion fail
+      and fall through to its `fallbackCancelReader` (a plain blocking
+      `Read`, no epoll, works everywhere). The one capability that
+      fallback doesn't have — interrupting a read that's already
+      blocked, from *outside* the read call — was checked against
+      every way `crust develop` actually quits (`q`/ctrl+c/esc, or
+      handing off to nvim) and found to be a non-issue: every one of
+      those is itself the next keypress arriving, not some other part
+      of the program trying to cancel a read nothing has typed into
+      yet. Verified the mechanism directly rather than trying to
+      reproduce a WSL-specific epoll failure in this environment: a Go
+      test asserts `*os.File` satisfies a locally mirrored copy of
+      cancelreader's own `File` shape (proving the type assertion
+      *would* have fired) while `stdinOnlyReader` wrapping that same
+      file does not (proving the fix actually changes the outcome, not
+      by accident of some other difference), plus a plain read-through
+      test confirming the wrapper still works as an ordinary reader.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -546,5 +548,49 @@ func TestSliceIndexLastBucketFallback(t *testing.T) {
 	// under-index.
 	if got := sliceIndex(bounds, 1.0); got != 1 {
 		t.Errorf("sliceIndex(_, 1.0) = %d, want 1 (the last bucket)", got)
+	}
+}
+
+// TestStdinOnlyReaderDoesNotSatisfyCancelreaderFileShape is the whole
+// point of stdinOnlyReader: bubbletea's cancelreader dependency
+// decides whether to take its epoll-based reader (broken under some
+// WSL setups -- "add reader to epoll interest list") purely via a
+// type assertion to an unexported interface shaped like
+// io.ReadWriteCloser + Fd() uintptr + Name() string. This mirrors
+// that exact shape locally (avoiding a direct test dependency on
+// cancelreader's internals) to prove stdinOnlyReader defeats it, while
+// the underlying *os.File still would satisfy it — confirming the
+// wrapper is what actually changes cancelreader's decision, not an
+// accident of some other difference between the two.
+func TestStdinOnlyReaderDoesNotSatisfyCancelreaderFileShape(t *testing.T) {
+	type cancelreaderFileShape interface {
+		io.ReadWriteCloser
+		Fd() uintptr
+		Name() string
+	}
+
+	f, err := os.CreateTemp(t.TempDir(), "stdin-only-reader-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if _, ok := interface{}(f).(cancelreaderFileShape); !ok {
+		t.Fatal("test setup: *os.File should satisfy the mirrored shape")
+	}
+	if _, ok := interface{}(stdinOnlyReader{f}).(cancelreaderFileShape); ok {
+		t.Error("stdinOnlyReader should not satisfy the File shape -- that's the entire reason it exists")
+	}
+}
+
+func TestStdinOnlyReaderReadsThrough(t *testing.T) {
+	r := stdinOnlyReader{Reader: strings.NewReader("hello")}
+	buf := make([]byte, 5)
+	n, err := r.Read(buf)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if n != 5 || string(buf) != "hello" {
+		t.Errorf("Read() = (%d, %q), want (5, %q)", n, buf, "hello")
 	}
 }
