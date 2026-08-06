@@ -38,6 +38,7 @@ var builtinDocs = map[string]string{
 	"chars":      "`chars(s) -> List` — splits a string into a List of one-character strings.",
 	"ints":       "`ints(s) -> List` / `ints(list) -> List` — ints(s) splits a string of digits into single-digit Integers; ints(list) parses each String element as a full Integer (e.g. `ints(split(line))`).",
 	"push":       "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
+	"copy":       "`copy(value) -> Any` — an independent copy of value: for List/Map/Set/Grid, mutating the copy (push, setAt, index assignment, ...) is never seen through the original. Every other type, including Tuple, comes back unchanged (nothing about it can be mutated in place to begin with).",
 	"map":        "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
 	"find":       "`find(collection, value) -> Integer` — the lowest index in a List or Tuple where an element equals value, or nobox if none does. contains()'s positional counterpart.",
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",

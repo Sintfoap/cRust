@@ -514,6 +514,33 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       a real `crust run` subprocess: integers, strings, mixed Int/Float,
       empty and single-element inputs, and a clean runtime error (not a
       panic) for a genuinely incomparable mix.
+- [x] (Stretch) `copy(value)` builtin, asked for as "a copy function so
+      items don't continue being modified by reference" — List/Map/Set/
+      Grid are all Go pointer types with reference semantics, so
+      assignment/passing today shares the same underlying object and
+      mutations (`push`, `setAt`, index assignment, `sprinkle`/`scrape`)
+      show up through every reference. The recursion turned out to be
+      narrower than "copy everything": Tuple elements, Set elements, and
+      Map keys must all be `Hashable`, which already rules out any
+      mutable container living inside one of those, so a Tuple/Set/Map's
+      own keys are already as independent as a copy could make them —
+      only List elements, Map *values*, and Grid cells can hold an
+      arbitrary Object (including another List/Map/Set/Grid) and
+      actually need recursive copying. Lives as `object.DeepCopy` in
+      `internal/object`, the same location `object.Equal`/
+      `object.IsTruthy` already established for logic both
+      `internal/interpreter` and `internal/builtins` need; `copyFn` is a
+      one-line wrapper over it. Cycle-safe via a `seen map[Object]Object`
+      memo (original -> its already-built copy), registered right after
+      a new container is allocated and before its contents are filled
+      in, so a self-referential structure (`xs = [1]; push(xs, xs)`)
+      reuses the in-progress copy instead of recursing forever — the
+      same technique Python's `copy.deepcopy` uses, with the side effect
+      of preserving shared substructure within one copy. Verified via a
+      real `crust run` subprocess: a plain List, a List nested in a
+      List, a List value inside a Map, a List cell inside a Grid, a
+      self-referential List (doesn't hang), and pass-through for a Tuple
+      and a scalar.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

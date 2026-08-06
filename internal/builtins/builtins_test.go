@@ -106,7 +106,7 @@ func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -537,6 +537,31 @@ func TestPushWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "push", object.NewList(nil)))
 	wantError(t, call(t, table, "push"))
+}
+
+func TestCopyListIsIndependent(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	original := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+
+	got := call(t, table, "copy", original).(*object.List)
+	if got == original {
+		t.Fatal("copy(list) returned the same pointer, want a new List")
+	}
+	got.Elements = append(got.Elements, object.NewInteger(3))
+	if len(original.Elements) != 2 {
+		t.Errorf("mutating the copy changed the original: len = %d, want 2", len(original.Elements))
+	}
+}
+
+func TestCopyScalarPassesThroughUnchanged(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "copy", object.NewInteger(5)), 5)
+}
+
+func TestCopyWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "copy"))
+	wantError(t, call(t, table, "copy", object.NewInteger(1), object.NewInteger(2)))
 }
 
 var doubleFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {

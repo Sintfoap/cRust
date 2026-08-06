@@ -1150,6 +1150,42 @@ own section below describes.
     changed — every existing `==`/`!=` test still passes unmodified —
     this was a pure relocation, verified by keeping the full existing
     equality test suite green throughout.
+- **`copy(value)` only recurses into List elements, Map values, and
+  Grid cells — Set and Tuple copies stop at one level, and Integer/
+  Float/String/Boolean/Null/Tuple pass through unchanged.** The
+  request was "a copy function so items don't continue being modified
+  by reference," motivated by List/Map/Set/Grid all being Go pointer
+  types with reference semantics (assignment/passing shares the same
+  underlying object; `push`, `setAt`, index assignment, `sprinkle`/
+  `scrape` all mutate through every existing reference). The design
+  fell out of an invariant already established for a different reason:
+  every Tuple element (and, by the same rule, every Set element and
+  every Map key) must be `Hashable` (§Phase 3 above, `combos`/
+  `enumerate`'s design notes) — and List/Map/Set/Grid don't implement
+  `Hashable`. That means a Tuple, or a Set's members, or a Map's keys,
+  can never hold a mutable container in the first place, so they're
+  already as independent as a copy could make them; only List
+  elements, Map *values*, and Grid cells can hold arbitrary Objects
+  (including another List/Map/Set/Grid) and are where `copy` actually
+  has to recurse. `object.DeepCopy` lives in `internal/object` (not
+  `internal/builtins`) for the same one-way-import reason `object.Equal`
+  and `object.IsTruthy` do — nothing about `copy` itself needed that
+  move this time, it's just where the previous two builtins already
+  established the pattern lives, and `internal/builtins`' `copyFn` is a
+  thin one-line wrapper over it. A naive recursive copy would loop
+  forever on a self-referential structure (`xs = [1]; push(xs, xs)`),
+  so `deepCopy` carries a `seen map[Object]Object` from original to
+  its already-built copy, registering each new container immediately
+  after allocating it and before recursing into its contents — the
+  same memo technique as Python's `copy.deepcopy`. That memo has a
+  second effect beyond cycle-safety: two references to the same
+  original sub-container inside one copy operation end up pointing at
+  the same new copy, so whatever internal aliasing the original had is
+  preserved rather than silently duplicated. Verified via a real
+  `crust run` subprocess: independence for a plain List, a List nested
+  inside a List, a List value inside a Map, and a List cell inside a
+  Grid; a self-referential List copies without hanging; a Tuple and a
+  scalar both come back unchanged.
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1292,7 +1328,7 @@ own section below describes.
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
   `map` (apply a function across a List/Tuple), `find` (lowest matching
-  index), `min`/`max`, `pizzasort` (natural-order sort),
+  index), `copy` (independent deep copy), `min`/`max`, `pizzasort` (natural-order sort),
   `combos` (n-element combinations), `enumerate` (index/value pairs),
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins

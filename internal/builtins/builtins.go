@@ -41,6 +41,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"chars":      {Fn: charsFn},
 		"ints":       {Fn: intsFn},
 		"push":       {Fn: pushFn},
+		"copy":       {Fn: copyFn},
 		"map":        {Fn: mapFn(call)},
 		"find":       {Fn: findFn},
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
@@ -152,6 +153,23 @@ func pushFn(args ...object.Object) object.Object {
 	}
 	list.Elements = append(list.Elements, args[1])
 	return object.NULL
+}
+
+// copyFn is `copy(value)` (SPEC.md §7) — an independent copy of value:
+// for List/Map/Set/Grid, every level of nesting is duplicated, so
+// mutating the copy (push, setAt, index assignment, ...) is never seen
+// through the original, or the other way around. Every other type
+// (including Tuple, whose own Hashable-element requirement already
+// rules out any mutable container inside it) comes back unchanged --
+// there's nothing to copy, since nothing about it can be mutated in
+// place to begin with. See object.DeepCopy for the actual recursive
+// work, including how it avoids looping forever on a self-referential
+// structure (e.g. push(xs, xs)).
+func copyFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("copy", "1", len(args))
+	}
+	return object.DeepCopy(args[0])
 }
 
 // mapFn is `map(iterable, fn)` (SPEC.md §7) — applies fn to every
