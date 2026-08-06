@@ -49,12 +49,33 @@ func New(output io.Writer, stdin io.Reader) *Interpreter {
 
 // Call invokes fn (a *object.Function or *object.Builtin) with args,
 // the same way evaluating a CallExpression would — exported so callers
-// like cmd/crust's entry-point resolution (SPEC.md §9) can invoke an
-// already-resolved function directly, without a source-level
-// CallExpression to Eval. There's no call-site token in this case, so
-// any resulting Error's position is left unset (0, 0).
+// like the `map` builtin can invoke an already-resolved function
+// directly, without a source-level CallExpression to Eval. There's no
+// call-site token in this case, so any resulting Error's position is
+// left unset (0, 0). The generic "call(...)" frame label is deliberate
+// here: `map` invokes its callback once per element, and a distinct
+// label per element would just be noise in the debugger's KPI/stepper
+// — every caller that *does* have a real name to attach (cmd/crust's
+// entry-point resolution, SPEC.md §9) should use CallNamed instead, not
+// this one.
 func (i *Interpreter) Call(fn object.Object, args []object.Object) object.Object {
 	return i.applyFunction(token.Token{}, "call(...)", fn, args)
+}
+
+// CallNamed is Call with a real frame label instead of the generic
+// "call(...)" — for the one other case an already-resolved function
+// gets invoked without a source-level CallExpression: cmd/crust
+// resolving and running a store/store_<name> entry point (SPEC.md §9).
+// Without this, that invocation went through the same Call every
+// map() callback does, so the debugger's KPI/stepper attributed the
+// entire run to an anonymous "call(...)" frame instead of the actual
+// recipe name — indistinguishable from any other generic call, and
+// exactly the opposite of what a single-entry-point program's KPI
+// breakdown should show. name should be the bare recipe name (e.g.
+// "store_part1"); the "(...)" suffix matches the label an ordinary
+// CallExpression's own evalCallExpression already builds.
+func (i *Interpreter) CallNamed(fn object.Object, args []object.Object, name string) object.Object {
+	return i.applyFunction(token.Token{}, name+"(...)", fn, args)
 }
 
 // Eval evaluates node in env and returns the resulting Object. It never

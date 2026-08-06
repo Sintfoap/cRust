@@ -96,6 +96,48 @@ y = double(21)
 	}
 }
 
+// TestTraceCallNamedUsesTheGivenLabel exercises the debugger-facing
+// entry point cmd/crust's --store resolution goes through: unlike an
+// ordinary CallExpression (which builds its own frame label from the
+// call site's source text) or the plain Call export (a fixed generic
+// "call(...)", meant for map()'s per-element callback), CallNamed has
+// no source-level call site to read a name from at all, so its label
+// comes entirely from the name argument -- this is what lets the
+// debugger attribute a whole run to "store_part1(...)" instead of an
+// anonymous frame indistinguishable from any other generic call.
+func TestTraceCallNamedUsesTheGivenLabel(t *testing.T) {
+	l := lexer.New(`recipe store_part1(x) { serve x * 2 }`)
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if errs := p.Errors(); len(errs) > 0 {
+		t.Fatalf("parser errors: %v", errs)
+	}
+	interp := New(&bytes.Buffer{}, strings.NewReader(""))
+	ft := &fakeTracer{}
+	interp.Trace = ft
+	env := object.NewEnvironment()
+	interp.Eval(program, env)
+
+	fn, ok := env.Get("store_part1")
+	if !ok {
+		t.Fatal("store_part1 was not bound in env")
+	}
+	ft.log = nil // only care about what CallNamed itself reports
+
+	result := interp.CallNamed(fn, []object.Object{object.NewInteger(21)}, "store_part1")
+	wantInteger(t, result, 42)
+
+	want := []string{"push:store_part1(...)", "step:serve (x * 2)", "pop"}
+	if len(ft.log) != len(want) {
+		t.Fatalf("log = %v, want %v", ft.log, want)
+	}
+	for i, w := range want {
+		if ft.log[i] != w {
+			t.Errorf("log[%d] = %q, want %q", i, ft.log[i], w)
+		}
+	}
+}
+
 func TestTraceKneadForEachOpensOneFramePerLap(t *testing.T) {
 	ft, _ := tracedEval(t, `
 total = 0

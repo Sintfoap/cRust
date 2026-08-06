@@ -34,6 +34,31 @@ func TestCallExportedOnNonFunction(t *testing.T) {
 	wantError(t, result, "not a recipe")
 }
 
+// TestCallNamedExported exercises Interpreter.CallNamed the same way
+// TestCallExported does for Call — it's the variant cmd/crust's --store
+// entry-point resolution uses (SPEC.md §9) so the debugger's KPI/
+// stepper can attribute the run to the real recipe name instead of
+// Call's generic "call(...)" frame label.
+func TestCallNamedExported(t *testing.T) {
+	interp := New(io.Discard, strings.NewReader(""))
+	env := object.NewEnvironment()
+
+	testEvalWith(t, interp, env, `apply = recipe(x) { serve x + 1 }`)
+	got, ok := env.Get("apply")
+	if !ok {
+		t.Fatal("apply was not bound in env")
+	}
+
+	result := interp.CallNamed(got, []object.Object{object.NewInteger(41)}, "store_part1")
+	wantInteger(t, result, 42)
+}
+
+func TestCallNamedExportedOnNonFunction(t *testing.T) {
+	interp := New(io.Discard, strings.NewReader(""))
+	result := interp.CallNamed(object.NewInteger(5), nil, "store")
+	wantError(t, result, "not a recipe")
+}
+
 func testEvalWith(t *testing.T, interp *Interpreter, env *object.Environment, input string) object.Object {
 	t.Helper()
 	l := lexer.New(input)

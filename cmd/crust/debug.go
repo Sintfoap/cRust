@@ -171,5 +171,5 @@ func runDebugEntryPoint(interp *interpreter.Interpreter, env *object.Environment
 	if !ok {
 		return
 	}
-	interp.Call(fn, nil)
+	interp.CallNamed(fn, nil, target)
 }

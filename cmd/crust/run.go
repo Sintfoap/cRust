@@ -105,7 +105,7 @@ func runEntryPoint(interp *interpreter.Interpreter, env *object.Environment, pro
 		return 0
 	}
 
-	result := interp.Call(fn, nil)
+	result := interp.CallNamed(fn, nil, target)
 	if errObj, ok := result.(*object.Error); ok {
 		reportRuntimeError(stderr, "", errObj)
 		return 1

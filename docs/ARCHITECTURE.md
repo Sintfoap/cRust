@@ -2255,6 +2255,37 @@ code was written.
     fit) and a search/filter over the stepper tree the way the source
     project's visualizer has; both are natural follow-ons noted in
     `TODO.md` rather than guessed at.
+- **Bug: a single-recipe program's whole run showed up in the KPI/
+  stepper as one anonymous `call(...)` frame instead of the recipe's
+  own name** — reported as "if I have a single store_part1 function it
+  only lists that, not any of the inside parts." Reproducing it with a
+  `--plain` recording showed the loop/order breakdown *was* actually
+  there, nested one level down, but the top frame wrapping the whole
+  thing (and the KPI's "by self time" table entry it rolled up into)
+  read as a bare `call(...)`, indistinguishable from any other generic
+  call — which reads as "no breakdown by name" at a glance, even though
+  structurally the tree wasn't flattened. Root cause: `cmd/crust`
+  resolves and invokes the `store`/`store_<name>` entry point (both
+  `crust run` and `crust debug`, SPEC.md §9) through
+  `Interpreter.Call`, the same exported method `map()`'s builtin uses
+  to invoke its per-element callback — and `Call` hardcodes its frame
+  label to the generic `"call(...)"`, which is the right call for
+  `map` (a distinct label per element would be noise) but wrong for an
+  entry point, which has a real, known name sitting right there in the
+  `target` variable that resolved it. Fixed by adding
+  `Interpreter.CallNamed(fn, args, name)` — identical to `Call` except
+  the label is `name + "(...)"`, matching the label an ordinary
+  `CallExpression` already builds from its own call-site source text —
+  and switching both `run.go`'s `runEntryPoint` and `debug.go`'s
+  `runDebugEntryPoint` to it, passing the already-resolved `target`
+  string. `Call` itself is untouched, still generic, still what `map`
+  uses. Verified via a real `crust debug --plain` subprocess, before
+  and after: the tree's top frame and the "by self time" table now
+  read `store_part1(...)` instead of `call(...)`; a second case with a
+  helper recipe called from inside a loop confirmed nested named calls
+  were already breaking out correctly (`helper(...)` already had its
+  own frame and its own self-time row) — the bug was specifically the
+  entry point's own frame, not frame-nesting in general.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

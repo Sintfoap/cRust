@@ -94,7 +94,7 @@ func TestRunDebugPlainMarksFrameCloseWithComment(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "// end call(...)") {
+	if !strings.Contains(out, "// end store(...)") {
 		t.Errorf("stdout = %q, want a // end closing marker for the store() entry-point frame", out)
 	}
 }

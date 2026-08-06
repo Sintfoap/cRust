@@ -596,6 +596,27 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       Set -> List and Set -> Tuple, which had no route at all before),
       duplicate-dropping on `set()`, `list()`'s shallow-copy behavior,
       an unhashable-element error, and a wrong-type error.
+- [x] Fixed: a single-recipe program's whole `crust debug` run showed
+      up in the KPI/stepper as one anonymous `call(...)` frame instead
+      of the recipe's own name -- reported as "if I have a single
+      store_part1 function it only lists that, not any of the inside
+      parts." The loop/order breakdown was actually there, nested one
+      level down; it was specifically the top frame (and its "by self
+      time" table row) reading as a bare, generic `call(...)`. Root
+      cause: `cmd/crust` resolving/running the `store`/`store_<name>`
+      entry point (both `crust run` and `crust debug`) went through
+      `Interpreter.Call`, the same method `map()`'s builtin uses for
+      its per-element callback -- and `Call` hardcodes its frame label
+      to `"call(...)"`, right for `map` (no reason to label each
+      element call distinctly), wrong for an entry point that has a
+      real name sitting right there in the already-resolved `target`
+      variable. Fixed with a new `Interpreter.CallNamed(fn, args,
+      name)`, used by `run.go`/`debug.go` in place of `Call`; `Call`
+      itself is untouched. Verified via a real `crust debug --plain`
+      subprocess: the tree and KPI table now read `store_part1(...)`;
+      a second case with a helper recipe called inside a loop confirmed
+      nested named calls were already breaking out correctly on their
+      own, isolating the bug to the entry point's own frame.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the
