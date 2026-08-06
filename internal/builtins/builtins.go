@@ -42,7 +42,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"ints":       {Fn: intsFn},
 		"push":       {Fn: pushFn},
 		"map":        {Fn: mapFn(call)},
-		"find":       {Fn: findFn(call)},
+		"find":       {Fn: findFn},
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
 		"pizzasort":  {Fn: pizzasortFn},
@@ -192,46 +192,6 @@ func mapFn(call Call) object.BuiltinFunction {
 			out[i] = result
 		}
 		return object.NewList(out)
-	}
-}
-
-// findFn is `find(list, fn)` (SPEC.md §7) — the lowest-index element of
-// a List or Tuple that fn accepts, applying fn left to right and
-// stopping at the first result object.IsTruthy calls true, or `nobox`
-// if none does (or the collection is empty). Returns the *element*
-// itself, not its position or fn's own result — searching for "is
-// there a value here matching some condition" would be redundant if
-// what came back was just confirmation of what was already being
-// searched for; the useful answer is the actual matching value (e.g.
-// `find(users, recipe(u) { serve u.age > 30 })` wants the user, not
-// `stuffed`). Injected the same way `map` is (a Call callback, since
-// internal/builtins can't invoke a cRust function directly), and stops
-// on the first fn call that errors, exactly like map does.
-func findFn(call Call) object.BuiltinFunction {
-	return func(args ...object.Object) object.Object {
-		if len(args) != 2 {
-			return wrongArgCount("find", "2", len(args))
-		}
-		var elements []object.Object
-		switch v := args[0].(type) {
-		case *object.List:
-			elements = v.Elements
-		case *object.Tuple:
-			elements = v.Elements
-		default:
-			return wrongArgType("find", 0, "a List or Tuple", args[0])
-		}
-
-		for _, elem := range elements {
-			result := call(args[1], []object.Object{elem})
-			if result.Type() == object.ERROR_OBJ {
-				return result
-			}
-			if object.IsTruthy(result) {
-				return elem
-			}
-		}
-		return object.NULL
 	}
 }
 
@@ -874,9 +834,9 @@ func containsFn(args ...object.Object) object.Object {
 	}
 	switch v := args[0].(type) {
 	case *object.List:
-		return object.NativeBoolToBooleanObject(elementsContain(v.Elements, args[1]))
+		return object.NativeBoolToBooleanObject(indexOfElement(v.Elements, args[1]) != -1)
 	case *object.Tuple:
-		return object.NativeBoolToBooleanObject(elementsContain(v.Elements, args[1]))
+		return object.NativeBoolToBooleanObject(indexOfElement(v.Elements, args[1]) != -1)
 	case *object.Set:
 		return object.NativeBoolToBooleanObject(v.Has(args[1]))
 	case *object.Map:
@@ -887,16 +847,49 @@ func containsFn(args ...object.Object) object.Object {
 	}
 }
 
-// elementsContain reports whether item equals (object.Equal) any
-// element of elements — the linear-scan half of contains(), shared by
-// its List and Tuple cases since both compare contents the same way.
-func elementsContain(elements []object.Object, item object.Object) bool {
-	for _, e := range elements {
+// findFn is `find(collection, value)` (SPEC.md §7) — the lowest index
+// in a List or Tuple where an element equals (object.Equal, the same
+// value-equality `==`/`contains` use) value, or `nobox` if none does
+// (including an empty collection). The positional counterpart to
+// `contains`: `contains` answers "is value in here at all", `find`
+// answers "where" — sharing the same underlying scan (indexOfElement)
+// rather than two separately-written loops that could drift apart on
+// what "equal" means. Only List/Tuple, not Set/Map: a Set has no
+// position to report or a value at all worth iterating, and a Map's
+// iteration order isn't meaningful the way an index promises it is.
+func findFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("find", "2", len(args))
+	}
+	var elements []object.Object
+	switch v := args[0].(type) {
+	case *object.List:
+		elements = v.Elements
+	case *object.Tuple:
+		elements = v.Elements
+	default:
+		return wrongArgType("find", 0, "a List or Tuple", args[0])
+	}
+
+	idx := indexOfElement(elements, args[1])
+	if idx == -1 {
+		return object.NULL
+	}
+	return object.NewInteger(int64(idx))
+}
+
+// indexOfElement returns the lowest index of elements equal
+// (object.Equal) to item, or -1 if none is — the shared linear scan
+// behind both contains()'s List/Tuple case and find(), so there's
+// exactly one definition of "where does this value live in this
+// collection" rather than two that could quietly disagree.
+func indexOfElement(elements []object.Object, item object.Object) int {
+	for i, e := range elements {
 		if object.Equal(e, item) {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 // twoSets validates both arguments of a binary Set builtin at once.

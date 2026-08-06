@@ -967,29 +967,33 @@ own section below describes.
   a lambda composing two steps like `ints(split(line))`) is covered by
   `internal/interpreter`'s own test suite instead, where a real `Call`
   is naturally available.
-- **`find(iterable, fn)` reuses `map`'s injected `Call` for the exact
-  same reason** — asked as "a library function that searches for an
-  element in a list and returns the one at the lowest index that
-  matches," which is a predicate search (JS's `Array.find`, Python's
-  `next(filter(...))`), not a value-equality lookup (`contains` above
-  already covers "is this exact value present"). Returning a bare
-  boolean or the matched index would leave the caller to re-derive the
-  actual element they were looking for; returning the element itself is
-  the whole point — `find(users, recipe(u) { serve u.age > 30 })` wants
-  the user, not confirmation that one exists. Iterates left to right,
-  same as `map`, and returns as soon as `object.IsTruthy(fn(elem))` —
-  no need to score or rank candidates, just the first one that counts,
-  so there's no reason to look further once it's found. `nobox` on no
-  match (or an empty collection), matching every other "nothing here"
-  result in the language (`at`'s out-of-range read, a missing Map key)
-  rather than a sentinel value that could collide with a real list
-  element. Needed `object.IsTruthy` to exist outside
-  `internal/interpreter` for the same reason `contains` needed
-  `object.Equal` there (below): `internal/builtins` can't import
-  `internal/interpreter` to reach the original private `isTruthy`, so
-  it moved to `internal/object` alongside `Equal`, and every one of
-  `order`/`bake`/ternary/`hold`/with/or's call sites switched to the
-  relocated version — another pure move, not a behavior change.
+- **`find(collection, value)` is `contains`'s positional counterpart —
+  "is `value` here" vs. "where is `value`."** First built as a
+  predicate search (`find(iterable, fn)`, JS's `Array.find` shape,
+  reusing `map`'s injected `Call` to invoke a user function per
+  element and returning the first element it accepted) on the
+  reasonable-sounding original request "a library function that
+  searches for an element in a list and returns the one at the lowest
+  index that matches." That wording turned out to mean something more
+  literal: a plain value to search for (not a predicate function) and
+  the *index* as the answer (not the element) — corrected immediately
+  once the actual call shape was spelled out (`find(collection,
+  value_of_element_to_find)`), before the predicate version had
+  anything built on top of it. The corrected `find` no longer calls
+  back into user code at all — it's a linear scan compared with
+  `object.Equal`, sharing `indexOfElement` with `contains`'s own
+  List/Tuple case (one definition of "where does this value live in
+  this collection," not two that could quietly disagree) — and only
+  accepts List/Tuple, the same restriction `contains` doesn't share
+  (a Set has no position to report, and a Map's iteration order isn't
+  meaningful the way an index promises it is). `nobox` on no match or
+  an empty collection, matching every other "nothing here" result in
+  the language (`at`'s out-of-range read, a missing Map key).
+  `object.IsTruthy`'s relocation out of `internal/interpreter` (from
+  the predicate version's needs) stayed even after `find` itself
+  stopped needing it — `order`/`bake`/ternary/`hold`/with/or's call
+  sites are already on the relocated version, and there was no reason
+  to move them back.
 - **`min`/`max` accept two shapes** — `min(a, b, ...)` (2+ direct
   arguments) or `min(list)` (a single List/Tuple) — the same
   "iterable-or-its-unpacked-elements" convention `map`/`ints` already
@@ -1287,8 +1291,8 @@ own section below describes.
   `slices` (length, replacing a generic `len`), `sauce` (nil-coalesce:
   `value` or a `fallback` if `value` is `nobox`), `chars`/`ints`
   (string → List of characters/digits), `push` (in-place List append),
-  `map` (apply a function across a List/Tuple), `find` (lowest-index
-  predicate match), `min`/`max`, `pizzasort` (natural-order sort),
+  `map` (apply a function across a List/Tuple), `find` (lowest matching
+  index), `min`/`max`, `pizzasort` (natural-order sort),
   `combos` (n-element combinations), `enumerate` (index/value pairs),
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins

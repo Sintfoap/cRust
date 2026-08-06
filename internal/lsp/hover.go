@@ -39,7 +39,7 @@ var builtinDocs = map[string]string{
 	"ints":       "`ints(s) -> List` / `ints(list) -> List` — ints(s) splits a string of digits into single-digit Integers; ints(list) parses each String element as a full Integer (e.g. `ints(split(line))`).",
 	"push":       "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
 	"map":        "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
-	"find":       "`find(iterable, fn) -> Any` — the lowest-index element of a List or Tuple where fn(element) is stuffed, or nobox if none is.",
+	"find":       "`find(collection, value) -> Integer` — the lowest index in a List or Tuple where an element equals value, or nobox if none does. contains()'s positional counterpart.",
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":        "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"pizzasort":  "`pizzasort(list) -> List` — list's elements (a List or Tuple), sorted into natural order (numbers together, Strings together — same ordering as `<`/`min`/`max`). Returns a new List; the original is untouched.",

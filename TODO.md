@@ -463,25 +463,26 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       keep that package back at 100% coverage. Verified via a real
       `crust run` subprocess across List/Tuple/Set/Map, including that
       a Map's *values* don't register as members, only its keys.
-- [x] (Stretch) `find(iterable, fn)` builtin — asked for "a library
-      function that searches for an element in a list and returns the
-      one at the lowest index that matches," which is a predicate
-      search (JS's `Array.find`), not a value-equality lookup
-      (`contains` above already covers that). Reuses `map`'s injected
-      `Call` mechanism to invoke `fn` (a recipe or another builtin) on
-      each element left to right, returning the first one where
-      `fn(element)` is stuffed — the matched *element*, not its index
-      or a boolean, since re-deriving the element from a bare index
-      would just be extra work for the caller. `nobox` on no match or
-      an empty collection, matching every other "nothing here" result
-      in the language. Needed `object.IsTruthy` to exist outside
-      `internal/interpreter`, for the identical reason `contains`
-      needed `object.Equal` there — moved alongside it, with every
-      `order`/`bake`/ternary/`hold`/with/or call site in the
-      interpreter switched to the relocated version. Verified via a
-      real `crust run` subprocess: `find` on a List and a Tuple, no
-      match, and confirming it returns the *lowest*-index match (not
-      just any match) when several elements satisfy the predicate.
+- [x] (Stretch) `find(collection, value)` builtin — first built as a
+      predicate search (`find(iterable, fn)`, JS's `Array.find` shape)
+      from "a library function that searches for an element in a list
+      and returns the one at the lowest index that matches," then
+      corrected once the actual call shape was spelled out
+      (`find(collection, value_of_element_to_find)`): a plain value to
+      search for, and the *index* as the answer, not the element —
+      `contains`'s positional counterpart ("is `value` here" vs. "where
+      is `value`"). No longer calls back into user code at all; shares
+      `indexOfElement` with `contains`'s own List/Tuple case, so
+      there's one definition of "where does this value live," not two.
+      Only List/Tuple (a Set has no position to report; a Map's
+      iteration order isn't meaningful the way an index promises).
+      `nobox` on no match or an empty collection. The `object.IsTruthy`
+      relocation the predicate version needed stayed in place even
+      after `find` stopped needing it — the interpreter's call sites
+      were already switched over, no reason to move them back. Verified
+      via a real `crust run` subprocess: exact value search on a List
+      and a Tuple, value equality treating `2`/`2.0` as the same number
+      (matching `==`), no match, and an empty collection.
 - [x] (Stretch) `pizzasort(list)` builtin, asked for as "whatever
       sorting method is smartest" — three implementation approaches
       were pitched before writing any code: hand-roll an introsort,

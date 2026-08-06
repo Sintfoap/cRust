@@ -604,28 +604,33 @@ func TestMapWrongArgCount(t *testing.T) {
 	wantError(t, call(t, table, "map"))
 }
 
-var isEvenFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
-	return object.NativeBoolToBooleanObject(args[0].(*object.Integer).Value%2 == 0)
-}}
-
 func TestFindOnListReturnsLowestIndexMatch(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3), object.NewInteger(4), object.NewInteger(6)})
-	got := call(t, table, "find", list, isEvenFn)
-	wantInteger(t, got, 4)
+	list := object.NewList([]object.Object{object.NewInteger(10), object.NewInteger(20), object.NewInteger(20), object.NewInteger(30)})
+	got := call(t, table, "find", list, object.NewInteger(20))
+	wantInteger(t, got, 1)
 }
 
 func TestFindOnTuple(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
-	got := call(t, table, "find", tup, isEvenFn)
-	wantInteger(t, got, 2)
+	tup := object.NewTuple([]object.Object{object.NewInteger(5), object.NewInteger(6), object.NewInteger(7)})
+	got := call(t, table, "find", tup, object.NewInteger(6))
+	wantInteger(t, got, 1)
+}
+
+func TestFindUsesValueEquality(t *testing.T) {
+	// 2 (Integer) and 2.0 (Float) are one "number" category for ==
+	// (SPEC.md §6) -- find() has to agree, the same way contains() does.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), &object.Float{Value: 2.0}, object.NewInteger(3)})
+	got := call(t, table, "find", list, object.NewInteger(2))
+	wantInteger(t, got, 1)
 }
 
 func TestFindNoMatchReturnsNobox(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3)})
-	got := call(t, table, "find", list, isEvenFn)
+	got := call(t, table, "find", list, object.NewInteger(99))
 	if got != object.NULL {
 		t.Errorf("find() = %v, want NULL (nobox) when nothing matches", got)
 	}
@@ -633,33 +638,15 @@ func TestFindNoMatchReturnsNobox(t *testing.T) {
 
 func TestFindEmptyListReturnsNobox(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	got := call(t, table, "find", object.NewList(nil), isEvenFn)
+	got := call(t, table, "find", object.NewList(nil), object.NewInteger(1))
 	if got != object.NULL {
 		t.Errorf("find() = %v, want NULL (nobox) for an empty List", got)
 	}
 }
 
-func TestFindPropagatesFnError(t *testing.T) {
-	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
-		return &object.Error{Message: "boom"}
-	}}
-	list := object.NewList([]object.Object{object.NewInteger(1)})
-	errObj := wantError(t, call(t, table, "find", list, failFn))
-	if errObj.Message != "boom" {
-		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
-	}
-}
-
-func TestFindNotCallableIsError(t *testing.T) {
-	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	list := object.NewList([]object.Object{object.NewInteger(1)})
-	wantError(t, call(t, table, "find", list, object.NewInteger(5)))
-}
-
 func TestFindWrongCollectionType(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	wantError(t, call(t, table, "find", object.NewInteger(1), isEvenFn))
+	wantError(t, call(t, table, "find", object.NewInteger(1), object.NewInteger(1)))
 }
 
 func TestFindWrongArgCount(t *testing.T) {
