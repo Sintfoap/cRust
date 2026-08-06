@@ -15,15 +15,15 @@ import (
 var version = "dev"
 
 const usageBody = `Usage:
-  crust <file.crust> [--store=<name>]      interpret a .crust source file
-  crust run <file.crust> [--store=<name>]  interpret, explicitly
-  crust repl                               start an interactive REPL
-  crust tokens <file.crust>                print the lexer's token stream and exit
-  crust parse <file.crust>                 print the parsed AST and exit
-  crust debug <file.crust> [--store=<name>] step through a run: time/memory per function
-  crust lsp                                start a language server on stdin/stdout
-  crust --version                          print the version
-  crust --help | -h                        show this help
+  crust <file.crust> [--store=<name>]         interpret a .crust source file
+  crust run <file.crust> [--store=<name>]     interpret, explicitly
+  crust repl                                  start an interactive REPL
+  crust tokens <file.crust>                   print the lexer's token stream and exit
+  crust parse <file.crust>                    print the parsed AST and exit
+  crust develop <file.crust> [--store=<name>] step through a run: time/memory per function
+  crust lsp                                   start a language server on stdin/stdout
+  crust --version                             print the version
+  crust --help | -h                           show this help
 
 Run flags:
   --store <name>  which store/store_<name> recipe to run as the entry
@@ -39,7 +39,7 @@ Examples:
   crust day01.crust --store=part2   run its store_part2 entry point
   crust tokens day01.crust          debug: see how it lexes
   crust parse day01.crust           debug: see how it parses
-  crust debug day01.crust           step through a run, see time/memory per function
+  crust develop day01.crust         step through a run, see time/memory per function
   crust lsp                         debug: run the language server by hand
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
@@ -132,10 +132,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			return 1
 		}
 		return runParse(rest[1], stdout, stderr)
-	case "debug":
+	case "develop":
 		path, opts, err := parseDebugArgs(rest[1:])
 		if err != nil {
-			fmt.Fprintf(stderr, "crust debug: %s\n", err)
+			fmt.Fprintf(stderr, "crust develop: %s\n", err)
 			return 2
 		}
 		return runDebug(path, opts, stdin, stdout, stderr)

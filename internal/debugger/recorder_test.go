@@ -12,7 +12,7 @@ import (
 )
 
 // record parses and evaluates input under a fresh Recorder, the same
-// way `crust debug` will. Fails the test on a parse error.
+// way `crust develop` will. Fails the test on a parse error.
 func record(t *testing.T, input string, maxSteps int) *Recorder {
 	t.Helper()
 	l := lexer.New(input)
@@ -46,7 +46,7 @@ func TestRecorderFlatProgram(t *testing.T) {
 }
 
 // TestStepLabelCollapsesMultiLineStatementsToOneLine is a regression
-// test for a real display bug found while trying `crust debug` on an
+// test for a real display bug found while trying `crust develop` on an
 // actual file: a recipe declaration's (or a knead/bake/order's) own
 // String() renders its *entire* body, since that's what round-tripping
 // source needs -- but a table row needs exactly one line, and the raw
@@ -229,11 +229,12 @@ func TestPushFrameDefendsBlankLabel(t *testing.T) {
 }
 
 // TestRecorderUnclaimedFrameIsAnOrdinaryRootWhenNotTruncated is a
-// regression test for a real bug found while trying `crust debug`
+// regression test for a real bug found while trying `crust develop`
 // against an actual file: a program's whole logic almost always lives
-// inside its store() entry point, and `crust debug` calls that via
-// interp.Call directly from Go code -- not from a traced *statement*,
-// so nothing ever adopts the frame it opens. Before this fix, Roots()
+// inside its store() entry point, and `crust develop` calls that via
+// interp.CallNamed directly from Go code -- not from a traced
+// *statement*, so nothing ever adopts the frame it opens. Before this
+// fix, Roots()
 // treated *any* leftover pending frame as evidence of an incomplete
 // run and wrapped it in a misleading "(incomplete...)" row, even
 // though the program ran to completion perfectly normally.

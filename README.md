@@ -19,7 +19,7 @@ conversion (`str`/`int`/`float`/`bool`)) built alongside it. `crust run
 closures and all — see [Building](#building) below. `crust lsp` adds
 editor hover, diagnostics, go-to-definition, and more on top
 (`internal/lsp`, JSON-RPC over stdio) — see
-[Language server](#language-server) below. `crust debug` adds a
+[Language server](#language-server) below. `crust develop` adds a
 step-by-step debugger with time/memory-per-function KPIs
 (`internal/trace`, `internal/debugger`) — see
 [Debugging](#debugging-time-and-memory-per-function) above. See [TODO.md](./TODO.md)
@@ -113,7 +113,7 @@ crust parse examples/hello.crust
 
 ### Debugging: time and memory per function
 
-`crust debug day01.crust` runs the program and shows exactly where the
+`crust develop day01.crust` runs the program and shows exactly where the
 time and memory went, statement by statement: a step-by-step trace
 tree (recipe calls and `knead`/`bake` loop laps are frames you can see
 into, each closed by a `// end ...` marker so a long block's extent
@@ -137,7 +137,7 @@ you hit enter). Piped or redirected, or with `--plain`, it prints the
 same information as text:
 
 ```
-crust debug day01.crust
+crust develop day01.crust
 # day01.crust — 11 steps · 102µs total
 # step                                    out            size   time    self%
 # recipe findPair(nums, target) { …       recipe(...)      —  1.4µs     1.3%

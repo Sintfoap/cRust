@@ -14,7 +14,7 @@ import (
 )
 
 // debugView is everything the TUI (debug_tui.go) or the plain printer
-// below needs — built once per `crust debug` run and handed to
+// below needs — built once per `crust develop` run and handed to
 // whichever of the two actually renders it.
 type debugView struct {
 	path string
@@ -82,7 +82,7 @@ func (v *debugView) header() string {
 
 // writePlain prints the recorded trace as an indented table, followed
 // by the KPI ranking — the no-terminal form of the same information
-// the TUI's two tabs show, and what makes `crust debug` scriptable
+// the TUI's two tabs show, and what makes `crust develop` scriptable
 // (redirect to a file, grep it, assert on it in CI) rather than only
 // usable interactively.
 func (v *debugView) writePlain(w io.Writer) {

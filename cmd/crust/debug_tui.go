@@ -1,4 +1,4 @@
-// The bubbletea stepper for `crust debug`. The recording it walks is
+// The bubbletea stepper for `crust develop`. The recording it walks is
 // built in internal/debugger (pure Go, no terminal dependency at
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
@@ -569,7 +569,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	}
 	prog := tea.NewProgram(m, progOpts...)
 	if _, err := prog.Run(); err != nil {
-		fmt.Fprintf(stderr, "crust debug: %v\n", err)
+		fmt.Fprintf(stderr, "crust develop: %v\n", err)
 		return 1
 	}
 	return 0

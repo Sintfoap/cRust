@@ -313,7 +313,7 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       function/loop its self/total time and self *size*, keyed by
       *family* so every call to one recipe, at any recursion depth, and
       every lap of one loop, lands in one KPI bucket rather than one
-      per call site) + `crust debug <file> [--store=<name>] [--plain]
+      per call site) + `crust develop <file> [--store=<name>] [--plain]
       [--max-steps N]`: a plain-text mode (also what makes the whole
       thing unit-testable and CI-scriptable) and — on a real terminal —
       an interactive bubbletea TUI with two tabs, switched with
@@ -630,7 +630,7 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       `m[keys(m)[i]]` lookup -- and a Go test
       (`TestKeysAndValuesCorrespondAcrossSeparateCalls`) makes the same
       check permanent rather than relying on manual reruns.
-- [x] Fixed: a single-recipe program's whole `crust debug` run showed
+- [x] Fixed: a single-recipe program's whole `crust develop` run showed
       up in the KPI/stepper as one anonymous `call(...)` frame instead
       of the recipe's own name -- reported as "if I have a single
       store_part1 function it only lists that, not any of the inside
@@ -638,7 +638,7 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       level down; it was specifically the top frame (and its "by self
       time" table row) reading as a bare, generic `call(...)`. Root
       cause: `cmd/crust` resolving/running the `store`/`store_<name>`
-      entry point (both `crust run` and `crust debug`) went through
+      entry point (both `crust run` and `crust develop`) went through
       `Interpreter.Call`, the same method `map()`'s builtin uses for
       its per-element callback -- and `Call` hardcodes its frame label
       to `"call(...)"`, right for `map` (no reason to label each
@@ -646,11 +646,34 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       real name sitting right there in the already-resolved `target`
       variable. Fixed with a new `Interpreter.CallNamed(fn, args,
       name)`, used by `run.go`/`debug.go` in place of `Call`; `Call`
-      itself is untouched. Verified via a real `crust debug --plain`
+      itself is untouched. Verified via a real `crust develop --plain`
       subprocess: the tree and KPI table now read `store_part1(...)`;
       a second case with a helper recipe called inside a loop confirmed
       nested named calls were already breaking out correctly on their
       own, isolating the bug to the entry point's own frame.
+- [x] `crust debug` renamed to `crust develop`, on direct request --
+      CLI-facing only (dispatch string, usage/help text, error
+      messages, doc comments naming the command). Internal Go
+      identifiers (`debugOptions`, `runDebug`, `debugView`, ...) and
+      the `debug*.go` file names stayed as-is -- a much bigger, purely
+      cosmetic rename of implementation details nothing outside
+      `cmd/crust` sees. Found and fixed a real bug in the same pass:
+      `runDebugEntryPoint` silently did nothing when the entry point
+      wasn't found -- exactly the confusion that prompted the rename
+      request. A file with `store_part1`/`store_part2` but no bare
+      `store`, run with no `--store`, recorded nothing but the
+      top-level recipe declarations and looked like `crust develop`
+      itself was broken rather than like "you forgot `--store`."
+      `run.go`'s `runEntryPoint` already had the right three-way
+      behavior for this (name the missing `--store=<name>`; list
+      available entry points if none was given but some exist; stay
+      silent if the file has no store-family recipe at all) --
+      `runDebugEntryPoint` now returns the same errors, reusing
+      `collectEntryPoints`/`storeFlags` rather than duplicating them,
+      surfaced by `buildDebugView` the same way a parse error already
+      is. Verified via a real `crust develop` subprocess reproducing
+      the exact reported scenario before and after the fix; two new Go
+      tests cover both new error paths.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

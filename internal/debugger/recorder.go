@@ -1,4 +1,4 @@
-// Package debugger implements the `crust debug` step-by-step debugger:
+// Package debugger implements the `crust develop` step-by-step debugger:
 // a Recorder that consumes internal/trace's Tracer hook and builds a
 // bounded tree of the run, plus a timing/KPI pass over that tree
 // (timing.go). This design borrows its shape from a similar tool in
@@ -240,12 +240,12 @@ func fold(children []*TraceNode) []*TraceNode {
 // synthetic row rather than silently dropped, since that's exactly the
 // run a reader most wants to look at. The unremarkable one: a frame
 // opened by a call that didn't happen through a traced *statement* at
-// all -- `crust debug`'s own entry-point call (interp.Call, invoked
-// directly from Go, not from anything internal/interpreter's
+// all -- `crust develop`'s own entry-point call (interp.CallNamed,
+// invoked directly from Go, not from anything internal/interpreter's
 // evalTracedStatement ever sees) is the one place this happens. That
 // frame will *never* have an owning step to adopt it, on a perfectly
 // ordinary, complete run — so treating every pending frame as
-// "incomplete" would mislabel the most common `crust debug` recording
+// "incomplete" would mislabel the most common `crust develop` recording
 // of all: a file whose whole program lives inside its store() entry
 // point.
 func (r *Recorder) Roots() []*TraceNode {

@@ -25,7 +25,7 @@ import (
 // Trace is nil for an ordinary run — internal/trace's Tracer is
 // checked once per statement (evalBlockStatement) and once per call/
 // loop-lap frame (evalFramed), and every one of those checks costs
-// nothing when it's nil; see BenchmarkTracedVsUntraced. `crust debug`
+// nothing when it's nil; see BenchmarkTracedVsUntraced. `crust develop`
 // is the one caller that sets it, to a *debugger.Recorder.
 type Interpreter struct {
 	Builtins map[string]*object.Builtin

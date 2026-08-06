@@ -150,6 +150,43 @@ recipe store_part2() { deliver("two") }
 	}
 }
 
+// TestRunDebugNoDefaultEntryPointListsAvailableOnes is a regression
+// test for a real bug: a file with store_part1/store_part2 but no
+// bare store(), run with no --store, used to silently record nothing
+// but the top-level recipe declarations -- indistinguishable from
+// `develop` itself being broken. It should behave like `crust run`'s
+// equivalent case: fail with a message listing the entry points that
+// do exist, not silently produce an empty-looking recording.
+func TestRunDebugNoDefaultEntryPointListsAvailableOnes(t *testing.T) {
+	path := writeDebugFile(t, `
+recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }
+`)
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "no default entry point; pick one: --store=part1, --store=part2") {
+		t.Errorf("stderr = %q, want it to list the available entry points", stderr.String())
+	}
+}
+
+// TestRunDebugUnknownStoreNameIsAnError is the explicit-but-wrong
+// counterpart: --store=<name> naming a recipe that doesn't exist
+// should fail clearly rather than silently recording nothing.
+func TestRunDebugUnknownStoreNameIsAnError(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }`)
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{Store: "bogus"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), `no entry point named "bogus"`) {
+		t.Errorf("stderr = %q, want it to name the missing entry point", stderr.String())
+	}
+}
+
 func TestRunDebugShowsRuntimeErrorInPlace(t *testing.T) {
 	path := writeDebugFile(t, `recipe store() {
     x = 1 / 0

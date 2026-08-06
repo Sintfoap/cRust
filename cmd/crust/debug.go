@@ -1,4 +1,4 @@
-// `crust debug <file.crust>` — step through a run and see where the
+// `crust develop <file.crust>` — step through a run and see where the
 // time and memory actually went. Concept borrowed from a similar tool
 // in another interpreter project (RFuller25/domainlang's `visualize`
 // command); see ARCHITECTURE.md's debugger section for what carried
@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Sintfoap/cRust/internal/ast"
 	"github.com/Sintfoap/cRust/internal/debugger"
 	"github.com/Sintfoap/cRust/internal/interpreter"
 	"github.com/Sintfoap/cRust/internal/lexer"
@@ -21,14 +22,14 @@ import (
 	"github.com/Sintfoap/cRust/internal/parser"
 )
 
-// debugOptions are the parsed `debug` arguments.
+// debugOptions are the parsed `develop` arguments.
 type debugOptions struct {
 	Store    string // --store=<name>: which store_<name> to run as the entry point
 	MaxSteps int    // --max-steps N: capture bound (0 = the recorder's default)
 	Plain    bool   // --plain: print the trace as text instead of opening the TUI
 }
 
-// parseDebugArgs parses `crust debug` arguments — the same
+// parseDebugArgs parses `crust develop` arguments — the same
 // any-order-flags-then-one-path shape parseRunArgs already uses, plus
 // the two flags specific to debugging a recording rather than just
 // running the program.
@@ -61,16 +62,16 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 			}
 			opts.MaxSteps = n
 		case strings.HasPrefix(a, "-"):
-			return "", opts, fmt.Errorf("unknown flag %q for debug", a)
+			return "", opts, fmt.Errorf("unknown flag %q for develop", a)
 		default:
 			if path != "" {
-				return "", opts, fmt.Errorf("debug takes one program file")
+				return "", opts, fmt.Errorf("develop takes one program file")
 			}
 			path = a
 		}
 	}
 	if path == "" {
-		return "", opts, fmt.Errorf("debug needs a program file")
+		return "", opts, fmt.Errorf("develop needs a program file")
 	}
 	return path, opts, nil
 }
@@ -83,13 +84,13 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // testable, and scriptable in CI or a pipe).
 //
 // Unlike `crust run`, a runtime Error doesn't make this exit non-zero
-// on its own — the whole point of `debug` is to look at a run
+// on its own — the whole point of `develop` is to look at a run
 // including its failure, not just to report one. It's still shown, in
 // place, as the step that produced it.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	view, err := buildDebugView(path, opts, stdin, stdout)
 	if err != nil {
-		fmt.Fprintf(stderr, "crust debug: %s\n", err)
+		fmt.Fprintf(stderr, "crust develop: %s\n", err)
 		return 1
 	}
 	if opts.Plain || !isColorTerminal(stdout) {
@@ -134,9 +135,14 @@ func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.
 	// didn't already fail -- the same order runFile follows. Either
 	// way the failing step is already in rec; there's nothing more to
 	// report here, since showing the recording (including its
-	// failure, in place) is the whole point of this command.
+	// failure, in place) is the whole point of this command. A failure
+	// to even *find* the right entry point (below) is a different kind
+	// of problem -- nothing ran at all, so there's no recording for it
+	// to show in place of an error.
 	if _, failed := interp.Eval(program, env).(*object.Error); !failed {
-		runDebugEntryPoint(interp, env, opts.Store)
+		if err := runDebugEntryPoint(interp, env, program, opts.Store); err != nil {
+			return nil, err
+		}
 	}
 
 	return &debugView{path: path, rec: rec}, nil
@@ -156,20 +162,34 @@ func isColorTerminal(w io.Writer) bool {
 }
 
 // runDebugEntryPoint mirrors run.go's runEntryPoint, minus the
-// exit-code/error-reporting plumbing (the caller doesn't need
-// `debug`'s own exit code to depend on whether the program's entry
-// point failed -- the recording shows that either way) and minus its
-// "no default entry point, list what's available" message, which is
-// about guiding a `crust run` invocation, not something `debug` needs
-// to duplicate.
-func runDebugEntryPoint(interp *interpreter.Interpreter, env *object.Environment, storeFlag string) {
+// exit-code plumbing (the caller doesn't need `develop`'s own exit
+// code to depend on whether the program's entry point *ran and
+// failed* -- the recording shows that either way, same as before).
+// The "no default entry point, list what's available" case is
+// different: nothing gets to run at all, so there's no recording to
+// show it in place of an error the way a runtime Error gets shown --
+// silently returning here used to mean a file with store_part1/
+// store_part2 but no bare `store`, invoked with no --store, recorded
+// nothing but the top-level recipe declarations and looked exactly
+// like `develop` itself was broken rather than like "you forgot
+// --store". Returning the same message run.go's runEntryPoint already
+// builds (via the same collectEntryPoints/storeFlags helpers) fixes
+// that without duplicating the wording.
+func runDebugEntryPoint(interp *interpreter.Interpreter, env *object.Environment, program *ast.Program, storeFlag string) error {
 	target := "store"
 	if storeFlag != "" {
 		target = "store_" + storeFlag
 	}
 	fn, ok := env.Get(target)
 	if !ok {
-		return
+		if storeFlag != "" {
+			return fmt.Errorf("no entry point named %q (looked for recipe %s)", storeFlag, target)
+		}
+		if names := collectEntryPoints(program); len(names) > 0 {
+			return fmt.Errorf("no default entry point; pick one: %s", strings.Join(storeFlags(names), ", "))
+		}
+		return nil
 	}
 	interp.CallNamed(fn, nil, target)
+	return nil
 }

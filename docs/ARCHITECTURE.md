@@ -84,7 +84,7 @@ standard practice to avoid import cycles in a Go interpreter.
     only) — nothing to vendor. This needs to become a real hash the
     moment a third-party Go dependency is added; `nix build` prints the
     correct value on a mismatch. *(That moment arrived in Phase 6 —
-    `crust debug`'s TUI needed bubbletea/lipgloss; see the Go
+    `crust develop`'s TUI needed bubbletea/lipgloss; see the Go
     dependency policy row in §4's design-decisions table.)*
   - `subPackages = [ "cmd/crust" ]` restricts the build to the CLI
     binary specifically, independent of whatever exists under
@@ -1871,7 +1871,7 @@ own section below describes.
   - Not built: incremental (as opposed to full) document sync, and
     code actions — listed as possible follow-on work in `TODO.md`.
 
-#### Debugger (`internal/trace`, `internal/debugger`, `crust debug`)
+#### Debugger (`internal/trace`, `internal/debugger`, `crust develop`)
 
 Concept and much of the tree-building shape borrowed from a similar
 step-by-step debugger in another interpreter project
@@ -1957,12 +1957,12 @@ code was written.
     they're built (`evalForEachLoop` etc.), and a step's label is never
     equal to a frame's label in the first place, so neither
     post-processing step has anything to do here.
-  - **A real bug, found by actually running `crust debug` against a
+  - **A real bug, found by actually running `crust develop` against a
     file**, not just from unit tests: `Roots()` originally treated
     *any* frame left in the pending list as evidence of an incomplete
     recording (a step cap hit mid-body, or — in the source project — an
     uncaught panic) and wrapped it in a misleading
-    `"(incomplete — ...)"` row. But `crust debug`'s own entry-point call
+    `"(incomplete — ...)"` row. But `crust develop`'s own entry-point call
     (`interp.Call`, invoked directly from `cmd/crust/debug.go`'s Go
     code, never through a *traced statement*) opens exactly this kind
     of never-adopted frame on every single ordinary, successful run —
@@ -1979,7 +1979,7 @@ code was written.
     originally returned a statement's raw `String()` — correct for
     round-tripping source, wrong for a one-line table row, since a
     recipe declaration's or a loop's `String()` renders its *entire*
-    multi-line body. `crust debug`'s plain-text table broke badly on
+    multi-line body. `crust develop`'s plain-text table broke badly on
     this (a "row" that was actually eleven lines of source text, with
     every column after it shifted). Fixed by keeping only the first
     line and marking that there's more
@@ -2002,7 +2002,7 @@ code was written.
     of one loop, lands in a single `KPI` bucket. Verified with an
     actual recursive `fact`/`fib`: `TestTimingKPIsGroupRecursiveCallsIntoOneBucket`
     asserts a `fact(5)`'s five recursion depths produce `Calls == 5`
-    in one bucket, and the real `crust debug` demo run against a
+    in one bucket, and the real `crust develop` demo run against a
     `fib(0..7)` summed-in-a-loop program produced exactly 100 calls in
     one `fib(...)` bucket — the correct closed-form sum
     (`fib(0)+fib(1)+...+fib(7)` call counts), a number worth checking
@@ -2018,7 +2018,7 @@ code was written.
     `slices(x)`'s rune/element-count rule, not byte length) feeds a
     second KPI dimension, since the user explicitly asked for "memory
     used per function" alongside time.
-- **`crust debug <file.crust>`** (`cmd/crust/debug.go`,
+- **`crust develop <file.crust>`** (`cmd/crust/debug.go`,
   `debug_view.go`) mirrors `runFile`'s two-phase execution (top-level
   eval, then resolve/call `store`/`store_<name>` per `SPEC.md` §9) but
   under a `debugger.Recorder`, and deliberately does *not* exit
@@ -2282,7 +2282,7 @@ code was written.
       which `store`/`store_<name>` recipe to call — added from a
       follow-up request once the tab already existed, since a file with
       more than one entry point had no way to choose which to run
-      without restarting `crust debug` with a different `--store`.**
+      without restarting `crust develop` with a different `--store`.**
       `debugView.entryPoints()` scans the file independently of the
       current recording (its own lex/parse pass, cached like `timing()`
       already is) and calls `collectEntryPoints` — `run.go`'s own
@@ -2323,7 +2323,7 @@ code was written.
   call — which reads as "no breakdown by name" at a glance, even though
   structurally the tree wasn't flattened. Root cause: `cmd/crust`
   resolves and invokes the `store`/`store_<name>` entry point (both
-  `crust run` and `crust debug`, SPEC.md §9) through
+  `crust run` and `crust develop`, SPEC.md §9) through
   `Interpreter.Call`, the same exported method `map()`'s builtin uses
   to invoke its per-element callback — and `Call` hardcodes its frame
   label to the generic `"call(...)"`, which is the right call for
@@ -2336,13 +2336,49 @@ code was written.
   and switching both `run.go`'s `runEntryPoint` and `debug.go`'s
   `runDebugEntryPoint` to it, passing the already-resolved `target`
   string. `Call` itself is untouched, still generic, still what `map`
-  uses. Verified via a real `crust debug --plain` subprocess, before
+  uses. Verified via a real `crust develop --plain` subprocess, before
   and after: the tree's top frame and the "by self time" table now
   read `store_part1(...)` instead of `call(...)`; a second case with a
   helper recipe called from inside a loop confirmed nested named calls
   were already breaking out correctly (`helper(...)` already had its
   own frame and its own self-time row) — the bug was specifically the
   entry point's own frame, not frame-nesting in general.
+- **`crust debug` renamed to `crust develop`**, on direct request —
+  CLI-facing only: the dispatch string in `main.go`'s switch, usage/
+  help text, and every error message/doc comment that names the
+  command as something a user types. Internal Go identifiers
+  (`debugOptions`, `runDebug`, `parseDebugArgs`, `buildDebugView`,
+  `debugView`, `runDebugEntryPoint`, ...) and the `debug*.go` file
+  names stayed as-is — renaming those too would be a much larger,
+  purely-cosmetic refactor of implementation details nothing outside
+  `cmd/crust` (and no user) ever sees, not something the request
+  asked for.
+  - **Bug found and fixed in the same pass**: `runDebugEntryPoint`
+    silently did nothing when the resolved entry point wasn't found —
+    exactly the confusion that prompted the rename request in the
+    first place. A file with `store_part1`/`store_part2` but no bare
+    `store`, run via `crust develop file.crust` with no `--store`,
+    recorded nothing but the top-level recipe declarations (5 steps:
+    just the declarations) and looked exactly like `crust develop`
+    itself was broken, rather than like "you forgot `--store`."
+    `run.go`'s `runEntryPoint` already had the right behavior for this
+    exact situation — an explicit `--store=<name>` that doesn't exist
+    is an error naming it; no `--store` given but real entry points
+    exist is an error listing them (`collectEntryPoints`/`storeFlags`,
+    both reused rather than duplicated); no store-family recipe at all
+    stays a legitimate silent no-op, since the file already ran
+    top-to-bottom by then. `runDebugEntryPoint` picked up the same
+    three-way behavior, now returning an `error` instead of nothing,
+    which `buildDebugView` surfaces the same way it already surfaces a
+    parse error (there's no recording to show "in place of" this kind
+    of failure — unlike a runtime `Error` from *inside* a successfully
+    found entry point, nothing ran at all here). Verified via a real
+    `crust develop` subprocess reproducing the exact reported
+    scenario (confirmed the silent-empty-recording bug first, then
+    confirmed the fix); two Go tests
+    (`TestRunDebugNoDefaultEntryPointListsAvailableOnes`,
+    `TestRunDebugUnknownStoreNameIsAnError`) cover both new error
+    paths, restoring `cmd/crust` to its coverage baseline.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
@@ -2385,8 +2421,8 @@ months ahead of the event instead of the week before.
 | LSP implementation | Hand-rolled JSON-RPC/LSP in `internal/lsp`, no third-party LSP library | The protocol subset `crust lsp` actually needs (lifecycle, hover, diagnostics) is small enough that a dependency wouldn't have saved much even before the zero-dependency policy ended (see below) |
 | LSP distribution | A `crust lsp` subcommand, not a separate `crust-lsp` binary | Reuses the existing build/package/Nix-flake path entirely — no new binary to build, version, or install |
 | Banner colors | 24-bit true-color ANSI, no 256-color fallback tier | Matches `assets/banner.png`'s hex palette exactly; a decorative help-screen banner degrading ungracefully on an ancient terminal isn't worth a second color-rendering path |
-| TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Was originally "keeps the dependency count at zero"; `crust debug`'s TUI ended that policy anyway (below), but this stayed as-is since `main.go`/`debug.go`'s own stdlib check already does the whole job — pulling in `x/term` for it now would be a dependency with nothing to show for it |
-| Go dependency policy | Zero third-party dependencies through Phase 0–5, ends at Phase 6 with bubbletea + lipgloss (`crust debug`'s TUI) | `flake.nix`'s `vendorHash = null` (valid only for a stdlib-only module) became `pkgs.lib.fakeHash` — nixpkgs' own placeholder that fails informatively, printing the real hash, on the first `nix build` against real dependencies. Not computed in this same change since it needs an actual Nix install to produce, which this dev environment doesn't have (same limitation the uncommitted `flake.lock` note above already lives with) |
+| TTY detection | `os.Stdout.Stat()` + `os.ModeCharDevice`, not `golang.org/x/term` | Was originally "keeps the dependency count at zero"; `crust develop`'s TUI ended that policy anyway (below), but this stayed as-is since `main.go`/`debug.go`'s own stdlib check already does the whole job — pulling in `x/term` for it now would be a dependency with nothing to show for it |
+| Go dependency policy | Zero third-party dependencies through Phase 0–5, ends at Phase 6 with bubbletea + lipgloss (`crust develop`'s TUI) | `flake.nix`'s `vendorHash = null` (valid only for a stdlib-only module) became `pkgs.lib.fakeHash` — nixpkgs' own placeholder that fails informatively, printing the real hash, on the first `nix build` against real dependencies. Not computed in this same change since it needs an actual Nix install to produce, which this dev environment doesn't have (same limitation the uncommitted `flake.lock` note above already lives with) |
 
 ## 5. Performance Strategy
 
