@@ -2547,6 +2547,36 @@ code was written.
       terminal), so this fix rests on the interface-shape tests plus
       the mechanism read directly from bubbletea's and cancelreader's
       source, the same evidentiary standard the original epoll fix used.
+    - **Feature request: "stores should be updated in the run tab
+      everytime the editor is exited"** — `handleReload` (fired only
+      after `handleNvimExit` sees `msg.saved`) already recalculated the
+      Run tab's entry-point selector against the freshly re-recorded
+      view, but that path only runs when a save was detected at all,
+      and detection is an mtime-diff heuristic (`openEditorCmd` captures
+      `mtimeOf(path)` before launching nvim, compares it to the same
+      call after nvim exits) — a save landing inside the same
+      mtime-resolution window the file was opened in could slip past it
+      undetected on some filesystems. Rather than trying to make the
+      heuristic itself more precise, decoupled "refresh the entry-point
+      list" from "detected a save": added `debugView.refreshEntryPoints`
+      (clears the `entryOnce`/`entryVal` cache `entryPoints()` already
+      keeps, so the next call re-reads and re-parses the file rather
+      than returning a stale scan from before the edit) and now call it
+      — plus recompute `runEntryIndex` via the same `indexOfEntry` helper
+      `handleReload` already used — unconditionally in `handleNvimExit`,
+      on every clean exit, before the `msg.saved` branch that decides
+      whether to also kick off a full `reloadCmd` retrace. The two are
+      independent by design: rescanning entry points is a cheap
+      lex+parse with no execution, so it costs nothing to do even when
+      nothing changed, while a full retrace stays gated on an actual
+      save, since re-running the file's `store` recipe isn't free and
+      (for `unbox()`-calling programs) isn't side-effect-free either.
+      Verified with Go tests that edit the file on disk (adding a second
+      `store_<name>` recipe) and then call `handleNvimExit` directly
+      with `saved: false`, confirming both the option list and the
+      selected index update anyway — plus that a clean, saveless exit
+      still doesn't trigger `reloadCmd` itself, matching the code
+      comment's stated split.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

@@ -77,6 +77,58 @@ func TestHandleNvimExitSavedTriggersReload(t *testing.T) {
 	}
 }
 
+// TestHandleNvimExitRefreshesEntryPointsWithoutSave confirms the Run
+// tab's entry-point list is rescanned on every clean nvim exit, not
+// only when msg.saved reports a save happened -- msg.saved is only an
+// mtime-diff heuristic, and a genuine edit can slip past it (e.g. a
+// save landing inside the same mtime-resolution window the file was
+// opened in), so the refresh shouldn't depend on it.
+func TestHandleNvimExitRefreshesEntryPointsWithoutSave(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	if got := m.view.entryPoints(); len(got) != 1 {
+		t.Fatalf("entryPoints() before edit = %v, want 1", got)
+	}
+
+	// Simulate nvim adding a second entry point, without going through
+	// the "saved" mtime-diff detection at all.
+	if err := os.WriteFile(path, []byte(`recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	next, cmd := m.handleNvimExit(nvimExitMsg{err: nil, saved: false})
+	m = next.(debugModel)
+	if cmd != nil {
+		t.Error("a clean exit without a save should not trigger reloadCmd")
+	}
+	if got := m.view.entryPoints(); len(got) != 2 {
+		t.Errorf("entryPoints() after handleNvimExit = %v, want 2 (rescanned even though saved was false)", got)
+	}
+}
+
+// TestHandleNvimExitUpdatesRunEntryIndexWithoutSave confirms the
+// selector's current pick is recalculated too, not just the option
+// list -- otherwise a renamed/removed store could leave runEntryIndex
+// pointing at a stale position.
+func TestHandleNvimExitUpdatesRunEntryIndexWithoutSave(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.opts = debugOptions{Store: "part2"}
+	m.runEntryIndex = 5 // stale/out-of-range from before the edit
+
+	if err := os.WriteFile(path, []byte(`recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := m.handleNvimExit(nvimExitMsg{err: nil, saved: false})
+	m = next.(debugModel)
+	if m.runEntryIndex != 1 {
+		t.Errorf("runEntryIndex after handleNvimExit = %d, want 1 (part2)", m.runEntryIndex)
+	}
+}
+
 func TestReloadCmdSuccessProducesNewView(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.view.path = writeDebugFile(t, "x = 1\ny = 2\n")

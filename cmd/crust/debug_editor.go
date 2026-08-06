@@ -67,18 +67,25 @@ func mtimeOf(path string) time.Time {
 
 // handleNvimExit reacts to nvim handing the terminal back, however it
 // exited. A launch failure (nvim missing, a bad exit) surfaces on the
-// Editor tab and goes no further; quitting with nothing saved is a
-// no-op, since there's nothing new to show; a save kicks off
-// reloadCmd, whose result (handleReload) is what actually leaves the
-// Editor tab — nvim itself is never reopened automatically here, since
-// the only way this fires at all is the user having already chosen to
-// quit.
+// Editor tab and goes no further. Otherwise the Run tab's entry-point
+// list is refreshed unconditionally — not only when msg.saved says a
+// save happened — since that's a coarse mtime-diff heuristic (a save
+// within the same mtime-resolution window as the file was opened would
+// slip past it) and rescanning is cheap: a lex+parse, not a re-trace.
+// A save additionally kicks off reloadCmd, whose result (handleReload)
+// is what actually leaves the Editor tab and re-records the file — a
+// clean exit with nothing saved has no reason to do that, since the
+// existing recording is still accurate. nvim itself is never reopened
+// automatically here, since the only way this fires at all is the user
+// having already chosen to quit.
 func (m debugModel) handleNvimExit(msg nvimExitMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.editorErr = msg.err.Error()
 		return m, nil
 	}
 	m.editorErr = ""
+	m.view.refreshEntryPoints()
+	m.runEntryIndex = indexOfEntry(m.view.entryPoints(), m.opts.Store)
 	if !msg.saved {
 		return m, nil
 	}

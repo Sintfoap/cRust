@@ -59,6 +59,18 @@ func (v *debugView) entryPoints() []string {
 	return v.entryVal
 }
 
+// refreshEntryPoints discards any cached entryPoints() result, forcing
+// the next call to rescan v.path from disk. Used when control hands
+// back from an outside editor (debug_editor.go's handleNvimExit) —
+// nvim could have added, removed, or renamed store/store_<name>
+// recipes, and the Run tab's selector needs to reflect that as soon as
+// the editor is exited, not only after a full retrace (which only
+// happens when a save was actually detected).
+func (v *debugView) refreshEntryPoints() {
+	v.entryOnce = false
+	v.entryVal = nil
+}
+
 // scanEntryPoints is entryPoints' actual work, split out so it needs
 // no debugView receiver — handy for calling straight from a test.
 func scanEntryPoints(path string) []string {

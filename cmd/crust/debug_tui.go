@@ -92,10 +92,11 @@ type debugModel struct {
 	// runEntryIndex/runEntryFocused back the Run tab's entry-point
 	// selector: which of m.view.entryPoints() is picked, and whether
 	// up/down has moved focus to that row (false = the input-file
-	// field has focus). runDebugTUI/handleReload set runEntryIndex to
-	// match m.opts.Store right after computing a fresh view, so the
-	// selector starts pointed at whichever entry point the rest of the
-	// TUI is already showing.
+	// field has focus). runDebugTUI/handleReload/handleNvimExit set
+	// runEntryIndex to match m.opts.Store right after computing a fresh
+	// view (or, for handleNvimExit, a rescanned entry list on the
+	// existing one), so the selector starts pointed at whichever entry
+	// point the rest of the TUI is already showing.
 	runEntryIndex   int
 	runEntryFocused bool
 }

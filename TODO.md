@@ -809,6 +809,26 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       sandbox to confirm raw mode engaging end-to-end, so this rests on
       the interface-shape tests and reading bubbletea's/cancelreader's
       source directly, same as the original epoll fix.
+- [x] Added: Run tab entry-point list now refreshes on every clean
+      editor exit, not only after a detected save. It already refreshed
+      after a save (handleReload recalculated it against the freshly
+      re-recorded view), but that path depends on an mtime-diff
+      heuristic (openEditorCmd compares the file's mtime before/after
+      nvim runs) that could in principle miss a save landing inside the
+      same mtime-resolution window the file was opened in. Added
+      debugView.refreshEntryPoints (clears entryPoints()'s cache so the
+      next call re-reads and re-parses the file) and now call it --
+      plus recompute runEntryIndex the same way handleReload already
+      did -- unconditionally in handleNvimExit, before the msg.saved
+      branch that decides whether to also do a full reloadCmd retrace.
+      Kept the two independent on purpose: rescanning entry points is
+      just a lex+parse, cheap enough to always do, while a full retrace
+      stays gated on an actual save, since re-running the file's store
+      recipe (and any unbox() calls in it) isn't free or side-effect-
+      free. Verified with Go tests that edit the file on disk and call
+      handleNvimExit directly with saved: false, confirming both the
+      option list and the selected index update anyway, and that a
+      clean saveless exit still doesn't trigger reloadCmd itself.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

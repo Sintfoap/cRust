@@ -129,7 +129,11 @@ and **Memory** (one pie chart each, so both get the full window),
 debugged as soon as you switch to it — `nvim` behaves normally in
 there, so `:w` just saves and keeps you editing; quitting after a
 save, e.g. `:wq`, reruns the recording, refreshes the other tabs, and
-takes you to the Time tab), and **Run** (type a path to an input file
+takes you to the Time tab. Quitting *without* saving, e.g. a plain
+`:q`, skips the rerun but still refreshes the Run tab's entry-point
+list either way — so adding, removing, or renaming a `store`/
+`store_<name>` recipe shows up there the moment you leave the editor,
+not only after a save), and **Run** (type a path to an input file
 and press enter to run the file with it as stdin, showing the raw
 output exactly like `crust run day01.crust < input.txt` would — no
 tracing, just the program's own stdout/stderr; if the file declares
