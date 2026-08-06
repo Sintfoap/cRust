@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,6 +98,71 @@ func TestReloadCmdParseErrorReturnsErr(t *testing.T) {
 	msg := m.reloadCmd()().(reloadMsg)
 	if msg.err == nil {
 		t.Fatal("reloadCmd() on a file with a parse error should return err")
+	}
+}
+
+// TestReloadCmdUsesRunTabInputFile confirms reloadCmd reads its stdin
+// from m.runInput (the Run tab's own field) rather than real process
+// stdin -- the same fix runProgramCmd's retrace already applies,
+// closing the same "eats the user's keystrokes as unbox() input"
+// class of bug for the Editor tab's save-triggered reload.
+func TestReloadCmdUsesRunTabInputFile(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.view.path = writeDebugFile(t, `line = unbox(); deliver(line)`)
+	m.runInput = runInputModel{value: []rune(inputPath)}
+
+	msg := m.reloadCmd()().(reloadMsg)
+	if msg.err != nil {
+		t.Fatalf("reloadCmd() error = %v, want nil", msg.err)
+	}
+	var buf strings.Builder
+	msg.view.writePlain(&buf)
+	if !strings.Contains(buf.String(), "42") {
+		t.Errorf("reloaded view = %q, want the Run tab's input file reflected", buf.String())
+	}
+}
+
+// TestReloadCmdUnreadableInputFileDegradesToEmpty confirms a stale or
+// missing input path doesn't block the reload -- an edit unrelated to
+// the input file should still refresh the recording, just with empty
+// stdin, the same as if no input file had ever been given.
+func TestReloadCmdUnreadableInputFileDegradesToEmpty(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.view.path = writeDebugFile(t, `deliver("hello")`)
+	m.runInput = runInputModel{value: []rune("/no/such/input.txt")}
+
+	msg := m.reloadCmd()().(reloadMsg)
+	if msg.err != nil {
+		t.Fatalf("reloadCmd() error = %v, want nil (missing input file should degrade, not fail)", msg.err)
+	}
+	if msg.view == nil {
+		t.Fatal("reloadCmd() returned a nil view")
+	}
+}
+
+// TestReloadCmdNoInputFileStillRecordsARun confirms the common case
+// (no input file ever set in the Run tab) still produces a real
+// recording rather than erroring or hanging -- reloadCmd no longer
+// references any process-stdin-derived reader at all in this case
+// (bytes.NewReader(nil), not os.Stdin), which is what actually
+// guarantees a program calling unbox() here can't consume real
+// keystrokes; this just confirms that path still works end to end.
+func TestReloadCmdNoInputFileStillRecordsARun(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.view.path = writeDebugFile(t, `line = unbox(); deliver(slices(line))`)
+
+	msg := m.reloadCmd()().(reloadMsg)
+	if msg.err != nil {
+		t.Fatalf("reloadCmd() error = %v, want nil", msg.err)
+	}
+	if msg.view.rec.Steps() == 0 {
+		t.Error("expected a real recording (nonzero steps), not an empty one")
 	}
 }
 

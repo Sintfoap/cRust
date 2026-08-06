@@ -2438,6 +2438,71 @@ code was written.
       file does not (proving the fix actually changes the outcome, not
       by accident of some other difference), plus a plain read-through
       test confirming the wrapper still works as an ordinary reader.
+    - **A closely related bug, reported next: "my input after running
+      developer doesn't correctly input into the develop tool"** — the
+      `stdinOnlyReader` fix above stopped bubbletea's own epoll setup
+      from crashing, but didn't address a second, deeper problem the
+      same real-stdin exposure caused: launching the interactive TUI
+      still *ran the program* first (`buildDebugView`, using the real
+      process's own stdin), before bubbletea ever took the terminal
+      over for its own keyboard input. Any `store`/`store_<name>`
+      recipe that calls `unbox()` would read from that same stdin —
+      silently consuming whatever the user typed *next* as puzzle
+      input, since nothing distinguishes "a keystroke meant for the
+      TUI" from "a keystroke `unbox()` is blocking on" at the OS level;
+      they're the same file descriptor. The user's own proposed fix was
+      exactly right and is what got built: don't require `--store`/an
+      input file up front at all — start the interactive TUI with
+      "no data" in Time/Memory/Stepper, and only ever populate them
+      once the user runs from the Run tab (which already reads an
+      explicit input *file*, never real stdin, since the previous
+      Run-tab-linkage change). `runDebug` now branches before running
+      anything: `--plain`/non-tty output still calls the existing
+      `buildDebugView` and runs eagerly (unchanged — there's no Run tab
+      to defer to there, so showing anything at all means running it
+      now), but the real-terminal case calls a new `emptyDebugView`
+      instead — parses `path` (so a syntax error still surfaces
+      immediately, and `entryPoints()` still works for the Run tab's
+      own selector, since that's a fully independent lex/parse pass)
+      but runs nothing, handing `runDebugTUI` a `debugView` wrapping a
+      freshly-constructed, empty `debugger.Recorder`. Empty-recording
+      rendering needed no new UI work at all — `TestDebugModelViewOnEmptyRecording`
+      already exercised exactly this shape before any of this session's
+      work started, so Time/Memory/Stepper already knew how to show
+      "nothing recorded yet" correctly. `buildDebugView`'s own
+      read-file-then-parse-then-report-a-syntax-error logic was pulled
+      out into a shared `parseDebugFile`, so `emptyDebugView` doesn't
+      duplicate it. The Editor tab's save-triggered `reloadCmd`
+      (`debug_editor.go`) had the identical latent exposure — a save
+      still re-ran the program via `buildDebugView`, using `m.stdin`
+      (the same real process stdin) — caught and fixed the same way
+      while already in this code: `reloadCmd` now reads stdin from
+      `m.runInput`, the Run tab's own input-file field (the exact
+      source `runProgramCmd` already uses for an explicit run), read
+      fresh each time rather than passed down at TUI startup. An
+      unreadable or since-moved input path degrades to empty input
+      here rather than failing the whole reload — a code edit unrelated
+      to the input file shouldn't be blocked by a stale path, unlike
+      the Run tab's own explicit "run" action, where surfacing that
+      error loudly is exactly the point. With `m.stdin` no longer
+      referenced anywhere, the `debugModel.stdin` field itself (and
+      `runDebugTUI`'s assignment into it) were removed outright rather
+      than left as dead state — the `stdin io.Reader` *parameter* to
+      `runDebugTUI` still exists and still matters, but only now for
+      wiring bubbletea's own keyboard input (`stdinOnlyReader{f}`,
+      above), a genuinely different use of "stdin" than the one being
+      removed. Verified via a real `crust develop --plain` subprocess
+      that the eager-run path is completely unchanged (reads real
+      stdin exactly as before — there's no Run tab there to have
+      fixed anything for). Go tests cover `emptyDebugView` directly
+      (zero steps recorded, entry points still scanned, a missing file
+      or parse error still reported) and `reloadCmd`'s new input
+      source (the Run tab's file content actually reaching the
+      retrace, a missing input path degrading to empty rather than
+      failing, and the no-input-file case still producing a real
+      recording) — `runDebugTUI` itself stays untestable without a
+      real terminal, the same pre-existing gap `isColorTerminal`'s tty
+      branch already had before any of this.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but

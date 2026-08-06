@@ -753,6 +753,37 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       shape while `stdinOnlyReader` wrapping that same file does not,
       plus a read-through test confirming the wrapper still works as an
       ordinary reader.
+- [x] Fixed a deeper, related bug reported right after the above: "my
+      input after running developer doesn't correctly input into the
+      develop tool." Launching the interactive TUI still ran the
+      program first, against real process stdin, before bubbletea ever
+      took the terminal over for its own keyboard input -- any
+      store/store_<name> recipe calling unbox() would silently consume
+      the user's next keystrokes as puzzle input instead of them
+      reaching the TUI. Built exactly the fix the user proposed: don't
+      require --store/an input file up front -- start the TUI with "no
+      data" in Time/Memory/Stepper, and only populate them once the
+      user runs from the Run tab (which already reads an explicit input
+      file, never real stdin). runDebug now branches before running
+      anything: --plain/non-tty still runs eagerly via the existing
+      buildDebugView (no Run tab to defer to there); the real-terminal
+      case calls a new emptyDebugView instead, which parses the file
+      (so a syntax error still surfaces immediately, and the Run tab's
+      entry-point selector still works) but runs nothing. Empty-
+      recording rendering needed no new UI work -- that shape was
+      already handled and already tested. The Editor tab's
+      save-triggered reloadCmd had the identical latent exposure (a
+      save still re-ran the program against real stdin) and got the
+      same fix while already in this code: it now reads stdin from the
+      Run tab's own input-file field instead, read fresh each reload;
+      an unreadable input path degrades to empty input rather than
+      failing the reload, since an unrelated code edit shouldn't be
+      blocked by a stale path. Verified via a real crust develop
+      --plain subprocess that the eager-run path is completely
+      unchanged. Go tests cover emptyDebugView directly and reloadCmd's
+      new input source (the Run tab's file content reaching the
+      retrace, a missing path degrading gracefully, the no-input-file
+      case still producing a real recording).
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

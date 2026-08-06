@@ -76,45 +76,62 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 	return path, opts, nil
 }
 
-// runDebug records a run of path (top-level evaluation, then its
-// resolved store/store_<name> entry point — the same two-phase
-// execution runFile does, see run.go) under a debugger.Recorder, then
-// shows the recording: the interactive stepper on a real terminal, or
-// a plain indented text form otherwise (which is also what makes this
-// testable, and scriptable in CI or a pipe).
+// runDebug shows a recording of path: the interactive stepper on a
+// real terminal, or a plain indented text form otherwise (which is
+// also what makes this testable, and scriptable in CI or a pipe).
 //
-// Unlike `crust run`, a runtime Error doesn't make this exit non-zero
-// on its own — the whole point of `develop` is to look at a run
-// including its failure, not just to report one. It's still shown, in
-// place, as the step that produced it.
+// The two modes differ in more than presentation: --plain (or any
+// non-tty stdout) runs path immediately, top-level evaluation then its
+// resolved store/store_<name> entry point (the same two-phase
+// execution runFile does, see run.go), under a debugger.Recorder --
+// there's no interactive Run tab to defer to, so showing anything at
+// all means running it now. The real terminal case starts empty
+// instead (emptyDebugView): parsed, so a syntax error still surfaces
+// immediately and the Run tab's entry-point list still works, but not
+// executed. Only the Run tab's own "run" action (debug_run.go) ever
+// actually records a run once the TUI has the screen -- running eagerly
+// here, before bubbletea takes over stdin for its own keyboard input,
+// used to mean any store/store_<name> recipe that reads unbox() would
+// consume whatever the user typed next as puzzle input instead of it
+// reaching the TUI at all, breaking keyboard input outright on the very
+// first launch.
+//
+// Unlike `crust run`, a runtime Error from an eagerly-run --plain
+// recording doesn't make this exit non-zero on its own — the whole
+// point of `develop` is to look at a run including its failure, not
+// just to report one. It's still shown, in place, as the step that
+// produced it.
 //
 // applySavedStore fills in an unset --store from this file's
 // remembered settings (debug_state.go) before anything else runs, so
-// the very first recording — not just the Run tab after it's re-run
-// once — already reflects whichever entry point was last used here.
+// a --plain recording (and the TUI's Run-tab entry-point selector's
+// starting position) already reflects whichever entry point was last
+// used here.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	opts = applySavedStore(path, opts)
-	view, err := buildDebugView(path, opts, stdin, stdout)
+
+	if opts.Plain || !isColorTerminal(stdout) {
+		view, err := buildDebugView(path, opts, stdin, stdout)
+		if err != nil {
+			fmt.Fprintf(stderr, "crust develop: %s\n", err)
+			return 1
+		}
+		view.writePlain(stdout)
+		return 0
+	}
+
+	view, err := emptyDebugView(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "crust develop: %s\n", err)
 		return 1
 	}
-	if opts.Plain || !isColorTerminal(stdout) {
-		view.writePlain(stdout)
-		return 0
-	}
 	return runDebugTUI(view, opts, stdin, stdout, stderr)
 }
 
-// buildDebugView parses and records one run of path exactly as runDebug
-// always has, without deciding how (or whether) to display it — shared
-// with the TUI's Editor tab (debug_editor.go), which needs the same
-// recording rebuilt from scratch after every save. progOut is where the
-// program's own output (deliver, etc.) goes; the initial run writes it
-// straight to the real terminal since nothing owns the screen yet, but
-// a reload triggered from inside an already-running TUI must not — see
-// debug_editor.go's reloadCmd.
-func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.Writer) (*debugView, error) {
+// parseDebugFile parses path, the shared first step buildDebugView and
+// emptyDebugView both need — reading the file and reporting a syntax
+// error the same way for either one.
+func parseDebugFile(path string) (*ast.Program, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -130,6 +147,21 @@ func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.
 			fmt.Fprintf(&b, "\n  %s", e)
 		}
 		return nil, errors.New(b.String())
+	}
+	return program, nil
+}
+
+// buildDebugView parses and records one real run of path — shared with
+// the Editor tab's save-triggered reload (debug_editor.go's
+// reloadCmd), which needs the same recording rebuilt from scratch
+// after every save. progOut is where the program's own output
+// (deliver, etc.) goes; --plain's eager run writes it straight to the
+// real terminal since nothing owns the screen yet, but a reload
+// triggered from inside an already-running TUI must not.
+func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.Writer) (*debugView, error) {
+	program, err := parseDebugFile(path)
+	if err != nil {
+		return nil, err
 	}
 
 	rec := debugger.NewRecorder(opts.MaxSteps)
@@ -152,6 +184,21 @@ func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.
 	}
 
 	return &debugView{path: path, rec: rec}, nil
+}
+
+// emptyDebugView parses path (catching a syntax error immediately, and
+// making entryPoints() work for the Run tab's selector) without
+// running anything at all — the interactive TUI's starting point, so
+// the very first launch never touches real process stdin the way an
+// eager run would. Time/Memory/Stepper simply show nothing recorded
+// yet (already-handled empty states, the same ones a genuinely
+// step-free run would produce) until the Run tab's own "run" action
+// builds a real recording against an explicit input file instead.
+func emptyDebugView(path string) (*debugView, error) {
+	if _, err := parseDebugFile(path); err != nil {
+		return nil, err
+	}
+	return &debugView{path: path, rec: debugger.NewRecorder(0)}, nil
 }
 
 // isColorTerminal reports whether w is an interactive terminal worth

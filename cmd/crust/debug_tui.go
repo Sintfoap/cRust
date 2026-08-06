@@ -66,14 +66,15 @@ type debugModel struct {
 	cursor   int
 	top      int // first visible row, for scrolling a tall tree
 
-	// opts and stdin are only needed for the Editor tab's reload loop
+	// opts is only needed for the Editor tab's reload loop
 	// (debug_editor.go) — a rerun after a save must record the file
-	// with the exact same --store/--max-steps the original run used,
-	// and stdin so an input()-reading program still has something to
-	// read from. runDebugTUI sets both after construction; tests that
-	// never touch the Editor tab can leave them at their zero values.
-	opts  debugOptions
-	stdin io.Reader
+	// with the exact same --store/--max-steps the original run used.
+	// runDebugTUI sets it after construction; tests that never touch
+	// the Editor tab can leave it at its zero value. reloadCmd reads
+	// its input file from m.runInput, not from opts or any process
+	// stdin — see emptyDebugView (debug.go) for why the interactive
+	// TUI never touches real stdin for tracing at all.
+	opts debugOptions
 
 	// editorErr is the last nvim launch/exit error, if any, shown on
 	// the Editor tab — e.g. nvim isn't on PATH. Cleared on success.
@@ -581,7 +582,6 @@ type stdinOnlyReader struct{ io.Reader }
 func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	m := newDebugModel(view)
 	m.opts = opts
-	m.stdin = stdin
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
 	m.runInput = restoreRunInput(view.path)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}

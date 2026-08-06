@@ -113,33 +113,42 @@ crust parse examples/hello.crust
 
 ### Debugging: time and memory per function
 
-`crust develop day01.crust` runs the program and shows exactly where the
-time and memory went, statement by statement: a step-by-step trace
-tree (recipe calls and `knead`/`bake` loop laps are frames you can see
+`crust develop day01.crust` shows exactly where the time and memory
+went in a run, statement by statement: a step-by-step trace tree
+(recipe calls and `knead`/`bake` loop laps are frames you can see
 into, each closed by a `// end ...` marker so a long block's extent
 reads the same way matching braces would) plus a ranking of every
 function/loop by *self* time — the work it's actually responsible for,
 not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
-not one row per call site. On a real terminal this opens an
-interactive five-tab TUI: **Time** and **Memory** (one pie chart each,
-so both get the full window), **Stepper** (the tree), **Editor**
-(opens `nvim` on the file being debugged as soon as you switch to
-it — `nvim` behaves normally in there, so `:w` just saves and keeps you
-editing; quitting after a save, e.g. `:wq`, reruns the recording,
-refreshes the other tabs, and takes you to the Time tab), and **Run**
-(type a path to an input file and press enter to run the file with it
-as stdin, showing the raw output exactly like `crust run day01.crust <
-input.txt` would — no tracing, just the program's own stdout/stderr; if
-the file declares more than one `store`/`store_<name>` entry point,
-↑↓ moves down to a selector row listing them and ←→ picks one before
-you hit enter. Running here also retraces that same entry point and
-input file for the Time/Memory/Stepper tabs, so whichever one you just
-ran with is what the rest of the TUI shows too — and remembers both
-for next time: reopening the same file later, with no `--store` on the
-command line, starts back on the same entry point with the same input
-path already filled in). Piped or redirected, or with `--plain`, it
-prints the same information as text:
+not one row per call site.
+
+On a real terminal this opens an interactive five-tab TUI: **Time**
+and **Memory** (one pie chart each, so both get the full window),
+**Stepper** (the tree), **Editor** (opens `nvim` on the file being
+debugged as soon as you switch to it — `nvim` behaves normally in
+there, so `:w` just saves and keeps you editing; quitting after a
+save, e.g. `:wq`, reruns the recording, refreshes the other tabs, and
+takes you to the Time tab), and **Run** (type a path to an input file
+and press enter to run the file with it as stdin, showing the raw
+output exactly like `crust run day01.crust < input.txt` would — no
+tracing, just the program's own stdout/stderr; if the file declares
+more than one `store`/`store_<name>` entry point, ↑↓ moves down to a
+selector row listing them and ←→ picks one before you hit enter).
+Time/Memory/Stepper start out empty ("nothing recorded yet") rather
+than running the program immediately — that first, automatic run used
+to read real process stdin before the TUI had taken over the keyboard,
+so any `store`/`store_<name>` recipe that called `unbox()` would
+silently consume whatever you typed next as puzzle input instead of it
+reaching the TUI at all. Running from the Run tab is what actually
+populates those three tabs: it retraces that same entry point and
+input file, so whichever one you just ran with is what the rest of the
+TUI shows — and remembers both for next time, so reopening the same
+file later starts the Run tab back on the same entry point with the
+same input path already filled in (though Time/Memory/Stepper still
+start empty until you press enter there again). Piped or redirected,
+or with `--plain`, there's no Run tab to defer to, so it runs
+immediately and prints the same information as text:
 
 ```
 crust develop day01.crust

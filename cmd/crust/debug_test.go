@@ -216,6 +216,47 @@ func TestRunDebugUnknownStoreNameIsAnError(t *testing.T) {
 	}
 }
 
+// TestEmptyDebugViewHasNoRecordedSteps is emptyDebugView's whole
+// purpose: the interactive TUI's starting point (unlike buildDebugView)
+// runs nothing at all, so its Recorder should show zero steps and an
+// empty tree -- confirmed against the file's own real entry points,
+// which still work (entryPoints() does its own independent parse).
+func TestEmptyDebugViewHasNoRecordedSteps(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`)
+
+	view, err := emptyDebugView(path)
+	if err != nil {
+		t.Fatalf("emptyDebugView: %v", err)
+	}
+	if view.rec.Steps() != 0 {
+		t.Errorf("Steps() = %d, want 0 -- nothing should have run", view.rec.Steps())
+	}
+	if len(view.rec.Roots()) != 0 {
+		t.Errorf("Roots() = %v, want empty -- nothing should have run", view.rec.Roots())
+	}
+	if got := view.entryPoints(); len(got) != 2 {
+		t.Errorf("entryPoints() = %v, want 2 (entryPoints does its own parse, independent of the recording)", got)
+	}
+}
+
+func TestEmptyDebugViewMissingFileReturnsError(t *testing.T) {
+	if _, err := emptyDebugView("/no/such/file.crust"); err == nil {
+		t.Error("emptyDebugView() = nil error, want an error for a missing file")
+	}
+}
+
+func TestEmptyDebugViewParseErrorReturnsError(t *testing.T) {
+	path := writeDebugFile(t, "x = = =\n")
+	_, err := emptyDebugView(path)
+	if err == nil {
+		t.Fatal("emptyDebugView() = nil error, want a parse error")
+	}
+	if !strings.Contains(err.Error(), "parse error") {
+		t.Errorf("err = %q, want it to mention a parse error", err.Error())
+	}
+}
+
 func TestRunDebugShowsRuntimeErrorInPlace(t *testing.T) {
 	path := writeDebugFile(t, `recipe store() {
     x = 1 / 0

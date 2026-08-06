@@ -12,9 +12,11 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,13 +88,30 @@ func (m debugModel) handleNvimExit(msg nvimExitMsg) (tea.Model, tea.Cmd) {
 // reloadCmd re-parses and re-records m.view.path with the same options
 // the current recording used. Its interpreter's program output
 // (deliver, etc.) goes to io.Discard rather than the real terminal —
-// unlike the very first recording (built before the TUI ever took the
+// unlike --plain's eager run (built before the TUI ever took the
 // screen), this one runs while the alt-screen buffer is already
 // active, and writing straight to the terminal here would corrupt it.
+//
+// Reads stdin from the Run tab's own input-file field (m.runInput),
+// the same source runProgramCmd uses for an explicit run — never real
+// process stdin, which the interactive TUI doesn't touch for tracing
+// at all (see emptyDebugView in debug.go for why). An unreadable input
+// path (e.g. moved since it was last used) degrades to empty input
+// here rather than failing the whole reload: an edit that has nothing
+// to do with the input file shouldn't be blocked by a stale path — the
+// Run tab's own "run" action still reports that error loudly when it's
+// actually the thing being run.
 func (m debugModel) reloadCmd() tea.Cmd {
-	path, opts, stdin := m.view.path, m.opts, m.stdin
+	path, opts := m.view.path, m.opts
+	inputPath := strings.TrimSpace(m.runInput.String())
 	return func() tea.Msg {
-		view, err := buildDebugView(path, opts, stdin, io.Discard)
+		var data []byte
+		if inputPath != "" {
+			if d, err := os.ReadFile(inputPath); err == nil {
+				data = d
+			}
+		}
+		view, err := buildDebugView(path, opts, bytes.NewReader(data), io.Discard)
 		if err != nil {
 			return reloadMsg{err: err}
 		}
