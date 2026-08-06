@@ -553,22 +553,46 @@ func (m debugModel) renderClosingRow(i int) string {
 	return "  " + styleFaint.Render(line)
 }
 
-// stdinOnlyReader hides every method of *os.File except Read. Passed
-// to tea.WithInput below specifically so bubbletea's cancelreader
-// dependency can't type-assert its way to a Fd()/Name()-having "File"
-// and take its epoll-based reader on Linux — that path calls
-// EPOLL_CTL_ADD on stdin's fd, which fails outright ("add reader to
-// epoll interest list") under some WSL configurations, crashing
-// `crust develop` before the TUI ever draws a frame. cancelreader's
-// own fallback (a plain blocking Read, used automatically whenever the
-// input isn't recognized as a File) works everywhere epoll doesn't,
-// at the cost of being unable to interrupt an in-progress blocking
-// read from the *outside* — a real tradeoff in general, but not one
-// `crust develop` ever needed: every quit path here (q/ctrl+c/esc, or
-// handing off to nvim) is itself the next keypress being read, not an
-// external cancellation racing a read that's already blocked waiting
-// for one.
-type stdinOnlyReader struct{ io.Reader }
+// stdinNoNamer wraps *os.File to expose Read/Write/Close/Fd but not
+// Name, threading the needle between two lookalike-but-different
+// interfaces bubbletea's dependencies use to type-assert their way to
+// "this is a real terminal file":
+//
+//   - github.com/muesli/cancelreader's File requires Name() too. On
+//     Linux, satisfying it makes cancelreader take an epoll-based
+//     reader — EPOLL_CTL_ADD on stdin's fd, which under some WSL
+//     configurations fails outright ("add reader to epoll interest
+//     list"), crashing `crust develop` before the TUI ever draws a
+//     frame. Not satisfying it falls back to a plain blocking Read,
+//     which works everywhere epoll doesn't, at the cost of being
+//     unable to interrupt an in-progress read from the *outside* — a
+//     real tradeoff in general, but not one `crust develop` ever
+//     needed: every quit path here (q/ctrl+c/esc, or handing off to
+//     nvim) is itself the next keypress being read, not an external
+//     cancellation racing a read that's already blocked waiting for
+//     one.
+//   - github.com/charmbracelet/x/term's File does NOT require Name —
+//     just Fd() plus the usual read/write/close. bubbletea's own
+//     initInput uses exactly this narrower assertion to decide whether
+//     to call term.MakeRaw and put the terminal in raw mode (no local
+//     echo, no line buffering, one keypress in as one event out). An
+//     earlier version of this wrapper (stdinOnlyReader) hid Fd()
+//     entirely to be rid of cancelreader's epoll path, but that
+//     defeated *this* check too — raw mode never engaged, so every
+//     keystroke got echoed straight into the terminal by the OS
+//     instead of being consumed by bubbletea, corrupting the TUI's own
+//     rendered output with whatever the user happened to be typing.
+//
+// A named (non-embedded) *os.File field is what makes this possible:
+// embedding would auto-promote Name() right along with everything
+// else. Explicit forwarding methods for exactly the four wanted is the
+// only way to expose that subset and no more.
+type stdinNoNamer struct{ f *os.File }
+
+func (r stdinNoNamer) Read(p []byte) (int, error)  { return r.f.Read(p) }
+func (r stdinNoNamer) Write(p []byte) (int, error) { return r.f.Write(p) }
+func (r stdinNoNamer) Close() error                { return r.f.Close() }
+func (r stdinNoNamer) Fd() uintptr                 { return r.f.Fd() }
 
 // runDebugTUI drives the stepper on a real terminal. AltScreen keeps
 // the whole session inside the terminal's alternate buffer (restored
@@ -586,7 +610,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.runInput = restoreRunInput(view.path)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
-		progOpts = append(progOpts, tea.WithInput(stdinOnlyReader{f}))
+		progOpts = append(progOpts, tea.WithInput(stdinNoNamer{f}))
 	}
 	prog := tea.NewProgram(m, progOpts...)
 	if _, err := prog.Run(); err != nil {

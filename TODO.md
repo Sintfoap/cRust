@@ -784,6 +784,31 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       new input source (the Run tab's file content reaching the
       retrace, a missing path degrading gracefully, the no-input-file
       case still producing a real recording).
+- [x] Fixed a regression the `stdinOnlyReader` fix above introduced:
+      the user's next report showed the TUI's own help text and their
+      raw typed keystrokes (h/j/k/l, arrows) both garbled together in
+      the rendered output -- classic terminal echo, meaning the
+      terminal was never put into raw mode. `stdinOnlyReader` hides
+      `Fd()` to defeat cancelreader's `File` type assertion (the epoll
+      fix above), but bubbletea's own `initInput` (tty_unix.go) uses a
+      second, separate type assertion to a narrower `term.File`
+      shape (`io.ReadWriteCloser` + `Fd()`, no `Name()`) to decide
+      whether to call `term.MakeRaw()` at all -- hiding `Fd()` defeated
+      that check too, so raw mode (no local echo, no line buffering)
+      never engaged. Fixed by replacing `stdinOnlyReader` with
+      `stdinNoNamer{f *os.File}`: a named (non-embedded) field with
+      explicit forwarding methods for `Read`/`Write`/`Close`/`Fd()` but
+      not `Name()` -- satisfying `term.File` (raw mode engages again)
+      while still failing cancelreader's stricter shape that also wants
+      `Name()` (epoll still avoided, so the original crash stays fixed).
+      Verified with Go tests asserting `stdinNoNamer` satisfies a
+      mirrored `term.File` shape and fails a mirrored `cancelreader.File`
+      shape, plus a read-through test; confirmed via grep that
+      bubbletea never calls `.Close()` on the input directly, so the
+      wrapper's `Close` passthrough is safe. No real pty in this
+      sandbox to confirm raw mode engaging end-to-end, so this rests on
+      the interface-shape tests and reading bubbletea's/cancelreader's
+      source directly, same as the original epoll fix.
 - [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the

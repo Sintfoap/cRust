@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -551,25 +552,25 @@ func TestSliceIndexLastBucketFallback(t *testing.T) {
 	}
 }
 
-// TestStdinOnlyReaderDoesNotSatisfyCancelreaderFileShape is the whole
-// point of stdinOnlyReader: bubbletea's cancelreader dependency
+// TestStdinNoNamerDoesNotSatisfyCancelreaderFileShape is half of
+// stdinNoNamer's whole point: bubbletea's cancelreader dependency
 // decides whether to take its epoll-based reader (broken under some
 // WSL setups -- "add reader to epoll interest list") purely via a
 // type assertion to an unexported interface shaped like
 // io.ReadWriteCloser + Fd() uintptr + Name() string. This mirrors
 // that exact shape locally (avoiding a direct test dependency on
-// cancelreader's internals) to prove stdinOnlyReader defeats it, while
+// cancelreader's internals) to prove stdinNoNamer defeats it, while
 // the underlying *os.File still would satisfy it — confirming the
 // wrapper is what actually changes cancelreader's decision, not an
 // accident of some other difference between the two.
-func TestStdinOnlyReaderDoesNotSatisfyCancelreaderFileShape(t *testing.T) {
+func TestStdinNoNamerDoesNotSatisfyCancelreaderFileShape(t *testing.T) {
 	type cancelreaderFileShape interface {
 		io.ReadWriteCloser
 		Fd() uintptr
 		Name() string
 	}
 
-	f, err := os.CreateTemp(t.TempDir(), "stdin-only-reader-test")
+	f, err := os.CreateTemp(t.TempDir(), "stdin-no-namer-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,13 +579,51 @@ func TestStdinOnlyReaderDoesNotSatisfyCancelreaderFileShape(t *testing.T) {
 	if _, ok := interface{}(f).(cancelreaderFileShape); !ok {
 		t.Fatal("test setup: *os.File should satisfy the mirrored shape")
 	}
-	if _, ok := interface{}(stdinOnlyReader{f}).(cancelreaderFileShape); ok {
-		t.Error("stdinOnlyReader should not satisfy the File shape -- that's the entire reason it exists")
+	if _, ok := interface{}(stdinNoNamer{f}).(cancelreaderFileShape); ok {
+		t.Error("stdinNoNamer should not satisfy the cancelreader File shape -- that's half the reason it exists")
 	}
 }
 
-func TestStdinOnlyReaderReadsThrough(t *testing.T) {
-	r := stdinOnlyReader{Reader: strings.NewReader("hello")}
+// TestStdinNoNamerSatisfiesTermFileShape is the other half: bubbletea's
+// own initInput (tty_unix.go) decides whether to call term.MakeRaw --
+// disabling terminal echo and line buffering so keypresses reach
+// bubbletea as discrete events instead of the OS echoing them straight
+// into the terminal -- via a type assertion to
+// github.com/charmbracelet/x/term's File, a narrower shape than
+// cancelreader's: io.ReadWriteCloser + Fd() uintptr, no Name(). An
+// earlier wrapper (stdinOnlyReader) hid Fd() too, defeating this check
+// right along with cancelreader's and leaving raw mode never engaged --
+// the exact bug stdinNoNamer's Fd() forwarding method exists to fix.
+func TestStdinNoNamerSatisfiesTermFileShape(t *testing.T) {
+	type termFileShape interface {
+		io.ReadWriteCloser
+		Fd() uintptr
+	}
+
+	f, err := os.CreateTemp(t.TempDir(), "stdin-no-namer-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if _, ok := interface{}(stdinNoNamer{f}).(termFileShape); !ok {
+		t.Error("stdinNoNamer should satisfy the term.File shape so bubbletea's raw-mode detection still engages")
+	}
+}
+
+func TestStdinNoNamerReadsThrough(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stdin-no-namer-read-test")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	r := stdinNoNamer{f}
 	buf := make([]byte, 5)
 	n, err := r.Read(buf)
 	if err != nil {

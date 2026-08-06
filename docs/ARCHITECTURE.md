@@ -2503,6 +2503,50 @@ code was written.
       recording) — `runDebugTUI` itself stays untestable without a
       real terminal, the same pre-existing gap `isColorTerminal`'s tty
       branch already had before any of this.
+    - **A regression in the `stdinOnlyReader` fix itself, reported as
+      the TUI's own help text and the user's raw keystrokes both
+      showing up interleaved in the rendered output** — `stdinOnlyReader`
+      solved the epoll crash by hiding `Fd()` (among everything else)
+      so cancelreader's `File` type assertion would fail, but bubbletea
+      has a second, independent type assertion that happens to use an
+      almost-identical shape for an entirely different purpose:
+      `tty_unix.go`'s `initInput` checks `p.input.(term.File)` — from
+      `github.com/charmbracelet/x/term`, defined as just
+      `io.ReadWriteCloser` + `Fd() uintptr`, no `Name()` — to decide
+      whether to call `term.MakeRaw()` at all. Raw mode is what turns
+      off the terminal's own local echo and line buffering; without it,
+      every keypress both gets echoed straight to the screen by the
+      OS *and* only reaches bubbletea a full line at a time (whenever
+      the OS's line-buffered read finally sees a newline), rather than
+      arriving as discrete key events. `stdinOnlyReader` hiding `Fd()`
+      defeated this check too, so raw mode never engaged — explaining
+      the exact symptom reported: the TUI's rendered frame (including
+      its own help text) with the user's typed navigation keys
+      (`h`/`j`/`k`/`l`, arrows) visibly mixed into it, echoed by the
+      terminal rather than consumed as tab/cursor movement. Fixed by
+      replacing `stdinOnlyReader` with `stdinNoNamer{f *os.File}` (a
+      named, non-embedded field, so no method is promoted by accident):
+      it forwards `Read`/`Write`/`Close`/`Fd()` explicitly but not
+      `Name()`, satisfying `term.File`'s narrower shape (so
+      `initInput` still finds a `Fd()` to call `MakeRaw` on — raw mode
+      engages correctly again) while still failing cancelreader's
+      stricter shape (`Name()` included), so the epoll path — and the
+      crash it caused — stays avoided exactly as before. The two
+      interfaces differing by exactly one method or the whole
+      "same-attack-surface, opposite-desired-outcome" property. Verified
+      the same way as the original fix: Go tests assert `stdinNoNamer`
+      satisfies a locally mirrored `term.File` shape (proving raw mode
+      will engage) while still failing a locally mirrored
+      `cancelreader.File` shape (proving the epoll path stays avoided),
+      plus a plain read-through test. Confirmed via `grep` across
+      bubbletea's vendored source that it never calls `.Close()` on
+      `p.input`/`p.ttyInput` directly, so `stdinNoNamer`'s `Close`
+      passthrough can't cause stdin to close at some unexpected point.
+      A real pty-based end-to-end check of raw mode actually engaging
+      isn't possible in this sandboxed environment (no controlling
+      terminal), so this fix rests on the interface-shape tests plus
+      the mechanism read directly from bubbletea's and cancelreader's
+      source, the same evidentiary standard the original epoll fix used.
   - Not built: resizing the pie chart radius to the terminal's actual
     size (fixed at 7 regardless of window dimensions — `clampHeight`
     above stops a small terminal from losing the tab bar over this, but
