@@ -58,6 +58,7 @@ var builtinDocs = map[string]string{
 	"list":       "`list(x) -> List` — x's elements (a List, Tuple, or Set) collected into a new List. A List in, List out is a shallow copy, same as Python's list(); for a deep copy see copy().",
 	"tuple":      "`tuple(x) -> Tuple` — x's elements (a List, Tuple, or Set) collected into a new Tuple. Every element must be Hashable, same requirement as a (a, b) Tuple literal.",
 	"set":        "`set(x) -> Set` — x's elements (a List, Tuple, or Set) collected into a new Set, dropping duplicates. The general counterpart to gather, which only ever took a List.",
+	"freq":       "`freq(x) -> Map` — a Map from each element of x (a List, Tuple, or Set) to how many times it appears, same job as Python's collections.Counter.",
 	"sprinkle":   "`sprinkle(set, item)` — adds item to set in place.",
 	"scrape":     "`scrape(set, item)` — removes item from set in place, no error if absent.",
 	"topped":     "`topped(set, item) -> Boolean` — Set membership test: is item in set?",

@@ -107,7 +107,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
-		"gather", "list", "tuple", "set", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
+		"gather", "list", "tuple", "set", "freq", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
 	}
@@ -655,6 +655,86 @@ func TestSetWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "set"))
 	wantError(t, call(t, table, "set", object.NewList(nil), object.NewList(nil)))
+}
+
+func TestFreqCountsOccurrences(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{
+		&object.String{Value: "a"},
+		&object.String{Value: "b"},
+		&object.String{Value: "a"},
+		&object.String{Value: "a"},
+	})
+	got := call(t, table, "freq", list)
+	m, ok := got.(*object.Map)
+	if !ok {
+		t.Fatalf("got %T, want *object.Map", got)
+	}
+	a, ok := m.Get(&object.String{Value: "a"})
+	if !ok {
+		t.Fatal("map has no entry for \"a\"")
+	}
+	wantInteger(t, a, 3)
+	b, ok := m.Get(&object.String{Value: "b"})
+	if !ok {
+		t.Fatal("map has no entry for \"b\"")
+	}
+	wantInteger(t, b, 1)
+}
+
+func TestFreqOfTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(1)})
+	got := call(t, table, "freq", tup).(*object.Map)
+	count, ok := got.Get(object.NewInteger(1))
+	if !ok {
+		t.Fatal("map has no entry for 1")
+	}
+	wantInteger(t, count, 2)
+}
+
+func TestFreqOfSetIsAllOnes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(1))
+	set.Add(object.NewInteger(2))
+	got := call(t, table, "freq", set).(*object.Map)
+	if len(got.Pairs) != 2 {
+		t.Fatalf("got %d entries, want 2", len(got.Pairs))
+	}
+	count, ok := got.Get(object.NewInteger(1))
+	if !ok {
+		t.Fatal("map has no entry for 1")
+	}
+	wantInteger(t, count, 1)
+}
+
+func TestFreqOfEmptyListIsEmptyMap(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "freq", object.NewList(nil)).(*object.Map)
+	if len(got.Pairs) != 0 {
+		t.Errorf("got %d entries, want 0", len(got.Pairs))
+	}
+}
+
+func TestFreqUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewList(nil)})
+	errObj := wantError(t, call(t, table, "freq", list))
+	if !strings.Contains(errObj.Message, "unhashable") {
+		t.Errorf("Message = %q, want it to mention unhashable", errObj.Message)
+	}
+}
+
+func TestFreqWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "freq", object.NewInteger(1)))
+}
+
+func TestFreqWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "freq"))
+	wantError(t, call(t, table, "freq", object.NewList(nil), object.NewList(nil)))
 }
 
 func TestSprinkleUnhashableItem(t *testing.T) {

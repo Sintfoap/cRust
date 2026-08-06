@@ -623,6 +623,7 @@ it's directly tied to the Set type this doc introduces.
 | `list(x)` | `(List \| Tuple \| Set) -> List` | `x`'s elements collected into a new List — a List in, List out is a shallow copy (same as Python's `list()`; for a deep copy see `copy()`). A Set's elements come back in whatever order Go's own map iteration happens to visit them, matching Set's own unordered contract |
 | `tuple(x)` | `(List \| Tuple \| Set) -> Tuple` | `x`'s elements collected into a new Tuple. Every element must be Hashable (§2.3), the same requirement a `(a, b)` Tuple literal already enforces — `tuple([1, [2, 3]])` is a runtime error, not a Tuple holding an unhashable List |
 | `set(x)` | `(List \| Tuple \| Set) -> Set` | `x`'s elements collected into a new Set, dropping duplicates — the general counterpart to `gather`, which only ever took a List |
+| `freq(x)` | `(List \| Tuple \| Set) -> Map` | a Map from each of `x`'s elements to how many times it appears — same job as Python's `collections.Counter`. Every element must be Hashable, same requirement as any other Map key |
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
 | `scrape(set, item)` | `(Set, Any) -> Nil` | removes `item` from `set` in place, no error if absent |
 | `topped(set, item)` | `(Set, Any) -> Boolean` | membership test — is `item` in `set`? |

@@ -596,6 +596,18 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       Set -> List and Set -> Tuple, which had no route at all before),
       duplicate-dropping on `set()`, `list()`'s shallow-copy behavior,
       an unhashable-element error, and a wrong-type error.
+- [x] `freq(x)` builtin, asked for directly: "a freq(l) function that
+      gives me a dictionary of the frequency of items in a list" --
+      Python's `collections.Counter` by another name. Reuses
+      `asElements` (above) a fourth time, so it takes any of
+      List/Tuple/Set rather than being List-only; a Set argument is a
+      legal if uninteresting case (every count comes back 1, since a
+      Set's own members are already unique). Every element must be
+      Hashable to become a Map key, same requirement and same error
+      message shape `gather`/`tuple`/`set` already use. Verified via a
+      real `crust run` subprocess: counts across repeated Strings and
+      Integers, a Tuple argument, a Set argument, an empty List, and an
+      unhashable-element error.
 - [x] Fixed: a single-recipe program's whole `crust debug` run showed
       up in the KPI/stepper as one anonymous `call(...)` frame instead
       of the recipe's own name -- reported as "if I have a single

@@ -1312,6 +1312,27 @@ own section below describes.
     `set()`, `list()`'s shallow-copy-not-mutation behavior, an
     unhashable-element error from `tuple()`, and a wrong-type error
     for a non-collection argument.
+- **`freq(x)` reuses `asElements` a fourth time** — the request was
+  literally "a `freq(l)` function that gives me a dictionary of the
+  frequency of items in a list," Python's `collections.Counter` by
+  another name. Built on the same `asElements(x) ([]Object, bool)`
+  helper `list`/`tuple`/`set` already share (above), so it accepts any
+  of List/Tuple/Set the same way they do rather than being List-only —
+  a Set argument is a legal, if not especially interesting, case
+  (every count comes back 1, since a Set's own members are already
+  unique) rather than one worth rejecting just because it's unlikely
+  to be what anyone actually calls `freq` on. Every element must be
+  Hashable to become a Map key, same requirement (and the same
+  `"freq: unhashable element of type %s cannot be a Map key"` message
+  shape) as `gather`/`tuple`/`set` already use for their own unhashable
+  case. The count itself is tracked by reading a key's current value
+  back out with `Map.Get` before each `Map.Set` (0 if the key hasn't
+  been seen yet) rather than a separate Go-side counting map kept
+  alongside the result — one map, no second data structure to keep in
+  sync with it. Verified via a real `crust run` subprocess: counts
+  across repeated Strings and Integers, a Tuple argument, a Set
+  argument (all 1s), an empty List (empty Map back), and an
+  unhashable-element error.
 - **Grid support started as five composable functions over plain
   List-of-List, not a dedicated Grid type** — until `setAt` needed to
   auto-expand instead of erroring (below), at which point it *became*
@@ -1459,7 +1480,7 @@ own section below describes.
   `grid`/`newGrid`/`at`/`setAt`/`gridBounds`/`neighbors4`/`neighbors8`
   (2D grid support), the Set builtins
   `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`,
-  `list`/`tuple`/`set` (collection conversion),
+  `list`/`tuple`/`set` (collection conversion), `freq` (occurrence counts),
   `contains` (general List/Tuple/Set/Map membership, `topped`'s
   broader counterpart), `unbox`/`lines`/`split`/`join`/`trim` (input),
   and `str`/`int`/`float`/`bool` (conversion). These names were chosen specifically because dropping

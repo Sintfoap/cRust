@@ -61,6 +61,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"list":       {Fn: listFn},
 		"tuple":      {Fn: tupleFn},
 		"set":        {Fn: setFn},
+		"freq":       {Fn: freqFn},
 		"sprinkle":   {Fn: sprinkleFn},
 		"scrape":     {Fn: scrapeFn},
 		"topped":     {Fn: toppedFn},
@@ -880,6 +881,34 @@ func setFn(args ...object.Object) object.Object {
 		}
 	}
 	return out
+}
+
+// freqFn is `freq(x)` (SPEC.md §7) — a Map from each of x's elements
+// (a List, Tuple, or Set) to how many times it appears, the same job
+// Python's collections.Counter does. Every element must be Hashable,
+// same requirement as any other Map key; a Set's elements are already
+// unique, so freq(aSet) is a valid but not especially interesting case
+// (every count comes back 1) rather than one worth special-casing away.
+func freqFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("freq", "1", len(args))
+	}
+	elements, ok := asElements(args[0])
+	if !ok {
+		return wrongArgType("freq", 0, "a List, Tuple, or Set", args[0])
+	}
+
+	counts := object.NewMap()
+	for _, elem := range elements {
+		count := int64(0)
+		if existing, ok := counts.Get(elem); ok {
+			count = existing.(*object.Integer).Value
+		}
+		if !counts.Set(elem, object.NewInteger(count+1)) {
+			return newError("freq: unhashable element of type %s cannot be a Map key", elem.Type())
+		}
+	}
+	return counts
 }
 
 // sprinkleFn is `sprinkle(set, item)` (SPEC.md §7) — adds item to set
