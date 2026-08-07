@@ -804,8 +804,8 @@ way to see the interpreter do anything at all.
   ordinary named `recipe`, so nothing upstream of this phase needs to
   change to support it.
 
-### Phase 5 — Standard Library (`internal/builtins`) 🚧
-**Partially built ahead of schedule**, alongside Phase 4 — without at
+### Phase 5 — Standard Library (`internal/builtins`) ✅
+**Built ahead of schedule**, starting alongside Phase 4 — without at
 least `deliver`, there'd be no way to see the interpreter produce
 output at all. What exists: `Builtin` wraps
 `func(args ...object.Object) object.Object` (variadic, not a slice
@@ -837,9 +837,9 @@ it's not yet in §7's table), the full Set family
 §7's own note on why), list sorting (`pizzasort`, themed rather than a
 plain `sort` adapter, since "sort" alone says nothing about *which*
 order), type conversion (`str`/`int`/`float`/`bool`), and
-`+`-as-concatenation extended from strings to Lists and Tuples.
-**Still not built**: `filter`/`reduce` (`map`'s siblings) — the rest of
-what this phase's own section below describes.
+`+`-as-concatenation extended from strings to Lists and Tuples, and
+`filter`/`reduce` (`map`'s siblings, added last — see their own note
+below). Phase 5's stdlib checklist is now fully complete.
 
 - Most builtins are thin adapters over Go's standard library:
   `strings` (`contains`/`find`/`replace`/`upper`/`lower`, all wrapping
@@ -976,6 +976,19 @@ what this phase's own section below describes.
   a lambda composing two steps like `ints(split(line))`) is covered by
   `internal/interpreter`'s own test suite instead, where a real `Call`
   is naturally available.
+- **`filter(iterable, fn)` and `reduce(iterable, fn, init)` reuse
+  `map`'s exact shape** — same `Call` injection, same List/Tuple-only
+  acceptance, same short-circuit-on-first-error. `filterFn` judges each
+  `fn(element)` result with `object.IsTruthy` (`internal/object/truthy.go`
+  — the one shared rule `order`/`hold`/`with`/`or` already use, SPEC.md
+  §6) rather than a second, local notion of truthiness. `reduceFn`
+  requires `init` as an explicit third argument, deliberately not
+  optional the way Python's `functools.reduce` is: an optional `init`
+  makes an empty iterable a special case (raise, or fall back to some
+  arbitrary "identity" the caller has to know about), where a required
+  one makes `reduce([], fn, 0)` just return `0` — no branch, no
+  surprise. Closes out Phase 5's stdlib checklist — sort (`pizzasort`),
+  `filter`, and `reduce` were the last three items in it.
 - **`find(collection, value)` is `contains`'s positional counterpart —
   "is `value` here" vs. "where is `value`."** First built as a
   predicate search (`find(iterable, fn)`, JS's `Array.find` shape,

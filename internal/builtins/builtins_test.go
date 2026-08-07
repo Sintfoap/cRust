@@ -975,6 +975,131 @@ func TestMapWrongArgCount(t *testing.T) {
 	wantError(t, call(t, table, "map"))
 }
 
+var isEvenFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+	return object.NativeBoolToBooleanObject(args[0].(*object.Integer).Value%2 == 0)
+}}
+
+func TestFilterOnList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3), object.NewInteger(4)})
+	got := call(t, table, "filter", list, isEvenFn).(*object.List)
+	want := []int64{2, 4}
+	if len(got.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(got.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, got.Elements[i], w)
+	}
+}
+
+func TestFilterOnTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	got := call(t, table, "filter", tup, isEvenFn).(*object.List)
+	if len(got.Elements) != 1 {
+		t.Fatalf("got %d elements, want 1", len(got.Elements))
+	}
+	wantInteger(t, got.Elements[0], 2)
+}
+
+func TestFilterEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "filter", object.NewList(nil), isEvenFn).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d elements, want 0", len(got.Elements))
+	}
+}
+
+func TestFilterNoneMatch(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3)})
+	got := call(t, table, "filter", list, isEvenFn).(*object.List)
+	if len(got.Elements) != 0 {
+		t.Errorf("got %d elements, want 0", len(got.Elements))
+	}
+}
+
+func TestFilterPropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "filter", list, failFn))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestFilterNotCallableIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "filter", list, object.NewInteger(5)))
+}
+
+func TestFilterWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "filter", object.NewInteger(1), isEvenFn))
+}
+
+func TestFilterWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "filter", object.NewList(nil)))
+	wantError(t, call(t, table, "filter"))
+}
+
+var sumFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+	acc := args[0].(*object.Integer).Value
+	elem := args[1].(*object.Integer).Value
+	return object.NewInteger(acc + elem)
+}}
+
+func TestReduceSumsAList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantInteger(t, call(t, table, "reduce", list, sumFn, object.NewInteger(0)), 6)
+}
+
+func TestReduceOnTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(4), object.NewInteger(5)})
+	wantInteger(t, call(t, table, "reduce", tup, sumFn, object.NewInteger(1)), 10)
+}
+
+func TestReduceEmptyListReturnsInit(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "reduce", object.NewList(nil), sumFn, object.NewInteger(42)), 42)
+}
+
+func TestReducePropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "reduce", list, failFn, object.NewInteger(0)))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestReduceNotCallableIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "reduce", list, object.NewInteger(5), object.NewInteger(0)))
+}
+
+func TestReduceWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "reduce", object.NewInteger(1), sumFn, object.NewInteger(0)))
+}
+
+func TestReduceWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "reduce", object.NewList(nil), sumFn))
+	wantError(t, call(t, table, "reduce"))
+}
+
 func TestFindOnListReturnsLowestIndexMatch(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	list := object.NewList([]object.Object{object.NewInteger(10), object.NewInteger(20), object.NewInteger(20), object.NewInteger(30)})

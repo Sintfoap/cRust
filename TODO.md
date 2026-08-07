@@ -171,7 +171,7 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   93%+ test coverage in `internal/interpreter`, 100% in
   `internal/object`/`internal/builtins`.
 
-## Phase 5 — Standard Library (AoC-focused) 🚧
+## Phase 5 — Standard Library (AoC-focused) ✅
 - [x] Input: `unbox()`/`unbox(path)` (stdin or a file, whole contents
       as a String) + `lines(s)` (split into a List of lines)
 - [x] `trim` (leading/trailing whitespace — kept distinct from `strip`,
@@ -229,7 +229,14 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       element of a List/Tuple, collecting the results. Composition of
       multiple steps is via a lambda (`map(xs, recipe(x) { serve g(f(x)) })`),
       not a List of functions
-- [ ] Collections: sort, filter/reduce (or equivalent loop sugar)
+- [x] Collections: sort (`pizzasort`), `filter(iterable, fn)`, and
+      `reduce(iterable, fn, init)` — `filter`/`reduce` follow `map`'s
+      exact shape: fn (recipe or builtin) invoked through the same
+      injected `Call` callback, short-circuiting on the first error fn
+      produces. `init` is a required third argument to `reduce` (unlike
+      Python's optional-with-a-runtime-error-on-empty
+      `functools.reduce`), so `reduce([], fn, 0)` is just `0` instead of
+      a special case to worry about
 - [x] `slices` (length of a String/List/Map/Set)
 - [x] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`
 - [x] Nil-handling: `sauce` (fallback-if-nobox)
@@ -239,9 +246,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   → Names for the items above are already locked in — see
   [docs/SPEC.md §7](./docs/SPEC.md#7-standard-library-builtins). Most
   of what's checked off landed ahead of schedule alongside Phase 4 —
-  see ARCHITECTURE.md's Phase 5 section for exactly what's built vs.
-  still pending (`internal/builtins`; math and general string helpers
-  are now in, `sort`/`filter`/`reduce`-as-collection-ops are not).
+  see ARCHITECTURE.md's Phase 5 section for exactly what's built.
+  Phase 5's stdlib checklist is now fully complete.
 
 ## Phase 6 — Tooling
 - [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter

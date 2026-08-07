@@ -40,6 +40,8 @@ var builtinDocs = map[string]string{
 	"push":       "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
 	"copy":       "`copy(value) -> Any` — an independent copy of value: for List/Map/Set/Grid, mutating the copy (push, setAt, index assignment, ...) is never seen through the original. Every other type, including Tuple, comes back unchanged (nothing about it can be mutated in place to begin with).",
 	"map":        "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
+	"filter":     "`filter(iterable, fn) -> List` — keeps only the elements of a List or Tuple where fn(element) is truthy, collecting survivors in their original order.",
+	"reduce":     "`reduce(iterable, fn, init) -> Any` — folds a List or Tuple down to a single value by calling fn(accumulator, element) once per element in order, starting from init.",
 	"find":       "`find(collection, value) -> Integer` — the lowest index in a List or Tuple where an element equals value, or the lowest rune index of a substring in a String, or nobox if none does. contains()'s positional counterpart.",
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":        "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",

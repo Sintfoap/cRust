@@ -44,6 +44,8 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"push":       {Fn: pushFn},
 		"copy":       {Fn: copyFn},
 		"map":        {Fn: mapFn(call)},
+		"filter":     {Fn: filterFn(call)},
+		"reduce":     {Fn: reduceFn(call)},
 		"find":       {Fn: findFn},
 		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
@@ -225,6 +227,76 @@ func mapFn(call Call) object.BuiltinFunction {
 			out[i] = result
 		}
 		return object.NewList(out)
+	}
+}
+
+// filterFn is `filter(iterable, fn)` (SPEC.md §7) — keeps only the
+// elements of a List or Tuple where fn(element) is truthy (object.
+// IsTruthy, SPEC.md §6 — the same rule order/hold/with/or already
+// judge a condition by), collecting survivors into a new List in their
+// original order. Same call-injection and short-circuit-on-error shape
+// as mapFn above, for the same reason (a *object.Function needs
+// internal/interpreter's environment machinery to invoke).
+func filterFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("filter", "2", len(args))
+		}
+		var elements []object.Object
+		switch v := args[0].(type) {
+		case *object.List:
+			elements = v.Elements
+		case *object.Tuple:
+			elements = v.Elements
+		default:
+			return wrongArgType("filter", 0, "a List or Tuple", args[0])
+		}
+
+		out := make([]object.Object, 0, len(elements))
+		for _, elem := range elements {
+			result := call(args[1], []object.Object{elem})
+			if result.Type() == object.ERROR_OBJ {
+				return result
+			}
+			if object.IsTruthy(result) {
+				out = append(out, elem)
+			}
+		}
+		return object.NewList(out)
+	}
+}
+
+// reduceFn is `reduce(iterable, fn, init)` (SPEC.md §7) — folds a List
+// or Tuple down to a single value by calling fn(accumulator, element)
+// once per element in order, starting from init, and returning
+// whatever the last call produced. init is a required third argument
+// rather than optional (as Python's functools.reduce allows) so an
+// empty iterable has an unambiguous, non-error result — reduce([],
+// fn, 0) is just 0, not a runtime error over what the "first element"
+// should have been.
+func reduceFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 3 {
+			return wrongArgCount("reduce", "3", len(args))
+		}
+		var elements []object.Object
+		switch v := args[0].(type) {
+		case *object.List:
+			elements = v.Elements
+		case *object.Tuple:
+			elements = v.Elements
+		default:
+			return wrongArgType("reduce", 0, "a List or Tuple", args[0])
+		}
+
+		acc := args[2]
+		for _, elem := range elements {
+			acc = call(args[1], []object.Object{acc, elem})
+			if acc.Type() == object.ERROR_OBJ {
+				return acc
+			}
+		}
+		return acc
 	}
 }
 
