@@ -33,8 +33,11 @@ documentation` serves a browsable, pizza-themed reference site on
 and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
 technical design behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
-section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
-keyword table, grammar, and semantics. Phase 6's tooling is now
+section), [docs/SPEC.md](./docs/SPEC.md) for the actual language —
+keyword table, grammar, and semantics — and
+[docs/CHEATSHEET.md](./docs/CHEATSHEET.md) for a one-page quick
+reference (keywords, operators, every builtin, a handful of idioms)
+once you already know the language and just need a lookup. Phase 6's tooling is now
 essentially complete; next up is rounding out Phase 7's test coverage
 and Phase 8's AoC-readiness checklist.
 

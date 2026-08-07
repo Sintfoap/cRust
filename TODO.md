@@ -1015,7 +1015,16 @@ confirmed, not before.
 - [ ] Confirm day-1 essentials all work end-to-end: file I/O, arithmetic,
       strings, loops, lists, maps
 - [ ] Per-day solution template (`examples/day01/`, etc.)
-- [ ] Keyword cheat-sheet doc for quick reference during the event
+- [x] Keyword cheat-sheet doc for quick reference during the event —
+      `docs/CHEATSHEET.md`, one page: the keyword/operator tables,
+      types/literals, assignment/unpacking (including the List-vs-Tuple
+      "does the last target soak up the remainder" gotcha), entry
+      points, every current builtin grouped by category, and a handful
+      of idiom snippets (enumerate+unpack, memoization via `?:` on a
+      missing-key-reads-as-nobox Map, input parsing, grid neighbor
+      walks) — every snippet actually run through `crust run`/the REPL
+      while writing this, not just transcribed from SPEC.md. Linked
+      from README.md alongside SPEC.md/ARCHITECTURE.md.
 - [x] Dry run: solve an old AoC day 1-5 in cRust before Dec 1, 2026 —
       AoC 2020 days 1-5 (`examples/aoc2020/day01.crust`..`day05.crust`,
       each with its own `store_part1`/`store_part2` and the puzzle's
