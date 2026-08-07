@@ -40,7 +40,7 @@ var builtinDocs = map[string]string{
 	"push":       "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
 	"copy":       "`copy(value) -> Any` — an independent copy of value: for List/Map/Set/Grid, mutating the copy (push, setAt, index assignment, ...) is never seen through the original. Every other type, including Tuple, comes back unchanged (nothing about it can be mutated in place to begin with).",
 	"map":        "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
-	"find":       "`find(collection, value) -> Integer` — the lowest index in a List or Tuple where an element equals value, or nobox if none does. contains()'s positional counterpart.",
+	"find":       "`find(collection, value) -> Integer` — the lowest index in a List or Tuple where an element equals value, or the lowest rune index of a substring in a String, or nobox if none does. contains()'s positional counterpart.",
 	"min":        "`min(a, b, ...) -> Any` / `min(list) -> Any` — smallest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"max":        "`max(a, b, ...) -> Any` / `max(list) -> Any` — largest of 2+ arguments, or of a List/Tuple's elements. Numbers (Integer/Float mixed) or Strings only, same ordering as `<`.",
 	"pizzasort":  "`pizzasort(list) -> List` — list's elements (a List or Tuple), sorted into natural order (numbers together, Strings together — same ordering as `<`/`min`/`max`). Returns a new List; the original is untouched.",
@@ -54,6 +54,11 @@ var builtinDocs = map[string]string{
 	"neighbors4": "`neighbors4(pos) -> List` — the 4 orthogonal neighbor positions of (row, col) Tuple pos, each as a Tuple. No bounds checking — pair with at to filter to a real grid.",
 	"neighbors8": "`neighbors8(pos) -> List` — the 8 orthogonal+diagonal neighbor positions of (row, col) Tuple pos, each as a Tuple. No bounds checking — pair with at to filter to a real grid.",
 	"idiv":       "`idiv(a, b) -> Integer` — integer (floor) division; `/` always true-divides to a Float.",
+	"abs":        "`abs(x) -> Integer | Float` — absolute value, type-preserving (an Integer in gives an Integer out).",
+	"pow":        "`pow(base, exp) -> Integer | Float` — base to the exp power. Integer base with a non-negative Integer exp stays an Integer; a negative exp or any Float argument widens to Float.",
+	"sqrt":       "`sqrt(x) -> Float` — square root, always a Float. A negative x is a runtime error, not NaN.",
+	"gcd":        "`gcd(a, b) -> Integer` — greatest common divisor (Euclidean algorithm). Always non-negative regardless of a/b's signs.",
+	"lcm":        "`lcm(a, b) -> Integer` — least common multiple. Always non-negative; lcm(0, x) is 0.",
 	"gather":     "`gather(list) -> Set` — collects a List into a Set, dropping duplicates.",
 	"list":       "`list(x) -> List` — x's elements (a List, Tuple, or Set) collected into a new List. A List in, List out is a shallow copy, same as Python's list(); for a deep copy see copy().",
 	"tuple":      "`tuple(x) -> Tuple` — x's elements (a List, Tuple, or Set) collected into a new Tuple. Every element must be Hashable, same requirement as a (a, b) Tuple literal.",
@@ -64,7 +69,7 @@ var builtinDocs = map[string]string{
 	"sprinkle":   "`sprinkle(set, item)` — adds item to set in place.",
 	"scrape":     "`scrape(set, item)` — removes item from set in place, no error if absent.",
 	"topped":     "`topped(set, item) -> Boolean` — Set membership test: is item in set?",
-	"contains":   "`contains(collection, item) -> Boolean` — membership test for a List/Tuple (compares by value), Set, or Map (checks keys).",
+	"contains":   "`contains(collection, item) -> Boolean` — membership test for a List/Tuple (compares by value), Set, Map (checks keys), or String (substring search).",
 	"combine":    "`combine(a, b) -> Set` — union.",
 	"shared":     "`shared(a, b) -> Set` — intersection.",
 	"strip":      "`strip(a, b) -> Set` — difference: items in a not in b. (For String trimming, see `trim`.)",
@@ -73,10 +78,47 @@ var builtinDocs = map[string]string{
 	"join":       "`join(list, sep) -> String` — joins a List of Strings with sep between each. Counterpart to `split`; elements must already be Strings (use `str()` first otherwise).",
 	"split":      "`split(s) -> List` / `split(s, delim) -> List` — split(s) splits on runs of whitespace; split(s, delim) splits on the literal delim, preserving empty entries. delim can't be \"\" (use `chars`).",
 	"trim":       "`trim(s) -> String` — removes leading/trailing whitespace. (For Set difference, see `strip`.)",
+	"replace":    "`replace(s, old, new) -> String` — every occurrence of old in s, swapped for new.",
+	"upper":      "`upper(s) -> String` — s, uppercased.",
+	"lower":      "`lower(s) -> String` — s, lowercased.",
 	"str":        "`str(x) -> String` — converts any value to its String form (same text `deliver` would print).",
 	"int":        "`int(x) -> Integer` — parses a String (base-10) or truncates a Float toward zero; an Integer passes through unchanged.",
 	"float":      "`float(x) -> Float` — parses a String or widens an Integer; a Float passes through unchanged.",
 	"bool":       "`bool(x) -> Boolean` — normalizes any value to a strict Boolean using cRust's truthiness rule (only `thin`/`nobox` are falsy).",
+}
+
+// KeywordDocs returns every reserved word's hover doc, keyed by its
+// actual source spelling (e.g. "recipe", not token.RECIPE) — the same
+// lookup completion already needs (keywordSpellings, definition.go),
+// exposed for anything outside this package that wants the same
+// vocabulary without a second hand-maintained copy of it (the docs
+// site, internal/docsite, is the first caller). A fresh map is built on
+// every call rather than handing back keywordDocs directly, both
+// because that one's keyed by token.Type instead of spelling and so a
+// caller can't mutate this package's own table through the result.
+func KeywordDocs() map[string]string {
+	kws := token.Keywords()
+	out := make(map[string]string, len(kws))
+	for spelling, tt := range kws {
+		if doc, ok := keywordDocs[tt]; ok {
+			out[spelling] = doc
+		}
+	}
+	return out
+}
+
+// BuiltinDocs returns a copy of the builtin hover/completion table,
+// keyed by builtin name — kept in sync with internal/builtins' real
+// registrations by TestBuiltinDocsCoversEveryRealBuiltin (hover_test.go),
+// so anything built on top of this (the docs site) inherits that same
+// guarantee for free rather than needing its own copy of the check. A
+// copy, not the live map, for the same reason KeywordDocs returns one.
+func BuiltinDocs() map[string]string {
+	out := make(map[string]string, len(builtinDocs))
+	for name, doc := range builtinDocs {
+		out[name] = doc
+	}
+	return out
 }
 
 // hoverDoc returns hover text for tok, if any: keyword docs, builtin

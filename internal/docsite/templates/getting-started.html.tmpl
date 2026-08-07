@@ -1,0 +1,45 @@
+{{define "content"}}
+<h1>Getting Started</h1>
+<p class="lede">Requires Go 1.24+. No package manager, no config file — clone,
+build, run.</p>
+
+<h2>Build</h2>
+<pre><code>go build ./cmd/crust
+./crust --version
+./crust --help</code></pre>
+
+<h2>Run a file</h2>
+<pre><code>./crust hello.crust           # or: ./crust run hello.crust</code></pre>
+<p>If the file defines a <code>recipe store()</code> (or named variants,
+<code>store_part1()</code>/<code>store_part2()</code>/...), that runs as the
+entry point after the rest of the file's top-level code —
+<code>--store=&lt;name&gt;</code> picks a named one instead of the bare
+<code>store</code>, handy for Advent of Code's usual part-1/part-2 split:</p>
+<pre><code>crust day01.crust                  # runs store, if the file has one
+crust day01.crust --store=part2    # runs store_part2 instead</code></pre>
+
+<h2>Look inside</h2>
+<p>The lexer and parser have their own debug commands, useful for seeing
+exactly how a file lexes/parses without running it:</p>
+<pre><code>crust tokens hello.crust
+crust parse hello.crust</code></pre>
+
+<h2>Debug a run</h2>
+<p><code>crust develop day01.crust</code> opens an interactive debugger — time
+and memory per function, a step-by-step trace tree, an editor tab that hands
+off to <code>nvim</code>, and a Run tab for trying different inputs and entry
+points without leaving the TUI.</p>
+
+<h2>Editor support</h2>
+<p>Vim/Neovim and VSCode both have syntax highlighting for
+<code>.crust</code> files (see <code>editors/</code> in the repo), and
+<code>crust lsp</code> starts a full language server — hover docs, live
+diagnostics, go-to-definition, rename, and completion — over plain
+JSON-RPC on stdio, so any LSP client can launch it directly.</p>
+
+<h2>What next</h2>
+<p>Read through <a href="/keywords">Keywords</a> and
+<a href="/builtins">Standard Library</a> for the full vocabulary, or jump
+straight to <a href="/examples">Examples</a> for a couple of runnable
+snippets to copy from.</p>
+{{end}}

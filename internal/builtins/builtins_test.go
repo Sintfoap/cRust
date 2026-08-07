@@ -1944,3 +1944,194 @@ func TestConversionBuiltinsWrongArgCounts(t *testing.T) {
 		})
 	}
 }
+
+func TestAbsInteger(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "abs", object.NewInteger(-5)), 5)
+	wantInteger(t, call(t, table, "abs", object.NewInteger(5)), 5)
+	wantInteger(t, call(t, table, "abs", object.NewInteger(0)), 0)
+}
+
+func TestAbsFloat(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantFloat(t, call(t, table, "abs", &object.Float{Value: -3.5}), 3.5)
+}
+
+func TestAbsWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "abs", &object.String{Value: "x"}))
+}
+
+func TestAbsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "abs"))
+	wantError(t, call(t, table, "abs", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestPowIntegerStaysInteger(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "pow", object.NewInteger(2), object.NewInteger(10)), 1024)
+	wantInteger(t, call(t, table, "pow", object.NewInteger(5), object.NewInteger(0)), 1)
+}
+
+func TestPowNegativeExponentWidensToFloat(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "pow", object.NewInteger(2), object.NewInteger(-1))
+	wantFloat(t, got, 0.5)
+}
+
+func TestPowFloatWidens(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "pow", &object.Float{Value: 2.0}, object.NewInteger(3))
+	wantFloat(t, got, 8.0)
+}
+
+func TestPowWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pow", &object.String{Value: "x"}, object.NewInteger(2)))
+	wantError(t, call(t, table, "pow", object.NewInteger(2), &object.String{Value: "x"}))
+}
+
+func TestPowWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pow", object.NewInteger(2)))
+}
+
+func TestSqrt(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantFloat(t, call(t, table, "sqrt", object.NewInteger(16)), 4.0)
+	wantFloat(t, call(t, table, "sqrt", &object.Float{Value: 2.25}), 1.5)
+}
+
+func TestSqrtNegativeIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sqrt", object.NewInteger(-1)))
+}
+
+func TestSqrtWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sqrt", &object.String{Value: "x"}))
+}
+
+func TestSqrtWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sqrt"))
+}
+
+func TestGcd(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "gcd", object.NewInteger(48), object.NewInteger(18)), 6)
+	wantInteger(t, call(t, table, "gcd", object.NewInteger(-48), object.NewInteger(18)), 6)
+	wantInteger(t, call(t, table, "gcd", object.NewInteger(0), object.NewInteger(0)), 0)
+}
+
+func TestGcdWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "gcd", &object.Float{Value: 1}, object.NewInteger(2)))
+	wantError(t, call(t, table, "gcd", object.NewInteger(1), &object.Float{Value: 2}))
+}
+
+func TestGcdWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "gcd", object.NewInteger(1)))
+}
+
+func TestGcdNegativeSecondArgument(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "gcd", object.NewInteger(18), object.NewInteger(-48)), 6)
+}
+
+func TestLcm(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "lcm", object.NewInteger(4), object.NewInteger(6)), 12)
+	wantInteger(t, call(t, table, "lcm", object.NewInteger(-4), object.NewInteger(6)), 12)
+	wantInteger(t, call(t, table, "lcm", object.NewInteger(0), object.NewInteger(5)), 0)
+}
+
+func TestLcmWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "lcm", &object.Float{Value: 1}, object.NewInteger(2)))
+}
+
+func TestReplace(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "replace", &object.String{Value: "pepperoni pizza"}, &object.String{Value: "pepperoni"}, &object.String{Value: "cheese"})
+	wantString(t, got, "cheese pizza")
+}
+
+func TestReplaceAllOccurrences(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "replace", &object.String{Value: "aXaXa"}, &object.String{Value: "X"}, &object.String{Value: "-"})
+	wantString(t, got, "a-a-a")
+}
+
+func TestReplaceWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "replace", object.NewInteger(1), &object.String{Value: "a"}, &object.String{Value: "b"}))
+	wantError(t, call(t, table, "replace", &object.String{Value: "a"}, object.NewInteger(1), &object.String{Value: "b"}))
+	wantError(t, call(t, table, "replace", &object.String{Value: "a"}, &object.String{Value: "a"}, object.NewInteger(1)))
+}
+
+func TestReplaceWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "replace", &object.String{Value: "a"}, &object.String{Value: "a"}))
+}
+
+func TestUpperAndLower(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantString(t, call(t, table, "upper", &object.String{Value: "Pizza!"}), "PIZZA!")
+	wantString(t, call(t, table, "lower", &object.String{Value: "Pizza!"}), "pizza!")
+}
+
+func TestUpperLowerWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "upper", object.NewInteger(1)))
+	wantError(t, call(t, table, "lower", object.NewInteger(1)))
+}
+
+func TestUpperLowerWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "upper"))
+	wantError(t, call(t, table, "lower"))
+}
+
+func TestContainsStringSubstring(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	s := &object.String{Value: "pepperoni pizza"}
+	wantBoolean(t, call(t, table, "contains", s, &object.String{Value: "peppero"}), true)
+	wantBoolean(t, call(t, table, "contains", s, &object.String{Value: "anchovy"}), false)
+}
+
+func TestContainsStringRequiresStringItem(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "contains", &object.String{Value: "pizza"}, object.NewInteger(1)))
+}
+
+func TestFindStringSubstring(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "find", &object.String{Value: "pepperoni pizza"}, &object.String{Value: "pizza"})
+	wantInteger(t, got, 10)
+}
+
+// TestFindStringSubstringIsRuneIndexed confirms find() on a String
+// counts runes, not bytes, matching every other index cRust hands
+// back (slicing, chars()) -- a multi-byte character before the match
+// would otherwise silently return the wrong index.
+func TestFindStringSubstringIsRuneIndexed(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "find", &object.String{Value: "🍕pizza"}, &object.String{Value: "pizza"})
+	wantInteger(t, got, 1)
+}
+
+func TestFindStringNoMatchReturnsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "find", &object.String{Value: "pizza"}, &object.String{Value: "anchovy"})
+	if got != object.NULL {
+		t.Errorf("find() = %v, want NULL (nobox) when the substring isn't present", got)
+	}
+}
+
+func TestFindStringRequiresStringItem(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "find", &object.String{Value: "pizza"}, object.NewInteger(1)))
+}

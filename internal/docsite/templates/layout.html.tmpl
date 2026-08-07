@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — cRust</title>
+<style>
+  :root {
+    --bg: #fdf6e3;
+    --bg-alt: #f7ecd0;
+    --bg-card: #fffaf0;
+    --sidebar-bg: #f7ecd0;
+    --text: #3b2a1a;
+    --text-muted: #7a6a55;
+    --border: #e8d9b5;
+    --accent: #c0392b;
+    --accent-soft: #fbe0da;
+    --accent-text: #9c2c1f;
+    --basil: #2f7a4f;
+    --mark: #f4d35e;
+    --shadow: 0 8px 30px rgba(120, 72, 24, 0.15);
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1410;
+      --bg-alt: #241a14;
+      --bg-card: #241a14;
+      --sidebar-bg: #18110d;
+      --text: #f1e4d0;
+      --text-muted: #b8a48a;
+      --border: #3a2c22;
+      --accent: #e2624c;
+      --accent-soft: #3a201a;
+      --accent-text: #ff8a70;
+      --basil: #6fbf7d;
+      --mark: #caa53a;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    display: flex;
+    min-height: 100vh;
+  }
+  a { color: var(--basil); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+  code {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+  }
+  pre {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    overflow-x: auto;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+
+  .sidebar {
+    flex: 0 0 240px;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 1.25rem;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-weight: 800;
+    font-size: 1.3rem;
+    margin-bottom: 0.15rem;
+    color: var(--accent);
+  }
+  .brand .slice { font-size: 1.5rem; }
+  .tagline {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-bottom: 1.5rem;
+  }
+  nav ul { list-style: none; margin: 0; padding: 0; }
+  nav li { margin-bottom: 0.15rem; }
+  nav a {
+    display: block;
+    color: var(--text);
+    padding: 0.45rem 0.7rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  nav a:hover { background: var(--accent-soft); text-decoration: none; }
+  nav a.active {
+    background: var(--accent);
+    color: #fff8ee;
+    font-weight: 600;
+  }
+  .sidebar-footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  main {
+    flex: 1 1 auto;
+    padding: 2.5rem 3rem 5rem;
+    max-width: 900px;
+  }
+  main h1 {
+    margin-top: 0;
+    font-size: 2rem;
+    color: var(--accent);
+  }
+  main h2 {
+    margin-top: 2.5rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 2px solid var(--border);
+    font-size: 1.4rem;
+  }
+  main h3 { font-size: 1.1rem; color: var(--accent-text); }
+  .lede {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    max-width: 60ch;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem 1.5rem;
+    margin: 1.25rem 0;
+  }
+
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  td.name code, th { white-space: nowrap; }
+  tr:hover td { background: var(--accent-soft); }
+
+  .kw { color: var(--accent); font-weight: 700; }
+
+  .search {
+    width: 100%;
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 0.95rem;
+  }
+  .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .pill {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    border-radius: 999px;
+    padding: 0.1em 0.7em;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  footer.page-end {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    .sidebar { position: static; height: auto; width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 1.5rem 1.25rem 3rem; max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="slice">🍕</span> cRust</div>
+    <div class="tagline">the docs, baked fresh</div>
+    <nav>
+      <ul>
+        <li><a href="/" class="{{if eq .Active "home"}}active{{end}}">Home</a></li>
+        <li><a href="/getting-started" class="{{if eq .Active "getting-started"}}active{{end}}">Getting Started</a></li>
+        <li><a href="/keywords" class="{{if eq .Active "keywords"}}active{{end}}">Keywords</a></li>
+        <li><a href="/builtins" class="{{if eq .Active "builtins"}}active{{end}}">Standard Library</a></li>
+        <li><a href="/grammar" class="{{if eq .Active "grammar"}}active{{end}}">Syntax Reference</a></li>
+        <li><a href="/examples" class="{{if eq .Active "examples"}}active{{end}}">Examples</a></li>
+      </ul>
+    </nav>
+    <div class="sidebar-footer">
+      Served straight from this build's own vocabulary — every keyword
+      and builtin on this site is read live from the same tables the
+      interpreter and <code>crust lsp</code> use, so it can't drift out
+      of sync with what actually runs.
+    </div>
+  </aside>
+  <main>
+    {{template "content" .}}
+  </main>
+</body>
+</html>

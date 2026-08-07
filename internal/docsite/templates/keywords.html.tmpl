@@ -1,0 +1,28 @@
+{{define "content"}}
+<h1>Keywords</h1>
+<p class="lede">Every reserved word cRust has — read live from this binary's
+own lexer/hover tables, the same ones <code>crust lsp</code> hovers with.
+<span class="pill">{{len .Keywords}} keywords</span></p>
+
+<input class="search" type="search" placeholder="Filter keywords…" oninput="filterRows(this, 'kw-table')" autofocus>
+
+<table id="kw-table">
+  <thead><tr><th>Keyword</th><th>Means</th></tr></thead>
+  <tbody>
+  {{range .Keywords}}
+    <tr><td class="name"><code class="kw">{{.Name}}</code></td><td>{{.Doc}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<script>
+function filterRows(input, tableID) {
+  var q = input.value.toLowerCase();
+  var rows = document.getElementById(tableID).getElementsByTagName('tbody')[0].rows;
+  for (var i = 0; i < rows.length; i++) {
+    var text = rows[i].textContent.toLowerCase();
+    rows[i].style.display = text.indexOf(q) === -1 ? 'none' : '';
+  }
+}
+</script>
+{{end}}

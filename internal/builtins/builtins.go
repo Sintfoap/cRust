@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -57,6 +58,11 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"neighbors4": {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
 		"neighbors8": {Fn: neighborsFn("neighbors8", allOffsets)},
 		"idiv":       {Fn: idivFn},
+		"abs":        {Fn: absFn},
+		"pow":        {Fn: powFn},
+		"sqrt":       {Fn: sqrtFn},
+		"gcd":        {Fn: gcdFn},
+		"lcm":        {Fn: lcmFn},
 		"gather":     {Fn: gatherFn},
 		"list":       {Fn: listFn},
 		"tuple":      {Fn: tupleFn},
@@ -76,6 +82,9 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"join":       {Fn: joinFn},
 		"split":      {Fn: splitFn},
 		"trim":       {Fn: trimFn},
+		"replace":    {Fn: replaceFn},
+		"upper":      {Fn: upperFn},
+		"lower":      {Fn: lowerFn},
 		"str":        {Fn: strFn},
 		"int":        {Fn: intFn},
 		"float":      {Fn: floatFn},
@@ -783,6 +792,163 @@ func idivFn(args ...object.Object) object.Object {
 	return object.NewInteger(a.Value / b.Value)
 }
 
+// absFn is `abs(x)` (SPEC.md §7) — absolute value, type-preserving the
+// same way `+`/`-`/`*` are (SPEC.md §6): an Integer argument gives an
+// Integer back, a Float gives a Float, rather than always widening the
+// way `sqrt`/`pow`-with-a-fraction have to.
+func absFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("abs", "1", len(args))
+	}
+	switch v := args[0].(type) {
+	case *object.Integer:
+		if v.Value < 0 {
+			return object.NewInteger(-v.Value)
+		}
+		return v
+	case *object.Float:
+		return &object.Float{Value: math.Abs(v.Value)}
+	default:
+		return wrongArgType("abs", 0, "an Integer or Float", args[0])
+	}
+}
+
+// powFn is `pow(base, exp)` (SPEC.md §7). Integer base raised to a
+// non-negative Integer exponent stays an Integer, the same widen-only-
+// when-you-have-to rule §6 already applies to `+`/`-`/`*`; a negative
+// exponent can't stay an Integer (the true result is a fraction), and
+// either argument being a Float means the result is inherently
+// fractional too, so both widen to Float via math.Pow, the same way a
+// mixed-type `+`/`-`/`*` already would.
+func powFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("pow", "2", len(args))
+	}
+	base, ok := numericValue(args[0])
+	if !ok {
+		return wrongArgType("pow", 0, "an Integer or Float", args[0])
+	}
+	exp, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("pow", 1, "an Integer or Float", args[1])
+	}
+	if bi, ok := args[0].(*object.Integer); ok {
+		if ei, ok := args[1].(*object.Integer); ok && ei.Value >= 0 {
+			return object.NewInteger(intPow(bi.Value, ei.Value))
+		}
+	}
+	return &object.Float{Value: math.Pow(base, exp)}
+}
+
+// intPow is exponentiation by squaring — O(log exp) multiplications
+// rather than a naive O(exp) loop, so a large-but-still-int64-sized
+// exponent (bit-flag puzzles lean on 2^n a lot) doesn't cost more than
+// it has to. Overflow wraps the same way `*` already does for two
+// Integers; neither checks, so pow staying consistent with that isn't
+// a new gap.
+func intPow(base, exp int64) int64 {
+	result := int64(1)
+	for exp > 0 {
+		if exp&1 == 1 {
+			result *= base
+		}
+		base *= base
+		exp >>= 1
+	}
+	return result
+}
+
+// sqrtFn is `sqrt(x)` (SPEC.md §7) — always a Float, the same
+// "an operation whose true result generally isn't an integer always
+// widens" rule `/` already follows (§6), rather than an Integer input
+// occasionally returning an Integer if it happens to be a perfect
+// square. A negative argument is a runtime error rather than a silent
+// NaN, matching §6's explicit "never an implicit Inf/NaN" rule for
+// division by zero.
+func sqrtFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("sqrt", "1", len(args))
+	}
+	v, ok := numericValue(args[0])
+	if !ok {
+		return wrongArgType("sqrt", 0, "an Integer or Float", args[0])
+	}
+	if v < 0 {
+		return newError("sqrt: argument must be non-negative, got %v", v)
+	}
+	return &object.Float{Value: math.Sqrt(v)}
+}
+
+// twoInts validates both arguments of a binary Integer-only builtin at
+// once, the same shape twoSets already gives Set builtins.
+func twoInts(name string, args []object.Object) (a, b int64, errObj *object.Error) {
+	if len(args) != 2 {
+		return 0, 0, wrongArgCount(name, "2", len(args))
+	}
+	ai, ok := args[0].(*object.Integer)
+	if !ok {
+		return 0, 0, wrongArgType(name, 0, "an Integer", args[0])
+	}
+	bi, ok := args[1].(*object.Integer)
+	if !ok {
+		return 0, 0, wrongArgType(name, 1, "an Integer", args[1])
+	}
+	return ai.Value, bi.Value, nil
+}
+
+// gcdFn is `gcd(a, b)` (SPEC.md §7) — greatest common divisor, via the
+// Euclidean algorithm. Integer-only, like `idiv`: a GCD is inherently a
+// whole-number question, so there's no Float overload to widen to the
+// way `pow`/`sqrt` have. Negative arguments are folded to their
+// absolute value first (gcd is conventionally non-negative regardless
+// of sign), and gcd(0, 0) is 0 by the same convention Go's own
+// math/big.Int.GCD documents.
+func gcdFn(args ...object.Object) object.Object {
+	a, b, errObj := twoInts("gcd", args)
+	if errObj != nil {
+		return errObj
+	}
+	return object.NewInteger(gcdInt(a, b))
+}
+
+func gcdInt(a, b int64) int64 {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+// lcmFn is `lcm(a, b)` (SPEC.md §7) — least common multiple, the
+// classic "when do these two cycles next line up" answer AoC's
+// modular-arithmetic days lean on. Computed as `a / gcd(a, b) * b`
+// (dividing before multiplying, the standard way to keep the
+// intermediate value smaller and delay overflow) rather than `a * b /
+// gcd(a, b)`. lcm(0, x) is 0 by the usual convention (0 is a multiple
+// of everything, and the smallest one); the result is always
+// non-negative regardless of the arguments' signs, matching gcd's own
+// sign convention above.
+func lcmFn(args ...object.Object) object.Object {
+	a, b, errObj := twoInts("lcm", args)
+	if errObj != nil {
+		return errObj
+	}
+	if a == 0 || b == 0 {
+		return object.NewInteger(0)
+	}
+	g := gcdInt(a, b)
+	result := a / g * b
+	if result < 0 {
+		result = -result
+	}
+	return object.NewInteger(result)
+}
+
 // gatherFn is `gather(list)` (SPEC.md §7) — collects a List into a
 // Set, dropping duplicates.
 func gatherFn(args ...object.Object) object.Object {
@@ -1019,9 +1185,12 @@ func toppedFn(args ...object.Object) object.Object {
 // Tuple (linear scan, comparing with object.Equal — the exact same
 // notion of "equal" `==` uses, so contains(xs, y)` agrees with
 // `xs[i] == y` for whichever i), a Set (topped's own O(1) Hashable
-// lookup, reused rather than re-implemented), or a Map (membership by
+// lookup, reused rather than re-implemented), a Map (membership by
 // *key*, the same "is this key present" question `sauce`/nobox
-// indexing already answers less directly).
+// indexing already answers less directly), or a String (substring
+// search — the one case that isn't "is this exact element present",
+// since collection[i] on a String is single-character while `item` can
+// be any length).
 func containsFn(args ...object.Object) object.Object {
 	if len(args) != 2 {
 		return wrongArgCount("contains", "2", len(args))
@@ -1036,40 +1205,71 @@ func containsFn(args ...object.Object) object.Object {
 	case *object.Map:
 		_, ok := v.Get(args[1])
 		return object.NativeBoolToBooleanObject(ok)
+	case *object.String:
+		sub, ok := args[1].(*object.String)
+		if !ok {
+			return wrongArgType("contains", 1, "a String (searching a String)", args[1])
+		}
+		return object.NativeBoolToBooleanObject(strings.Contains(v.Value, sub.Value))
 	default:
-		return wrongArgType("contains", 0, "a List, Tuple, Set, or Map", args[0])
+		return wrongArgType("contains", 0, "a List, Tuple, Set, Map, or String", args[0])
 	}
 }
 
 // findFn is `find(collection, value)` (SPEC.md §7) — the lowest index
 // in a List or Tuple where an element equals (object.Equal, the same
-// value-equality `==`/`contains` use) value, or `nobox` if none does
-// (including an empty collection). The positional counterpart to
-// `contains`: `contains` answers "is value in here at all", `find`
-// answers "where" — sharing the same underlying scan (indexOfElement)
+// value-equality `==`/`contains` use) value, the lowest rune index in a
+// String where a substring starts, or `nobox` if none does (including
+// an empty collection). The positional counterpart to `contains`:
+// `contains` answers "is value in here at all", `find` answers "where"
+// — sharing the same underlying scan (indexOfElement) for List/Tuple
 // rather than two separately-written loops that could drift apart on
-// what "equal" means. Only List/Tuple, not Set/Map: a Set has no
-// position to report or a value at all worth iterating, and a Map's
-// iteration order isn't meaningful the way an index promises it is.
+// what "equal" means. Only List/Tuple/String, not Set/Map: a Set has no
+// position to report, and a Map's iteration order isn't meaningful the
+// way an index promises it is.
 func findFn(args ...object.Object) object.Object {
 	if len(args) != 2 {
 		return wrongArgCount("find", "2", len(args))
 	}
-	var elements []object.Object
 	switch v := args[0].(type) {
 	case *object.List:
-		elements = v.Elements
+		return indexOrNull(indexOfElement(v.Elements, args[1]))
 	case *object.Tuple:
-		elements = v.Elements
+		return indexOrNull(indexOfElement(v.Elements, args[1]))
+	case *object.String:
+		sub, ok := args[1].(*object.String)
+		if !ok {
+			return wrongArgType("find", 1, "a String (searching a String)", args[1])
+		}
+		return indexOrNull(runeIndex(v.Value, sub.Value))
 	default:
-		return wrongArgType("find", 0, "a List or Tuple", args[0])
+		return wrongArgType("find", 0, "a List, Tuple, or String", args[0])
 	}
+}
 
-	idx := indexOfElement(elements, args[1])
+// indexOrNull converts a found-or-not-found index (-1 for "not found",
+// the convention indexOfElement/runeIndex both use) into find()'s
+// actual return value: nobox instead of a sentinel -1 an AoC solution
+// could easily mistake for a genuine index if it forgot to check.
+func indexOrNull(idx int) object.Object {
 	if idx == -1 {
 		return object.NULL
 	}
 	return object.NewInteger(int64(idx))
+}
+
+// runeIndex returns the rune index (not byte index — cRust's own
+// string indexing/slicing is rune-based, SPEC.md §6) of sub's first
+// occurrence in s, or -1 if absent. strings.Index itself works in byte
+// offsets; converting just the matched prefix (RuneCountInString on
+// s[:byteIdx], not the whole string) keeps this to one pass over the
+// part that actually matters.
+func runeIndex(s, sub string) int {
+	byteIdx := strings.Index(s, sub)
+	if byteIdx == -1 {
+		return -1
+	}
+	return utf8.RuneCountInString(s[:byteIdx])
 }
 
 // indexOfElement returns the lowest index of elements equal
@@ -1295,6 +1495,57 @@ func trimFn(args ...object.Object) object.Object {
 		return wrongArgType("trim", 0, "a String", args[0])
 	}
 	return &object.String{Value: strings.TrimSpace(s.Value)}
+}
+
+// replaceFn is `replace(s, old, new)` (SPEC.md §7) — every
+// non-overlapping occurrence of old in s, swapped for new, via Go's own
+// strings.ReplaceAll rather than a hand-rolled scan-and-splice loop.
+// There's no count-limited form (Go's strings.Replace(s, old, new, n))
+// — "replace the first N" hasn't come up anywhere else in this stdlib
+// (split's delim/join's sep are both unconditional too), and it's easy
+// to add later without breaking this three-argument form if it ever
+// does.
+func replaceFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("replace", "3", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("replace", 0, "a String", args[0])
+	}
+	old, ok := args[1].(*object.String)
+	if !ok {
+		return wrongArgType("replace", 1, "a String", args[1])
+	}
+	nu, ok := args[2].(*object.String)
+	if !ok {
+		return wrongArgType("replace", 2, "a String", args[2])
+	}
+	return &object.String{Value: strings.ReplaceAll(s.Value, old.Value, nu.Value)}
+}
+
+// upperFn is `upper(s)` (SPEC.md §7) — s, uppercased.
+func upperFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("upper", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("upper", 0, "a String", args[0])
+	}
+	return &object.String{Value: strings.ToUpper(s.Value)}
+}
+
+// lowerFn is `lower(s)` (SPEC.md §7) — s, lowercased.
+func lowerFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("lower", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("lower", 0, "a String", args[0])
+	}
+	return &object.String{Value: strings.ToLower(s.Value)}
 }
 
 // strFn is `str(x)` (SPEC.md §7) — converts any value to its String

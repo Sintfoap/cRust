@@ -21,6 +21,7 @@ const usageBody = `Usage:
   crust tokens <file.crust>                   print the lexer's token stream and exit
   crust parse <file.crust>                    print the parsed AST and exit
   crust develop <file.crust> [--store=<name>] step through a run: time/memory per function
+  crust bake documentation [-p <port>]        serve the docs site, open a browser
   crust lsp                                   start a language server on stdin/stdout
   crust --version                             print the version
   crust --help | -h                           show this help
@@ -40,6 +41,7 @@ Examples:
   crust tokens day01.crust          debug: see how it lexes
   crust parse day01.crust           debug: see how it parses
   crust develop day01.crust         step through a run, see time/memory per function
+  crust bake documentation          open the docs site in a browser
   crust lsp                         debug: run the language server by hand
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
@@ -139,6 +141,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			return 2
 		}
 		return runDebug(path, opts, stdin, stdout, stderr)
+	case "bake":
+		if len(rest) < 2 || rest[1] != "documentation" {
+			fmt.Fprintln(stderr, `crust bake: expected "documentation" (crust bake documentation [-p <port>])`)
+			return 2
+		}
+		port, err := parseBakeArgs(rest[2:])
+		if err != nil {
+			fmt.Fprintf(stderr, "crust bake documentation: %s\n", err)
+			return 2
+		}
+		return runBakeDocumentation(port, stdout, stderr)
 	case "lsp":
 		return runLSP(stdin, stdout, stderr)
 	default:

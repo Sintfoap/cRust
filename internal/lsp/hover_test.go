@@ -31,6 +31,59 @@ func TestBuiltinDocsCoversEveryRealBuiltin(t *testing.T) {
 	}
 }
 
+// TestKeywordDocsKeyedBySpelling confirms the exported accessor
+// re-keys by source spelling (what a reader outside this package
+// actually types), not the internal token.Type keywordDocs itself uses.
+func TestKeywordDocsKeyedBySpelling(t *testing.T) {
+	docs := KeywordDocs()
+	doc, ok := docs["recipe"]
+	if !ok {
+		t.Fatal(`KeywordDocs()["recipe"] missing`)
+	}
+	if doc != keywordDocs[token.RECIPE] {
+		t.Errorf("KeywordDocs()[%q] = %q, want %q", "recipe", doc, keywordDocs[token.RECIPE])
+	}
+	if len(docs) != len(keywordDocs) {
+		t.Errorf("KeywordDocs() has %d entries, want %d (one per keywordDocs entry)", len(docs), len(keywordDocs))
+	}
+}
+
+// TestKeywordDocsReturnsACopy confirms mutating the result can't reach
+// back into this package's own table.
+func TestKeywordDocsReturnsACopy(t *testing.T) {
+	docs := KeywordDocs()
+	docs["recipe"] = "tampered"
+	if keywordDocs[token.RECIPE] == "tampered" {
+		t.Error("mutating KeywordDocs()'s result mutated the package's own keywordDocs")
+	}
+}
+
+// TestBuiltinDocsExportedMatchesInternal confirms the exported
+// accessor hands back the same content as the package-private table it
+// wraps -- coverage of the table's own completeness already lives in
+// TestBuiltinDocsCoversEveryRealBuiltin above.
+func TestBuiltinDocsExportedMatchesInternal(t *testing.T) {
+	docs := BuiltinDocs()
+	if len(docs) != len(builtinDocs) {
+		t.Fatalf("BuiltinDocs() has %d entries, want %d", len(docs), len(builtinDocs))
+	}
+	for name, doc := range builtinDocs {
+		if docs[name] != doc {
+			t.Errorf("BuiltinDocs()[%q] = %q, want %q", name, docs[name], doc)
+		}
+	}
+}
+
+// TestBuiltinDocsReturnsACopy mirrors TestKeywordDocsReturnsACopy for
+// the builtin table.
+func TestBuiltinDocsReturnsACopy(t *testing.T) {
+	docs := BuiltinDocs()
+	docs["deliver"] = "tampered"
+	if builtinDocs["deliver"] == "tampered" {
+		t.Error("mutating BuiltinDocs()'s result mutated the package's own builtinDocs")
+	}
+}
+
 func TestHoverKeyword(t *testing.T) {
 	text := "recipe foo() {\n}\n"
 	// "recipe" starts at line 0, char 0.

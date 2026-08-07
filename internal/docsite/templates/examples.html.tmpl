@@ -1,0 +1,67 @@
+{{define "content"}}
+<h1>Examples</h1>
+<p class="lede">A couple of runnable snippets. The repository's
+<code>examples/</code> directory has more — including
+<code>the_works.crust</code> and <code>closures.crust</code>, which between
+them exercise every keyword, operator, and builtin at least once.</p>
+
+<div class="card">
+  <h3>Hello, World</h3>
+  <pre><code>deliver("Hello, World!")</code></pre>
+</div>
+
+<div class="card">
+  <h3>Find a pair summing to a target (AoC 2020 Day 1 shape)</h3>
+  <pre><code>recipe findPair(nums, target) {
+    knead (i = 0; i &lt; slices(nums); i++) {
+        knead (j = i + 1; j &lt; slices(nums); j++) {
+            order (nums[i] + nums[j] == target) {
+                serve [nums[i], nums[j]]
+            }
+        }
+    }
+    serve nobox
+}
+
+recipe store() {
+    entries = ints(lines(unbox("input.txt")))
+    pair = findPair(entries, 2020)
+    deliver(pair[0] * pair[1])
+}</code></pre>
+</div>
+
+<div class="card">
+  <h3>Sets and for-each (AoC 2020 Day 6 shape — group answer union)</h3>
+  <pre><code>recipe store() {
+    groups = split(unbox("input.txt"), "\n\n")
+    total = 0
+    knead group in groups {
+        answered = toppings{}
+        knead person in lines(group) {
+            knead ch in chars(person) {
+                sprinkle(answered, ch)
+            }
+        }
+        total += slices(answered)
+    }
+    deliver(total)
+}</code></pre>
+</div>
+
+<div class="card">
+  <h3>Grid neighbors, memoized Fibonacci, and the stdlib together</h3>
+  <pre><code>cache = {}
+recipe fib(n) {
+    order (n &lt;= 1) { serve n }
+    cache[n] = cache[n] ?: fib(n - 1) + fib(n - 2)
+    serve cache[n]
+}
+
+g = grid("...\n.#.\n...")
+knead pos in neighbors8((1, 1)) {
+    deliver(pos, at(g, pos))
+}
+
+deliver(fib(30), gcd(48, 18), lcm(4, 6), pow(2, 10))</code></pre>
+</div>
+{{end}}

@@ -831,17 +831,26 @@ Implemented now: `deliver`, `slices`, `sauce`, `chars`, `ints`, `push`,
 division is a builtin" note, so it landed with the rest even though
 it's not yet in §7's table), the full Set family
 `gather`/`sprinkle`/`scrape`/`topped`/`combine`/`shared`/`strip`, input
-(`unbox`/`lines`/`split`/`join`/`trim`), type conversion
-(`str`/`int`/`float`/`bool`), and `+`-as-concatenation extended from
-strings to Lists and Tuples. **Still not built**: `contains`/`replace`,
-`filter`/`reduce` (`map`'s siblings), and `math`/`sort` adapters
-(abs/pow/sqrt/gcd/lcm, list sorting) — the rest of what this phase's
-own section below describes.
+(`unbox`/`lines`/`split`/`join`/`trim`), general string helpers
+(`contains`/`find` extended to accept a String, `replace`, `upper`,
+`lower`), math (`abs`/`pow`/`sqrt`/`gcd`/`lcm`, standard names — see
+§7's own note on why), list sorting (`pizzasort`, themed rather than a
+plain `sort` adapter, since "sort" alone says nothing about *which*
+order), type conversion (`str`/`int`/`float`/`bool`), and
+`+`-as-concatenation extended from strings to Lists and Tuples.
+**Still not built**: `filter`/`reduce` (`map`'s siblings) — the rest of
+what this phase's own section below describes.
 
 - Most builtins are thin adapters over Go's standard library:
-  `strings` (contains/replace, not yet built), `math`
-  (abs/pow/sqrt/gcd/lcm, not yet built), `sort` (list sorting, not yet
-  built). `unbox` wraps `os.ReadFile` (with a path argument) or reads
+  `strings` (`contains`/`find`/`replace`/`upper`/`lower`, all wrapping
+  `strings.Contains`/`Index`/`ReplaceAll`/`ToUpper`/`ToLower`) and
+  `math` (`abs`/`sqrt` wrap `math.Abs`/`Sqrt` directly; `pow` only
+  reaches for `math.Pow` when it has to — an Integer base with a
+  non-negative Integer exponent instead computes via `intPow`,
+  exponentiation by squaring, so the common bit-flag-puzzle case
+  (`pow(2, n)`) stays an exact Integer instead of round-tripping
+  through `float64`; `gcd`/`lcm` are the Euclidean algorithm directly,
+  nothing in `math` already does this for machine integers). `unbox` wraps `os.ReadFile` (with a path argument) or reads
   the injected `stdin io.Reader` directly (no argument) — same-shaped
   `String` result either way, since a puzzle solution shouldn't care
   which source it came from. `lines` wraps `bufio.Scanner` with its
@@ -2651,6 +2660,99 @@ code was written.
     (`TestRunDebugNoDefaultEntryPointListsAvailableOnes`,
     `TestRunDebugUnknownStoreNameIsAnError`) cover both new error
     paths, restoring `cmd/crust` to its coverage baseline.
+
+- **`crust bake documentation`** (`internal/docsite`) — a browsable,
+  pizza-themed reference site served over local HTTP, from a direct
+  request to build something in the shape of RFuller25/domainlang's
+  `domain expansion: documentation` (an embedded site + local HTTP
+  server + best-effort browser launch), but themed for cRust and with
+  one structural difference explained below.
+  - **Server-rendered Go templates instead of a client-side JS app.**
+    domainlang's site is a single large `index.html` that fetches
+    Markdown pages and JSON data client-side and renders them with a
+    hand-written JS Markdown parser (`render.js`). cRust's own
+    conventions lean the other way on adding client-side machinery —
+    `debug_run.go`'s hand-rolled text field over a components library
+    is the same call for the same reason — and this codebase's whole
+    culture is Go tests over manual verification wherever possible.
+    `html/template`, executed server-side per request, gets both:
+    every page is `httptest`-able (`docsite_test.go` asserts on the
+    actual rendered HTML, not on JS behavior nothing here can execute
+    in a test), and there's no Markdown parser to write, test, or trust
+    — the two data-driven pages (see below) only ever need to render
+    backtick-delimited code spans, the one piece of "Markdown" cRust's
+    own hover docs actually use, which `renderInlineDoc` handles
+    directly (split on `` ` ``, alternate plain/`<code>`, HTML-escape
+    every segment either way — a full Markdown library would be a lot
+    of unused surface for one feature).
+  - **One `*template.Template` per page, not one shared parse of
+    everything.** Every page file defines a `{{define "content"}}`
+    block consumed by the shared `templates/layout.html.tmpl`; parsing
+    all of them together (`ParseGlob`) would fail outright, since
+    `html/template` errors on redefining a template name within one
+    parse and every page's file defines that same name. Parsing
+    layout+page pairwise (`pages["keywords"] =
+    template.Must(template.ParseFS(fs, "layout.html.tmpl",
+    "keywords.html.tmpl"))`, one call per page name) sidesteps the
+    conflict entirely — each combination only ever sees one `"content"`
+    definition — at the cost of the layout's raw text being parsed
+    once per page rather than once total, a cost that doesn't matter at
+    this site's size and request volume.
+  - **Keywords and Standard Library are read live from
+    `internal/lsp`, not written twice.** `crust lsp`'s own
+    `keywordDocs`/`builtinDocs` tables (hover.go) are already
+    hand-maintained copies of the language's real vocabulary, and
+    `builtinDocs` is already guarded against drifting from
+    `internal/builtins`' actual registrations by
+    `TestBuiltinDocsCoversEveryRealBuiltin`. Adding a *third*
+    hand-maintained copy for this site — the obvious-looking path,
+    since domainlang's own primitives.json is exactly that, generated
+    from Go source via `go test -update` — would mean a doc string
+    could go stale here without any test catching it. Exporting
+    `lsp.KeywordDocs()`/`lsp.BuiltinDocs()` (each re-keyed to what a
+    reader actually types, `keywordDocs` itself being keyed by
+    `token.Type`, and each returning a fresh copy so a caller can't
+    mutate the package's own table through the result) instead makes
+    this site inherit that same test's guarantee for free: whatever
+    `crust lsp` would hover for a name is exactly what `/keywords` or
+    `/builtins` prints for it, checked once, upstream, rather than
+    needing its own duplicate check. `sortedEntries` turns either map
+    into alphabetically-ordered rows — Go's map iteration order is
+    randomized per the language spec, and a reference table that
+    reshuffled itself on every page load would be unreadable. Each
+    table also ships a small vanilla-JS filter box (`oninput` hiding
+    non-matching `<tr>`s by substring) — the one piece of client-side
+    script on the whole site, small enough not to need its own test
+    beyond confirming the markup it operates on renders correctly.
+  - **Theming**: light and dark pizza-crust palettes (cream/tomato-red/
+    basil-green light, charcoal-oven/lighter-tomato dark) purely via
+    `@media (prefers-color-scheme: dark)` CSS custom properties, no JS
+    theme toggle — this site has no persisted user state to remember a
+    manual choice across, so following the OS/browser preference
+    already covers the real need.
+  - **Command shape** (`cmd/crust/bake.go`) closely mirrors
+    domainlang's `documentation` command: `-p`/`--port` (both
+    space- and `=`-joined forms), bind, print the URL, best-effort
+    `xdg-open`/`open`/`cmd /c start` (OS-specific, never fatal if
+    missing), `http.Serve` until interrupted — Ctrl+C via the OS's
+    default SIGINT handling, no signal code needed here either.
+    `runBakeDocumentation(port, ...)` (binds, then hands off) is split
+    from `serveDocumentation(net.Listener, ...)` (banner text + serve)
+    specifically so a test can drive the latter against a
+    self-created, self-closed `net.Listener` on an OS-assigned
+    ephemeral port (`"127.0.0.1:0"`) — bind, real `http.Get` against
+    the actual served content, `Close()` the listener to end
+    `http.Serve` deterministically, assert the reported exit path —
+    without needing a fixed port that could collide with a real `crust
+    bake documentation` the person running the tests already has open,
+    or leaving a goroutine serving forever past the end of the test.
+    Verified end-to-end via a real subprocess too: `crust bake
+    documentation --port 4747` bound, served, and a `curl` against
+    `/`, `/builtins` (confirmed `abs`/`gcd`/`replace`/... — this
+    session's own stdlib additions — showed up, proving the live-data
+    wiring), `/keywords`, and a 404 path all returned the expected
+    content, plus a real headless-Chromium screenshot of both the
+    light and dark themes and the Standard Library page's search box.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

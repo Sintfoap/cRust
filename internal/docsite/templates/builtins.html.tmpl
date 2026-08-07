@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>Standard Library</h1>
+<p class="lede">Every builtin function this build of <code>crust</code>
+registers — read live from <code>internal/builtins</code> via the same table
+<code>crust lsp</code> hovers and completes with, so this list can never lag
+behind what actually runs. <span class="pill">{{len .Builtins}} builtins</span></p>
+
+<input class="search" type="search" placeholder="Filter builtins…" oninput="filterRows(this, 'builtin-table')" autofocus>
+
+<table id="builtin-table">
+  <thead><tr><th>Name</th><th>Does</th></tr></thead>
+  <tbody>
+  {{range .Builtins}}
+    <tr><td class="name"><code class="kw">{{.Name}}</code></td><td>{{.Doc}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<script>
+function filterRows(input, tableID) {
+  var q = input.value.toLowerCase();
+  var rows = document.getElementById(tableID).getElementsByTagName('tbody')[0].rows;
+  for (var i = 0; i < rows.length; i++) {
+    var text = rows[i].textContent.toLowerCase();
+    rows[i].style.display = text.indexOf(q) === -1 ? 'none' : '';
+  }
+}
+</script>
+{{end}}

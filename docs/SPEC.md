@@ -585,16 +585,13 @@ per-operator special cases:
 
 ## 7. Standard Library (Builtins)
 
-Draft — this list covers what's already implied by §2–§6 plus input and
-type conversion; the rest of Phase 5 (general string helpers —
-contains, replace — and further math/collection coverage) fleshes this
-out later. Math functions (`min`, `max`, and eventually `abs`, `pow`,
-`sqrt`, `gcd`, `lcm`) keep their standard names — they're universal
-vocabulary, and forcing a pizza pun onto them would cost clarity for no
-gain; `str`/`int`/`float`/`bool` (type conversion, below) are named on
-that same principle. Everything else below is genuinely part of the
-pizza theme, either because the pun was too good to pass up or because
-it's directly tied to the Set type this doc introduces.
+Math functions (`min`, `max`, `abs`, `pow`, `sqrt`, `gcd`, `lcm`) keep
+their standard names — they're universal vocabulary, and forcing a
+pizza pun onto them would cost clarity for no gain; `str`/`int`/
+`float`/`bool` (type conversion, below) are named on that same
+principle. Everything else below is genuinely part of the pizza theme,
+either because the pun was too good to pass up or because it's
+directly tied to the Set type this doc introduces.
 
 | Builtin | Signature | Does |
 |---|---|---|
@@ -604,7 +601,7 @@ it's directly tied to the Set type this doc introduces.
 | `chars(s)` | `(String) -> List` | splits a string into a List of one-character strings |
 | `ints(s)` / `ints(list)` | `(String) -> List` / `(List) -> List` | `ints(s)` splits a string of digits into a List of single-digit Integers — the numeric-grid counterpart to `chars`; a non-digit character is a runtime error. `ints(list)` instead parses each String element of `list` as a full (possibly multi-digit) Integer, the same way `int(x)` parses a String — so `ints(split(line))` turns a line of numbers straight into a List of Integers |
 | `map(iterable, fn)` | `(List \| Tuple, Function) -> List` | applies `fn` to every element of a List or Tuple, in order, collecting the results into a new List; `fn` can be a recipe or another builtin. Chaining more than one transform per element is already possible by passing a lambda that does both (`map(xs, recipe(x) { serve g(f(x)) })`) — `map` only takes one function, not a list of them |
-| `find(collection, value)` | `(List \| Tuple, Any) -> Integer \| Nil` | the lowest index in a List or Tuple where an element equals (`==`) `value`, or `nobox` if none does (or `collection` is empty). The positional counterpart to `contains`: `contains` answers whether `value` is present at all, `find` answers where |
+| `find(collection, value)` | `(List \| Tuple, Any) -> Integer \| Nil` / `(String, String) -> Integer \| Nil` | the lowest index in a List or Tuple where an element equals (`==`) `value`, or the lowest rune index of a substring `value` in a String, or `nobox` if none does (or `collection` is empty). The positional counterpart to `contains`: `contains` answers whether `value` is present at all, `find` answers where |
 | `push(list, item)` | `(List, Any) -> Nil` | appends `item` to `list` in place — for a new List instead of mutating, use `+` (§5/§6) |
 | `copy(value)` | `(Any) -> Any` | an independent copy of `value`: for List/Map/Set/Grid, every level of nesting is duplicated, so mutating the copy (`push`, `setAt`, index assignment, `sprinkle`/`scrape`, ...) is never seen through the original, or the other way around. Every other type, including Tuple, comes back unchanged — Tuple's own Hashable-element requirement (§2.3) already rules out any mutable container living inside one, so it's already as independent as a copy could make it |
 | `min(a, b, ...)` / `min(list)` | `(Any, Any, ...) -> Any` / `(List \| Tuple) -> Any` | smallest of 2+ direct arguments, or of a List/Tuple's elements — same ordering as `<` (§6): numbers (Integer/Float freely mixed) or Strings, never a mix of both. Returns the winning element itself, unconverted |
@@ -619,6 +616,11 @@ it's directly tied to the Set type this doc introduces.
 | `gridBounds(g)` | `(Grid) -> Tuple \| Nil` | `g`'s current `(minRow, minCol, maxRow, maxCol)`, or `nobox` if `g` is empty. The only way to learn a Grid's bounds after any number of expanding `setAt` calls, since a Grid isn't directly indexable/iterable (§2.4) |
 | `neighbors4(pos)` / `neighbors8(pos)` | `(Tuple) -> List` | the 4 orthogonal, or 8 orthogonal+diagonal, neighbor positions of `(row, col)` `pos`, each as a Tuple — pure coordinate arithmetic, no bounds checking against any grid. Pair with `at` (nobox on out-of-range) to filter to only the neighbors that actually exist |
 | `idiv(a, b)` | `(Integer, Integer) -> Integer` | integer (floor) division — `/` always true-divides to a Float (§6), this is how you get an Integer result back |
+| `abs(x)` | `(Integer \| Float) -> Integer \| Float` | absolute value, type-preserving like `+`/`-`/`*` (§6): an Integer in gives an Integer back, a Float gives a Float |
+| `pow(base, exp)` | `(Integer \| Float, Integer \| Float) -> Integer \| Float` | `base` to the `exp` power. An Integer `base` with a non-negative Integer `exp` stays an Integer, the same widen-only-when-you-have-to rule `+`/`-`/`*` already follow; a negative `exp` or either argument being a Float widens the result to Float (`math.Pow`), since the true result is inherently fractional |
+| `sqrt(x)` | `(Integer \| Float) -> Float` | square root — always a Float, even for a perfect square, matching `/`'s "always widens" rule rather than occasionally returning an Integer. A negative `x` is a runtime error, never an implicit `NaN` (§6's division-by-zero rule, applied the same way here) |
+| `gcd(a, b)` | `(Integer, Integer) -> Integer` | greatest common divisor (Euclidean algorithm) — Integer-only, like `idiv`. Always non-negative regardless of `a`/`b`'s signs; `gcd(0, 0)` is `0` |
+| `lcm(a, b)` | `(Integer, Integer) -> Integer` | least common multiple — the "when do these two cycles next line up" answer modular-arithmetic AoC days lean on. Always non-negative; `lcm(0, x)` is `0` |
 | `gather(list)` | `(List) -> Set` | collects a List into a Set, dropping duplicates |
 | `list(x)` | `(List \| Tuple \| Set) -> List` | `x`'s elements collected into a new List — a List in, List out is a shallow copy (same as Python's `list()`; for a deep copy see `copy()`). A Set's elements come back in whatever order Go's own map iteration happens to visit them, matching Set's own unordered contract |
 | `tuple(x)` | `(List \| Tuple \| Set) -> Tuple` | `x`'s elements collected into a new Tuple. Every element must be Hashable (§2.3), the same requirement a `(a, b)` Tuple literal already enforces — `tuple([1, [2, 3]])` is a runtime error, not a Tuple holding an unhashable List |
@@ -628,7 +630,7 @@ it's directly tied to the Set type this doc introduces.
 | `sprinkle(set, item)` | `(Set, Any) -> Nil` | adds `item` to `set` in place |
 | `scrape(set, item)` | `(Set, Any) -> Nil` | removes `item` from `set` in place, no error if absent |
 | `topped(set, item)` | `(Set, Any) -> Boolean` | membership test — is `item` in `set`? |
-| `contains(collection, item)` | `(List \| Tuple \| Set \| Map, Any) -> Boolean` | general membership test: for a List/Tuple, is `item` equal (`==`) to any element; for a Set, the same question `topped` answers; for a Map, is `item` a *key* (not a value) |
+| `contains(collection, item)` | `(List \| Tuple \| Set \| Map, Any) -> Boolean` / `(String, String) -> Boolean` | general membership test: for a List/Tuple, is `item` equal (`==`) to any element; for a Set, the same question `topped` answers; for a Map, is `item` a *key* (not a value); for a String, is `item` a substring |
 | `combine(a, b)` | `(Set, Set) -> Set` | union |
 | `shared(a, b)` | `(Set, Set) -> Set` | intersection |
 | `strip(a, b)` | `(Set, Set) -> Set` | difference — items in `a` not in `b` |
@@ -637,6 +639,8 @@ it's directly tied to the Set type this doc introduces.
 | `split(s)` / `split(s, delim)` | `(String) -> List` / `(String, String) -> List` | `split(s)` splits on runs of whitespace, no empty entries (irregular spacing collapses); `split(s, delim)` splits on the literal `delim` instead, preserving empty entries between consecutive delimiters — a real CSV-style split, not whitespace-collapsing. `delim` can't be `""` — use `chars(s)` for that |
 | `join(list, sep)` | `(List, String) -> String` | joins a List of Strings with `sep` between each — the counterpart to `split`; every element must already be a String (`str()` first if not) |
 | `trim(s)` | `(String) -> String` | removes leading/trailing whitespace — distinct from `strip` (Set difference, above) on purpose, to avoid the name collision; the usual reason to reach for this is a trailing newline off `unbox()`'s raw output |
+| `replace(s, old, new)` | `(String, String, String) -> String` | every occurrence of `old` in `s`, swapped for `new` — unconditional (all occurrences), no count-limited form yet |
+| `upper(s)` / `lower(s)` | `(String) -> String` | `s`, uppercased or lowercased |
 | `str(x)` | `(Any) -> String` | converts any value to its String form (the same text `deliver` would print for it) |
 | `int(x)` | `(String \| Integer \| Float) -> Integer` | parses a String (base-10; a non-integer string like `"3.5"` is a runtime error, not a silent truncation) or truncates a Float toward zero; an Integer passes through unchanged |
 | `float(x)` | `(String \| Integer \| Float) -> Float` | parses a String or widens an Integer; a Float passes through unchanged |

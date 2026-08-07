@@ -22,14 +22,15 @@ editor hover, diagnostics, go-to-definition, and more on top
 [Language server](#language-server) below. `crust develop` adds a
 step-by-step debugger with time/memory-per-function KPIs
 (`internal/trace`, `internal/debugger`) — see
-[Debugging](#debugging-time-and-memory-per-function) above. See [TODO.md](./TODO.md)
-for the roadmap and milestones,
+[Debugging](#debugging-time-and-memory-per-function) above. `crust bake
+documentation` serves a browsable, pizza-themed reference site on
+`localhost` — see [Documentation site](#documentation-site) below. See
+[TODO.md](./TODO.md) for the roadmap and milestones,
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
 behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
 section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
-keyword table, grammar, and semantics. Next up: rounding out Phase 5's
-standard library (general string helpers, math) and Phase 6's REPL.
+keyword table, grammar, and semantics. Next up: Phase 6's REPL.
 
 ## Why
 
@@ -177,6 +178,24 @@ last-used Run tab settings are remembered in a small JSON file under
 your user config directory (`$XDG_CONFIG_HOME/crust/develop_state.json`,
 or the platform equivalent) — delete it to forget everything, or an
 individual file's entry to forget just that one.
+
+### Documentation site
+
+```
+crust bake documentation            # serve on http://localhost:4747, open a browser
+crust bake documentation -p 8080    # pick a different port
+```
+
+A pizza-themed, browsable reference site — Getting Started, a syntax
+cheat-sheet, and full Keywords/Standard Library tables with a search
+box on each. The whole site is embedded in the binary
+(`internal/docsite`), so this works from any built `crust`, no source
+tree required; the two reference tables are read live from the exact
+same `internal/lsp` tables `crust lsp` hovers and completes with (kept
+honest against `internal/builtins`' real registrations by that
+package's own tests), so they can't quietly drift out of date with
+what a given build of `crust` actually understands. Ctrl+C stops the
+server.
 
 ### With Nix
 

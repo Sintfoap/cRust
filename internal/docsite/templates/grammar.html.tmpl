@@ -1,0 +1,71 @@
+{{define "content"}}
+<h1>Syntax Reference</h1>
+<p class="lede">A condensed cheat-sheet. For the full grammar and every rule
+in detail, see <code>docs/SPEC.md</code> in the repository.</p>
+
+<h2>Types</h2>
+<table>
+  <thead><tr><th>Type</th><th>Looks like</th></tr></thead>
+  <tbody>
+    <tr><td>Integer</td><td><code>42</code>, <code>-7</code></td></tr>
+    <tr><td>Float</td><td><code>3.14</code></td></tr>
+    <tr><td>String</td><td><code>"pepperoni"</code></td></tr>
+    <tr><td>Boolean</td><td><code>stuffed</code> (true) / <code>thin</code> (false)</td></tr>
+    <tr><td>Nil</td><td><code>nobox</code></td></tr>
+    <tr><td>List</td><td><code>[1, 2, 3]</code></td></tr>
+    <tr><td>Tuple</td><td><code>(1, 2)</code> — Hashable elements only</td></tr>
+    <tr><td>Map</td><td><code>{"a": 1, "b": 2}</code></td></tr>
+    <tr><td>Set</td><td><code>toppings{1, 2, 3}</code></td></tr>
+    <tr><td>Grid</td><td><code>grid(s)</code> / <code>newGrid()</code> — 2D, offset-shifting</td></tr>
+  </tbody>
+</table>
+
+<h2>Control flow</h2>
+<table>
+  <thead><tr><th>cRust</th><th>Standard equivalent</th></tr></thead>
+  <tbody>
+    <tr><td><code class="kw">recipe</code> name(args) { ... }</td><td>function definition</td></tr>
+    <tr><td><code class="kw">order</code> (cond) { ... }</td><td><code>if</code></td></tr>
+    <tr><td><code class="kw">combo</code> (cond) { ... }</td><td><code>else if</code></td></tr>
+    <tr><td><code class="kw">special</code> { ... }</td><td><code>else</code></td></tr>
+    <tr><td><code class="kw">knead</code> (i = 0; i &lt; n; i++) { ... }</td><td>counted <code>for</code></td></tr>
+    <tr><td><code class="kw">knead</code> item <code class="kw">in</code> xs { ... }</td><td>for-each</td></tr>
+    <tr><td><code class="kw">bake</code> (cond) { ... }</td><td><code>while</code></td></tr>
+    <tr><td><code class="kw">burnt</code></td><td><code>break</code></td></tr>
+    <tr><td><code class="kw">flip</code></td><td><code>continue</code></td></tr>
+    <tr><td><code class="kw">serve</code> expr</td><td><code>return</code> expr</td></tr>
+  </tbody>
+</table>
+<p>See <a href="/keywords">Keywords</a> for the complete list, including
+<code>with</code>/<code>or</code>/<code>hold</code> (logical and/or/not).</p>
+
+<h2>Operators</h2>
+<table>
+  <tbody>
+    <tr><td><code>+ - * /</code></td><td>arithmetic — <code>/</code> always true-divides to a Float; see <code>idiv</code> for integer division</td></tr>
+    <tr><td><code>%</code></td><td>modulo (Integer only)</td></tr>
+    <tr><td><code>== !=</code></td><td>value equality — Integer/Float are one "number" category</td></tr>
+    <tr><td><code>&lt; &gt; &lt;= &gt;=</code></td><td>ordering — numbers or strings only, mismatched types error</td></tr>
+    <tr><td><code>++ --</code></td><td>increment/decrement</td></tr>
+    <tr><td><code>a .< b</code> / <code>a..b</code></td><td>exclusive / inclusive range</td></tr>
+    <tr><td><code>cond (| a |) b</code></td><td>ternary: <code>a</code> if cond, else <code>b</code></td></tr>
+    <tr><td><code>a ?: b</code></td><td>Elvis / nil-coalescing: <code>a</code> unless it's <code>nobox</code></td></tr>
+  </tbody>
+</table>
+
+<h2>Slicing</h2>
+<p><code>list[start..end]</code> / <code>list[start.&lt;end]</code> works on
+a List, Tuple, or String. Negative bounds count from the end
+(<code>-1</code> is the last element); an out-of-order slice reads
+backward instead of coming back empty:</p>
+<pre><code>xs = [10, 20, 30, 40, 50]
+xs[0..2]    // [10, 20, 30]  (inclusive)
+xs[0.&lt;2]    // [10, 20]      (exclusive)
+xs[-1..0]   // [50, 40, 30, 20, 10]  (reversed)</code></pre>
+
+<h2>Truthiness</h2>
+<p>Only <code>thin</code> and <code>nobox</code> are falsy. <code>0</code>,
+<code>0.0</code>, <code>""</code>, <code>[]</code>, and
+<code>toppings{}</code> are all truthy — chosen deliberately, since AoC
+inputs routinely produce <code>0</code> as a legitimate value.</p>
+{{end}}

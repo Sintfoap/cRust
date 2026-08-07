@@ -211,7 +211,15 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       indexable/iterable), `neighbors4(pos)`/`neighbors8(pos)`
       (orthogonal / +diagonal offsets, no bounds checking, unchanged).
       Coordinates are `(row, col)` Tuples throughout, same as before
-- [ ] Math: abs, pow, gcd, lcm, sqrt (standard names, not themed)
+- [x] Math: `abs`, `pow`, `gcd`, `lcm`, `sqrt` (standard names, not
+      themed). `abs`/`pow` are type-preserving the same way `+`/`-`/`*`
+      are (Integer stays Integer unless it genuinely can't — a negative
+      `pow` exponent or `sqrt` always widen to Float); `gcd`/`lcm` are
+      Integer-only, like `idiv`
+- [x] String helpers: `replace(s, old, new)`, `upper(s)`, `lower(s)`,
+      plus extending the existing `contains`/`find` to accept a String
+      (substring search / substring index, rune-indexed like every
+      other cRust string position)
 - [x] `idiv` (integer division — SPEC.md §6, `/` always produces a Float)
 - [x] `push` (append to a List in place) and `+` extended to List/List
       and Tuple/Tuple concatenation (always a new value, never
@@ -231,8 +239,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
   [docs/SPEC.md §7](./docs/SPEC.md#7-standard-library-builtins). Most
   of what's checked off landed ahead of schedule alongside Phase 4 —
   see ARCHITECTURE.md's Phase 5 section for exactly what's built vs.
-  still pending (`internal/builtins`, not yet the general `strings`/
-  `math`/`sort` helpers).
+  still pending (`internal/builtins`; math and general string helpers
+  are now in, `sort`/`filter`/`reduce`-as-collection-ops are not).
 
 ## Phase 6 — Tooling
 - [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter
@@ -834,6 +842,28 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       keeps a small terminal from losing the tab bar over it, but the
       chart itself can still get cut off rather than shrinking to fit)
       and a search/filter over the Stepper tree
+- [x] `crust bake documentation` (`internal/docsite`) — a browsable,
+      pizza-themed reference site over local HTTP, in the shape of
+      RFuller25/domainlang's `domain expansion: documentation` (embedded
+      site + local HTTP server + best-effort browser launch), themed
+      for cRust. Server-rendered Go html/template pages rather than
+      domainlang's client-side JS app, since that's httptest-able and
+      needs no hand-written Markdown parser (the doc strings only ever
+      use backtick code spans, which renderInlineDoc handles directly).
+      Keywords and Standard Library pages are read live from new
+      lsp.KeywordDocs()/lsp.BuiltinDocs() exports (re-keyed copies of
+      crust lsp's own hover tables) rather than a third hand-maintained
+      copy of the vocabulary -- inheriting internal/lsp's own
+      TestBuiltinDocsCoversEveryRealBuiltin guarantee for free, so this
+      site can't go stale the way a generated-and-committed JSON file
+      could. Light/dark pizza-crust theme via prefers-color-scheme, no
+      JS beyond a small per-table filter box. `-p`/`--port` flag,
+      Ctrl+C to stop. See ARCHITECTURE.md's Phase 6 notes for the full
+      design writeup (per-page template parsing to dodge html/template's
+      redefinition error, the listener-injection trick that makes the
+      server itself testable, etc.) and verification (Go tests, a real
+      subprocess + curl, and real headless-Chromium screenshots of both
+      themes).
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter
