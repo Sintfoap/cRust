@@ -15,7 +15,24 @@
         packages.default = pkgs.buildGoModule {
           pname = "crust";
           version = "0.1.0-dev";
-          src = ./.;
+
+          # Only the Go build's actual inputs -- go.mod/go.sum/cmd/internal.
+          # `src = ./.` used to pull in the whole repo (docs/, editors/,
+          # examples/, assets/, TODO.md, ...), none of which the build
+          # touches (nothing uses //go:embed). That meant editing any of
+          # those unrelated files busted Nix's build cache and forced a full
+          # rebuild -- including buildGoModule's default checkPhase running
+          # the entire `go test ./...` suite -- on the next `nix develop
+          # .#crust` or direnv reload, even with zero Go source changes.
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./go.mod
+              ./go.sum
+              ./cmd
+              ./internal
+            ];
+          };
 
           # go.mod's first third-party dependencies (bubbletea + lipgloss,
           # for `crust debug`'s TUI) meant `vendorHash = null` (valid only
