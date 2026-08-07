@@ -2982,6 +2982,82 @@ code was written.
     a real `initialize`/`didOpen`/`textDocument/formatting` session
     piped into a built `crust lsp` binary.
 
+- **Run tab "run all stores" option** (`debug_run.go`'s
+  `runAllStoresCmd`, `debugModel.runAllStores`, Ctrl+R), from a
+  follow-up request: run every `store`/`store_<name>` entry point a
+  file declares against the same input file, one after another,
+  instead of only the selector's current pick — the natural next thing
+  to want once a file has a `store_part1`/`store_part2` split, since
+  checking both currently meant cycling the selector and pressing enter
+  twice by hand.
+  - **`debugger.Recorder.Merge(label string, other *Recorder)`**
+    (`internal/debugger/recorder.go`) is the piece that makes combining
+    several independent runs into one Stepper tree and one shared
+    Timing/KPI pass possible with zero changes to either: it appends
+    `&TraceNode{Frame: label, Children: other.Roots()}` to the
+    receiver's own `roots`, sums `steps`, and propagates `truncated`.
+    That this works at all falls out of a fact already true of
+    `Timing.measure` and `buildRows` (debug_tui.go): both walk purely
+    by tree structure — `IsFrame()`, `Children`, `Label()` — with no
+    notion of "this came from one run" baked in anywhere. A synthetic
+    wrapper frame is therefore indistinguishable from an ordinary
+    recipe-call frame to everything downstream, including KPI bucketing
+    (`family()`) — which means each merged store's own total time shows
+    up as one KPI row too (`store_part2(...)`, `Calls: 1`), not just the
+    recipes it happens to call, a small extra benefit rather than
+    something that had to be special-cased.
+  - **Each store still gets its own complete, independent `runFile`/
+    `buildDebugView` call** — its own `Interpreter`, environment, and
+    `bytes.NewReader(data)` over the input — rather than being chained
+    through one shared `Interpreter` across the loop, even though that
+    would have been the more obvious way to build one merged `Recorder`
+    directly (call `interp.CallNamed` once per store against the same
+    `Interpreter`/`Recorder`, since `CallNamed` already opens its own
+    top-level frame per call). The reason it doesn't: `unbox()` with no
+    argument reads whichever `stdin io.Reader` was bound at
+    construction (`internal/builtins.New`'s own doc comment), so a
+    shared `Interpreter` would leave every store after the first
+    reading a reader the first store's own `unbox()` calls had already
+    drained, rather than the fresh, full view of "the same input file"
+    this option promises. Running each store as a fully separate
+    `runFile`/`buildDebugView` pair — the exact same two calls
+    `runProgramCmd` already makes for a single store — reproduces
+    exactly what separately typing `crust day01.crust --store=part1 <
+    input.txt` and `crust day01.crust --store=part2 < input.txt` at a
+    real shell would each get, which is the behavior this feature is
+    meant to stand in for.
+  - **Falls back to one bare-`store` run when the file declares no
+    entry points at all**, rather than being a dead end for the common
+    small-AoC-script shape: `options := m.runEntryOptions(); if
+    len(options) == 0 { options = []string{""} }` before the loop, so
+    toggling "run all" on for a plain top-to-bottom script just runs it
+    once, same as leaving the toggle off would.
+  - **Raw output concatenates under a `=== <name> ===` heading per
+    store**, in entry-point order (`entryLabel`, `"(default)"` for the
+    bare `store` — the same convention `renderEntryOptions` already
+    uses for the selector row itself). The wrapper frame's own label
+    (`entryFrameLabel`) instead reuses `target+"(...)"`, the exact shape
+    `interpreter.CallNamed` already labels a traced entry-point call
+    with, so a merged run's Stepper/KPI rows read identically to an
+    ordinary single-store one, just one level further out.
+  - **Persisted per-file alongside the existing entry-point/input-path
+    settings** (`debug_state.go`'s `develState.RunAll`,
+    `restoreRunAll`/`saveDevelStateBestEffort`'s new fourth parameter)
+    — reopening the same file later starts the Run tab with the toggle
+    exactly where it was left, the same "remember my last choice"
+    treatment `--store`/the input path already got.
+  - Verified with unit tests at both layers — `internal/debugger`'s
+    `TestMerge*`/`TestTimingWorksAcrossAMergedRecording` prove `Merge`
+    and `Timing` compose correctly in isolation; `cmd/crust`'s
+    `TestRunAllStoresCmd*`/`TestHandleRunTabKeyCtrlR*` prove the Run tab
+    wiring — plus a real pty-driven `crust develop` session: typed an
+    input path, toggled Ctrl+R (the hint line flips from "off" to "ON",
+    and the pre-run instructions update to describe running every entry
+    point), pressed enter, and confirmed both `store_part1`/
+    `store_part2`'s own output appeared under their own headings
+    against the same input file, with the header's step count updating
+    from "0 steps" to the real merged total.
+
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).

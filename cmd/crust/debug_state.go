@@ -13,8 +13,9 @@ import (
 
 // develState is one file's remembered settings.
 type develState struct {
-	Store string `json:"store"`
-	Input string `json:"input"`
+	Store  string `json:"store"`
+	Input  string `json:"input"`
+	RunAll bool   `json:"runAll,omitempty"`
 }
 
 // develStateDir resolves to os.UserConfigDir() normally; tests
@@ -89,17 +90,18 @@ func saveDevelState(absPath string, s develState) error {
 	return os.Rename(tmp, path)
 }
 
-// saveDevelStateBestEffort persists path's store/input selection for
-// next time. Best-effort: a write failure (disk full, permissions)
-// shouldn't interrupt or fail the run itself, so any error here is
-// silently dropped — remembering settings is a convenience layered on
-// top of running the program, never a precondition for it.
-func saveDevelStateBestEffort(path, store, input string) {
+// saveDevelStateBestEffort persists path's store/input/run-all
+// selection for next time. Best-effort: a write failure (disk full,
+// permissions) shouldn't interrupt or fail the run itself, so any
+// error here is silently dropped — remembering settings is a
+// convenience layered on top of running the program, never a
+// precondition for it.
+func saveDevelStateBestEffort(path, store, input string, runAll bool) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return
 	}
-	_ = saveDevelState(abs, develState{Store: store, Input: input})
+	_ = saveDevelState(abs, develState{Store: store, Input: input, RunAll: runAll})
 }
 
 // applySavedStore fills in opts.Store from path's remembered settings
@@ -139,4 +141,16 @@ func restoreRunInput(path string) runInputModel {
 	}
 	value := []rune(saved.Input)
 	return runInputModel{value: value, cursor: len(value)}
+}
+
+// restoreRunAll returns path's remembered "run all stores" toggle
+// (debug_run.go), or false — the ordinary single-entry-point
+// behavior — if nothing's been remembered yet, same convention
+// restoreRunInput/applySavedStore already use.
+func restoreRunAll(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	return loadDevelState()[abs].RunAll
 }

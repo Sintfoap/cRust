@@ -174,3 +174,41 @@ boom()
 		t.Errorf("Failed = %d, want 1", k.Failed)
 	}
 }
+
+// TestTimingWorksAcrossAMergedRecording confirms Timing has no notion
+// of "one run" baked in -- it walks purely by tree structure, so a
+// Recorder built from Merge (crust develop's "run all stores" option)
+// produces one combined KPI pass across both merged runs' families. The
+// wrapper frame Merge adds becomes a family of its own (an ordinary
+// frame as far as measure/family are concerned, same as any recipe
+// call), which usefully means each store's own total time shows up as
+// one KPI row too, not just the recipes it happens to call.
+func TestTimingWorksAcrossAMergedRecording(t *testing.T) {
+	base := record(t, `
+recipe double(x) {
+    serve x * 2
+}
+a = double(1)
+`, 0)
+	other := record(t, `
+recipe triple(x) {
+    serve x * 3
+}
+b = triple(1)
+`, 0)
+	base.Merge("store_part2(...)", other)
+
+	timing := base.Timing()
+	kpis := timing.KPIs()
+	if _, ok := kpiByName(kpis, "double(...)"); !ok {
+		t.Errorf("kpis = %+v, want a double(...) bucket from the base recording", kpis)
+	}
+	if _, ok := kpiByName(kpis, "triple(...)"); !ok {
+		t.Errorf("kpis = %+v, want a triple(...) bucket from the merged recording", kpis)
+	}
+	if k, ok := kpiByName(kpis, "store_part2(...)"); !ok {
+		t.Errorf("kpis = %+v, want a store_part2(...) bucket for the wrapper frame Merge added", kpis)
+	} else if k.Calls != 1 {
+		t.Errorf("store_part2(...) Calls = %d, want 1", k.Calls)
+	}
+}

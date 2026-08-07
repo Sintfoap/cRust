@@ -104,8 +104,10 @@ func (in runInputModel) render() string {
 // h/j/k/l for movement), since a file path can legitimately contain
 // any of them. Only the handful of keys a path could never need stay
 // reserved: Up/Down to move focus between the two rows, Tab/Shift+Tab
-// to switch tabs, Enter to run, and Ctrl+C/Esc as an always-available
-// way out that doesn't depend on typing a bare "q".
+// to switch tabs, Enter to run, Ctrl+R to toggle "run all stores"
+// (m.runAllStores — see its doc comment on debugModel), and Ctrl+C/Esc
+// as an always-available way out that doesn't depend on typing a bare
+// "q".
 func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyTab:
@@ -115,7 +117,12 @@ func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.active = (m.active + tabCount - 1) % tabCount
 		return m, m.maybeOpenEditor()
 	case tea.KeyEnter:
+		if m.runAllStores {
+			return m, m.runAllStoresCmd()
+		}
 		return m, m.runProgramCmd()
+	case tea.KeyCtrlR:
+		m.runAllStores = !m.runAllStores
 	case tea.KeyCtrlC, tea.KeyEsc:
 		return m, tea.Quit
 	case tea.KeyUp, tea.KeyDown:
@@ -271,7 +278,7 @@ func (m debugModel) runProgramCmd() tea.Cmd {
 		// file was actually readable and a run was attempted, not
 		// whether the crust program itself then ran cleanly or the
 		// retrace happened to succeed.
-		saveDevelStateBestEffort(path, store, inputPath)
+		saveDevelStateBestEffort(path, store, inputPath, false)
 
 		var stdout, stderr bytes.Buffer
 		code := runFile(path, store, bytes.NewReader(data), &stdout, &stderr)
@@ -282,6 +289,127 @@ func (m debugModel) runProgramCmd() tea.Cmd {
 		return runResultMsg{
 			stdout: stdout.String(), stderr: stderr.String(), code: code,
 			view: view, store: store,
+		}
+	}
+}
+
+// entryLabel renders store for a human-readable heading — "(default)"
+// for the bare `store`, the same convention renderEntryOptions already
+// uses for the selector row itself, so runAllStoresCmd's per-store
+// output headings read consistently with it.
+func entryLabel(store string) string {
+	if store == "" {
+		return "(default)"
+	}
+	return store
+}
+
+// entryFrameLabel renders store as the wrapper frame runAllStoresCmd
+// merges one store's recording under — the same target+"(...)" shape
+// interpreter.CallNamed itself already labels a traced entry-point
+// call with (SPEC.md §9's store/store_<name>), so a merged run's
+// Stepper/KPI rows read exactly like an ordinary single-store one
+// would, just one level further out.
+func entryFrameLabel(store string) string {
+	target := "store"
+	if store != "" {
+		target = "store_" + store
+	}
+	return target + "(...)"
+}
+
+// runAllStoresCmd runs every entry point m.runEntryOptions() reports
+// against the Run tab's input file, one complete run per store, in
+// sequence — falling back to a single bare-`store` run when the file
+// declares no store/store_<name> entry points at all, so toggling
+// "run all" on for a plain top-to-bottom script is never a dead end.
+// Each store gets its own fresh runFile/buildDebugView call (its own
+// Interpreter, environment, and bytes.NewReader(data) over the input),
+// deliberately not one shared Interpreter reused across the loop:
+// unbox() with no argument reads whichever stdin was bound at
+// construction (internal/builtins.New's doc comment), so sharing one
+// would leave every store after the first reading an already-drained
+// reader instead of the fresh, full view of "the same input file" this
+// feature promises — exactly what separately typing `crust day01.crust
+// --store=part1 < input.txt` and `crust day01.crust --store=part2 <
+// input.txt` at a real shell would each get, which is the behavior
+// this reproduces.
+//
+// The raw output concatenates every store's stdout+stderr under a
+// "=== <store> ===" heading, in entry-point order — what the Run tab
+// shows. The traced recordings combine into one debugger.Recorder via
+// Merge, one wrapper frame per store (entryFrameLabel), so the Time/
+// Memory/Stepper tabs show every store's timing/KPI data together
+// rather than only whichever ran last.
+func (m debugModel) runAllStoresCmd() tea.Cmd {
+	path := m.view.path
+	options := m.runEntryOptions()
+	if len(options) == 0 {
+		options = []string{""}
+	}
+	inputPath := strings.TrimSpace(m.runInput.String())
+	maxSteps := m.opts.MaxSteps
+	selected := m.selectedRunEntry()
+
+	return func() tea.Msg {
+		var data []byte
+		if inputPath != "" {
+			d, err := os.ReadFile(inputPath)
+			if err != nil {
+				return runResultMsg{err: err}
+			}
+			data = d
+		}
+
+		// Same "persist regardless of how the run itself turns out"
+		// reasoning as runProgramCmd above -- selected (the Run tab's
+		// own selector position) is what's remembered as "the" store,
+		// not any one store from the loop below, matching what stays
+		// highlighted in the selector while "run all" is on.
+		saveDevelStateBestEffort(path, selected, inputPath, true)
+
+		var out strings.Builder
+		failed := false
+		merged := debugger.NewRecorder(maxSteps)
+		for i, store := range options {
+			if i > 0 {
+				out.WriteByte('\n')
+			}
+			fmt.Fprintf(&out, "=== %s ===\n", entryLabel(store))
+
+			var stdout, stderr bytes.Buffer
+			code := runFile(path, store, bytes.NewReader(data), &stdout, &stderr)
+			if code != 0 {
+				failed = true
+			}
+
+			storeOut := stdout.String()
+			if stderr.Len() > 0 {
+				if storeOut != "" && !strings.HasSuffix(storeOut, "\n") {
+					storeOut += "\n"
+				}
+				storeOut += stderr.String()
+			}
+			if storeOut == "" {
+				storeOut = "(no output)\n"
+			} else if !strings.HasSuffix(storeOut, "\n") {
+				storeOut += "\n"
+			}
+			out.WriteString(storeOut)
+
+			traceOpts := debugOptions{Store: store, MaxSteps: maxSteps}
+			if view, err := buildDebugView(path, traceOpts, bytes.NewReader(data), io.Discard); err == nil {
+				merged.Merge(entryFrameLabel(store), view.rec)
+			}
+		}
+
+		code := 0
+		if failed {
+			code = 1
+		}
+		return runResultMsg{
+			stdout: out.String(), code: code,
+			view: &debugView{path: path, rec: merged}, store: selected,
 		}
 	}
 }
@@ -360,12 +488,25 @@ func (m debugModel) viewRun() string {
 		b.WriteByte('\n')
 		b.WriteString("  " + renderEntryOptions(options, m.runEntryIndex))
 		b.WriteString("\n\n")
+
+		runAllText := "ctrl+r: run all stores in sequence, off"
+		if m.runAllStores {
+			runAllText = "ctrl+r: run all stores in sequence, ON — every entry point above runs against the same input, one after another"
+		}
+		b.WriteString("  " + styleMuted.Render(runAllText))
+		b.WriteString("\n\n")
 	}
 
 	if m.runOutput == "" {
-		b.WriteString(styleMuted.Render(fmt.Sprintf(
+		instructions := fmt.Sprintf(
 			"enter: run %s (with the path above as stdin, if any) and show its output here, like running it from the command line — also updates the Time/Memory/Stepper tabs to match this run",
-			m.view.path)))
+			m.view.path)
+		if m.runAllStores {
+			instructions = fmt.Sprintf(
+				"enter: run every entry point of %s in sequence (with the path above as stdin for each) and show all their output here — also merges all their timing/debug info into the Time/Memory/Stepper tabs",
+				m.view.path)
+		}
+		b.WriteString(styleMuted.Render(instructions))
 	} else {
 		style := lipgloss.NewStyle()
 		if m.runFailed {

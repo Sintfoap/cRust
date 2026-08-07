@@ -266,6 +266,29 @@ func (r *Recorder) Roots() []*TraceNode {
 	return append(out, orphan)
 }
 
+// Merge folds other's recorded rows into r as one new top-level frame
+// node labeled label, with other's Roots() as that frame's children.
+// For combining several independent runs into one Stepper tree and one
+// shared Timing/KPI pass — `crust develop`'s Run tab "run all stores"
+// option runs each store/store_<name> entry point as its own complete,
+// independent run (its own Interpreter, environment, and stdin reader;
+// see cmd/crust/debug_run.go's runAllStoresCmd), since a shared
+// Interpreter would mean every store after the first sees stdin
+// already drained by the one before it — Merge is how those separate
+// recordings still end up displayed together afterward, without
+// pretending the runs shared state they didn't. Timing.measure and
+// buildRows both walk purely by tree structure (recorder.go, timing.go)
+// with no notion of "one run" baked in, so a synthetic wrapper frame
+// here is all merging needs — nothing downstream has to know the
+// difference between this and one big recording.
+func (r *Recorder) Merge(label string, other *Recorder) {
+	r.roots = append(r.roots, &TraceNode{Frame: label, Children: other.Roots()})
+	r.steps += other.steps
+	if other.truncated {
+		r.truncated = true
+	}
+}
+
 // Steps reports how many steps were recorded.
 func (r *Recorder) Steps() int { return r.steps }
 

@@ -918,6 +918,40 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       server itself testable, etc.) and verification (Go tests, a real
       subprocess + curl, and real headless-Chromium screenshots of both
       themes).
+- [x] (Stretch) Run tab "run all stores" option, from a follow-up
+      request: Ctrl+R toggles running every `store`/`store_<name>`
+      entry point in sequence against the same input file instead of
+      just the selector's current pick, concatenating output (a `===
+      <name> ===` heading per store) and merging every store's timing/
+      debug info into one combined Time/Memory/Stepper recording.
+      `debugger.Recorder.Merge(label, other)` (`internal/debugger/
+      recorder.go`) is the enabling piece: wraps another Recorder's
+      `Roots()` under one new synthetic frame node, letting several
+      independent recordings combine into one Stepper tree and one
+      shared `Timing()` KPI pass with zero changes to either — `Timing`/
+      `buildRows` both already walk purely by tree structure with no
+      notion of "one run" baked in. Each store still gets its own full,
+      independent `runFile`/`buildDebugView` call (own Interpreter,
+      environment, `bytes.NewReader(data)`) rather than being chained
+      through one shared Interpreter across the loop: `unbox()` with no
+      argument reads whichever stdin was bound at construction
+      (`internal/builtins.New`'s doc comment), so a shared Interpreter
+      would leave every store after the first reading an
+      already-drained reader instead of the fresh, full view of "the
+      same input file" this option promises — exactly what separately
+      typing `crust day01.crust --store=part1 < input.txt` and `...
+      --store=part2 < input.txt` at a real shell would each get, which
+      is what this reproduces. The toggle is remembered per-file
+      alongside the existing entry-point/input-path settings
+      (`debug_state.go`'s `develState.RunAll`). Verified with unit tests
+      (`internal/debugger`'s `Merge`/merged-`Timing` tests, `cmd/crust`'s
+      `runAllStoresCmd`/toggle/persistence tests) and a real pty-driven
+      `crust develop` session: typed an input path, toggled Ctrl+R (hint
+      text flips to "ON", instructions update), pressed enter, and
+      confirmed both `store_part1`/`store_part2`'s output appeared
+      under their own headings against the same input file, with the
+      header's step count updating from "0 steps" to the real merged
+      total.
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter

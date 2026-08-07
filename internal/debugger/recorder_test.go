@@ -307,3 +307,76 @@ y = double(5)
 		t.Fatalf("last root = %+v, want the synthetic incomplete-run row", last)
 	}
 }
+
+func TestMergeAddsOneWrapperFrameWithOtherAsChildren(t *testing.T) {
+	base := record(t, "a = 1\n", 0)
+	other := record(t, "b = 2\nc = 3\n", 0)
+
+	base.Merge("store_part2(...)", other)
+
+	roots := base.Roots()
+	if len(roots) != 2 {
+		t.Fatalf("got %d roots, want 2 (the original root plus one merged wrapper)", len(roots))
+	}
+	wrapper := roots[1]
+	if !wrapper.IsFrame() || wrapper.Frame != "store_part2(...)" {
+		t.Fatalf("roots[1] = %+v, want a frame labeled store_part2(...)", wrapper)
+	}
+	if len(wrapper.Children) != 2 {
+		t.Fatalf("wrapper has %d children, want other's 2 roots", len(wrapper.Children))
+	}
+	if wrapper.Children[0].Label() != "b = 2" || wrapper.Children[1].Label() != "c = 3" {
+		t.Errorf("wrapper.Children = %+v, want other's own roots in order", wrapper.Children)
+	}
+}
+
+func TestMergeSumsSteps(t *testing.T) {
+	base := record(t, "a = 1\nb = 2\n", 0)
+	other := record(t, "c = 3\n", 0)
+	base.Merge("other", other)
+	if base.Steps() != 3 {
+		t.Errorf("Steps() = %d, want 3 (2 + 1)", base.Steps())
+	}
+}
+
+func TestMergePropagatesTruncated(t *testing.T) {
+	base := record(t, "a = 1\n", 0)
+	truncated := record(t, `
+recipe double(x) {
+    serve x * 2
+}
+y = double(5)
+`, 1)
+	if !truncated.Truncated() {
+		t.Fatal("expected the source recording to be truncated")
+	}
+	base.Merge("other", truncated)
+	if !base.Truncated() {
+		t.Error("expected Merge to propagate other's truncated flag onto base")
+	}
+}
+
+func TestMergeOnUntruncatedBaseWithUntruncatedOtherStaysUntruncated(t *testing.T) {
+	base := record(t, "a = 1\n", 0)
+	other := record(t, "b = 2\n", 0)
+	base.Merge("other", other)
+	if base.Truncated() {
+		t.Error("Merge should not mark base truncated when neither side was")
+	}
+}
+
+func TestMergeMultipleTimes(t *testing.T) {
+	base := NewRecorder(0)
+	part1 := record(t, `deliver("one")`, 0)
+	part2 := record(t, `deliver("two")`, 0)
+	base.Merge("store_part1(...)", part1)
+	base.Merge("store_part2(...)", part2)
+
+	roots := base.Roots()
+	if len(roots) != 2 {
+		t.Fatalf("got %d roots, want 2 (one wrapper per merge)", len(roots))
+	}
+	if roots[0].Frame != "store_part1(...)" || roots[1].Frame != "store_part2(...)" {
+		t.Errorf("roots = %+v, want the two merges in order", roots)
+	}
+}

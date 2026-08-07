@@ -181,6 +181,13 @@ output exactly like `crust run day01.crust < input.txt` would — no
 tracing, just the program's own stdout/stderr; if the file declares
 more than one `store`/`store_<name>` entry point, ↑↓ moves down to a
 selector row listing them and ←→ picks one before you hit enter).
+Ctrl+R toggles running *every* entry point in sequence instead of just
+the selected one — each against the same input file, one full run
+apiece, output concatenated under a `=== part1 ===`-style heading per
+store and their timing/debug info merged into one combined Time/
+Memory/Stepper recording — handy for checking part 1 and part 2 (or
+however many `store_<name>`s a file has) together without switching
+the selector and re-running by hand each time.
 Time/Memory/Stepper start out empty ("nothing recorded yet") rather
 than running the program immediately — that first, automatic run used
 to read real process stdin before the TUI had taken over the keyboard,
@@ -188,13 +195,14 @@ so any `store`/`store_<name>` recipe that called `unbox()` would
 silently consume whatever you typed next as puzzle input instead of it
 reaching the TUI at all. Running from the Run tab is what actually
 populates those three tabs: it retraces that same entry point and
-input file, so whichever one you just ran with is what the rest of the
-TUI shows — and remembers both for next time, so reopening the same
-file later starts the Run tab back on the same entry point with the
-same input path already filled in (though Time/Memory/Stepper still
-start empty until you press enter there again). Piped or redirected,
-or with `--plain`, there's no Run tab to defer to, so it runs
-immediately and prints the same information as text:
+input file (or, with Ctrl+R's "run all" on, every entry point), so
+whichever run you just did is what the rest of the TUI shows — and
+remembers your entry point, input path, and run-all toggle for next
+time, so reopening the same file later starts the Run tab back where
+you left it (though Time/Memory/Stepper still start empty until you
+press enter there again). Piped or redirected, or with `--plain`,
+there's no Run tab to defer to, so it runs immediately and prints the
+same information as text:
 
 ```
 crust develop day01.crust

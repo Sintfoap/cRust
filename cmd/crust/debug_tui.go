@@ -99,6 +99,16 @@ type debugModel struct {
 	// point the rest of the TUI is already showing.
 	runEntryIndex   int
 	runEntryFocused bool
+
+	// runAllStores toggles the Run tab (Ctrl+R) between running only
+	// selectedRunEntry() (the ordinary behavior) and running every
+	// entry point m.runEntryOptions() reports, each against the same
+	// input file, in sequence — see runAllStoresCmd (debug_run.go).
+	// Reserved to a control key rather than a typed letter specifically
+	// so it's never ambiguous with typing into the input-file field
+	// (see handleRunTabKey's own doc comment on which keys stay
+	// reserved there and why).
+	runAllStores bool
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -609,6 +619,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.opts = opts
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
 	m.runInput = restoreRunInput(view.path)
+	m.runAllStores = restoreRunAll(view.path)
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
 		progOpts = append(progOpts, tea.WithInput(stdinNoNamer{f}))

@@ -743,3 +743,185 @@ recipe store_part2() { deliver(2) }`)
 		t.Errorf("runEntryIndex = %d, want 1 (part2)", m.runEntryIndex)
 	}
 }
+
+// --- "run all stores" (Ctrl+R) ---------------------------------------------
+
+func TestHandleRunTabKeyCtrlRTogglesRunAllStores(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabRun
+	next, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = next.(debugModel)
+	if !m.runAllStores {
+		t.Fatal("expected runAllStores = true after one ctrl+r")
+	}
+	next, _ = m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = next.(debugModel)
+	if m.runAllStores {
+		t.Error("expected runAllStores = false after a second ctrl+r")
+	}
+}
+
+func TestHandleRunTabKeyEnterDispatchesRunAllStoresCmdWhenToggled(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runAllStores = true
+	_, cmd := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a non-nil Cmd")
+	}
+	msg := cmd().(runResultMsg)
+	if !strings.Contains(msg.stdout, "one") || !strings.Contains(msg.stdout, "two") {
+		t.Errorf("stdout = %q, want both entry points' output", msg.stdout)
+	}
+}
+
+func TestRunAllStoresCmdRunsEveryEntryPointAgainstTheSameInput(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := writeDebugFile(t, `
+recipe store_part1() { deliver("part1 saw " + unbox()) }
+recipe store_part2() { deliver("part2 saw " + unbox()) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runInput = runInputModel{value: []rune(inputPath)}
+
+	msg := m.runAllStoresCmd()().(runResultMsg)
+	if msg.err != nil {
+		t.Fatalf("unexpected err: %v", msg.err)
+	}
+	if !strings.Contains(msg.stdout, "part1 saw 42") {
+		t.Errorf("stdout = %q, want part1's own fresh read of the input file", msg.stdout)
+	}
+	if !strings.Contains(msg.stdout, "part2 saw 42") {
+		t.Errorf("stdout = %q, want part2's own fresh read of the same input file", msg.stdout)
+	}
+}
+
+func TestRunAllStoresCmdConcatenatesOutputWithHeadings(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	msg := m.runAllStoresCmd()().(runResultMsg)
+
+	partOneIdx := strings.Index(msg.stdout, "one")
+	partTwoIdx := strings.Index(msg.stdout, "two")
+	if partOneIdx == -1 || partTwoIdx == -1 || partOneIdx > partTwoIdx {
+		t.Errorf("stdout = %q, want part1's output before part2's", msg.stdout)
+	}
+	if !strings.Contains(msg.stdout, "part1") || !strings.Contains(msg.stdout, "part2") {
+		t.Errorf("stdout = %q, want each section headed by its own entry-point name", msg.stdout)
+	}
+}
+
+func TestRunAllStoresCmdMergesTimingIntoOneView(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	msg := m.runAllStoresCmd()().(runResultMsg)
+	if msg.view == nil {
+		t.Fatal("expected a non-nil merged view")
+	}
+	var buf strings.Builder
+	msg.view.writePlain(&buf)
+	out := buf.String()
+	if !strings.Contains(out, `deliver("one")`) || !strings.Contains(out, `deliver("two")`) {
+		t.Errorf("merged view = %q, want both stores' bodies traced", out)
+	}
+}
+
+func TestRunAllStoresCmdFallsBackToBareStoreWithNoEntryPoints(t *testing.T) {
+	path := writeDebugFile(t, `deliver("plain script")`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	msg := m.runAllStoresCmd()().(runResultMsg)
+	if !strings.Contains(msg.stdout, "plain script") {
+		t.Errorf("stdout = %q, want the plain script's output", msg.stdout)
+	}
+}
+
+func TestRunAllStoresCmdReportsFailureIfAnyStoreFails(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver("fine") }
+recipe store_part2() { serve 1 / 0 }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	msg := m.runAllStoresCmd()().(runResultMsg)
+	if msg.code == 0 {
+		t.Error("expected a non-zero code when one store fails")
+	}
+}
+
+func TestRunAllStoresCmdMissingInputFileReturnsErr(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.view.path = writeDebugFile(t, "x = 1\n")
+	m.runInput = runInputModel{value: []rune("/does/not/exist.txt")}
+	msg := m.runAllStoresCmd()().(runResultMsg)
+	if msg.err == nil {
+		t.Fatal("expected an error for a missing input file")
+	}
+}
+
+func TestRunAllStoresCmdPersistsRunAllForNextTime(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, `recipe store_part1() { deliver("one") }
+recipe store_part2() { deliver("two") }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runEntryIndex = 1 // part2
+	m.runAllStoresCmd()()
+
+	got := loadDevelState()[mustAbs(t, m.view.path)]
+	want := develState{Store: "part2", Input: "", RunAll: true}
+	if got != want {
+		t.Errorf("saved state = %+v, want %+v", got, want)
+	}
+}
+
+func TestEntryLabelDefault(t *testing.T) {
+	if got := entryLabel(""); got != "(default)" {
+		t.Errorf("entryLabel(\"\") = %q, want %q", got, "(default)")
+	}
+	if got := entryLabel("part1"); got != "part1" {
+		t.Errorf("entryLabel(%q) = %q, want %q", "part1", got, "part1")
+	}
+}
+
+func TestEntryFrameLabel(t *testing.T) {
+	if got := entryFrameLabel(""); got != "store(...)" {
+		t.Errorf("entryFrameLabel(\"\") = %q, want %q", got, "store(...)")
+	}
+	if got := entryFrameLabel("part1"); got != "store_part1(...)" {
+		t.Errorf("entryFrameLabel(%q) = %q, want %q", "part1", got, "store_part1(...)")
+	}
+}
+
+func TestViewRunShowsRunAllStoresHint(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	out := m.viewRun()
+	if !strings.Contains(out, "ctrl+r") {
+		t.Errorf("viewRun() = %q, want a ctrl+r hint when entry points exist", out)
+	}
+}
+
+func TestViewRunHidesRunAllStoresHintWithNoEntryPoints(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	out := m.viewRun()
+	if strings.Contains(out, "ctrl+r") {
+		t.Errorf("viewRun() = %q, want no ctrl+r hint for a file with no entry points", out)
+	}
+}
+
+func TestViewRunShowsRunAllStoresOnState(t *testing.T) {
+	path := writeDebugFile(t, `recipe store_part1() { deliver(1) }
+recipe store_part2() { deliver(2) }`)
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.runAllStores = true
+	out := m.viewRun()
+	if !strings.Contains(out, "ON") {
+		t.Errorf("viewRun() = %q, want the hint to show ON when runAllStores is toggled on", out)
+	}
+	if !strings.Contains(out, "every entry point") {
+		t.Errorf("viewRun() = %q, want the pre-run instructions to describe running every entry point", out)
+	}
+}

@@ -175,12 +175,43 @@ func TestSaveDevelStateBestEffortPersistsSelection(t *testing.T) {
 	dir := withTempDevelStateDir(t)
 	path := filepath.Join(dir, "day07.crust")
 
-	saveDevelStateBestEffort(path, "part2", "puzzle.txt")
+	saveDevelStateBestEffort(path, "part2", "puzzle.txt", false)
 
 	got := loadDevelState()[mustAbs(t, path)]
 	want := develState{Store: "part2", Input: "puzzle.txt"}
 	if got != want {
 		t.Errorf("saved state = %+v, want %+v", got, want)
+	}
+}
+
+func TestSaveDevelStateBestEffortPersistsRunAll(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "day07.crust")
+
+	saveDevelStateBestEffort(path, "part2", "puzzle.txt", true)
+
+	got := loadDevelState()[mustAbs(t, path)]
+	want := develState{Store: "part2", Input: "puzzle.txt", RunAll: true}
+	if got != want {
+		t.Errorf("saved state = %+v, want %+v", got, want)
+	}
+}
+
+func TestRestoreRunAll(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "day07.crust")
+	saveDevelStateBestEffort(path, "part2", "puzzle.txt", true)
+
+	if !restoreRunAll(path) {
+		t.Error("restoreRunAll() = false, want true after saving RunAll: true")
+	}
+}
+
+func TestRestoreRunAllDefaultsFalse(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "never-saved.crust")
+	if restoreRunAll(path) {
+		t.Error("restoreRunAll() = true for a file with no saved state, want false")
 	}
 }
 
