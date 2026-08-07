@@ -3,13 +3,15 @@
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
 //
-// Five tabs, switched with tab/left/right: Time and Memory (one pie
+// Six tabs, switched with tab/left/right: Time and Memory (one pie
 // chart each, self-time/self-memory per function/loop, plus a few
 // overall numbers), Stepper (the recorded tree, navigable with the
 // arrow keys), Editor (hands the terminal to nvim on the file being
 // debugged; see debug_editor.go for the save-triggered reload loop),
-// and Run (type a path and press enter to run the file with it as
-// stdin and see the raw output, command-line style; see debug_run.go).
+// Run (type a path and press enter to run the file with it as stdin
+// and see the raw output, command-line style; see debug_run.go), and
+// Files (browse and switch to another .crust file alongside the one
+// currently open; see debug_nav.go).
 package main
 
 import (
@@ -24,7 +26,7 @@ import (
 	"github.com/Sintfoap/cRust/internal/debugger"
 )
 
-// tab is which of the five panes is showing.
+// tab is which of the six panes is showing.
 type tab int
 
 const (
@@ -33,12 +35,16 @@ const (
 	tabStepper
 	tabEditor
 	tabRun
+	// tabNav is appended last, after every pre-existing tab, so none of
+	// their const values (or anything that stores one, like a saved
+	// m.active) shift out from under it.
+	tabNav
 )
 
 // tabCount is how many tabs there are, for wrapping cursor arithmetic —
 // named rather than inlined as a literal so handleKey's wraparound math
 // stays correct if another tab ever shows up.
-const tabCount = 5
+const tabCount = 6
 
 // visRow is one visible line of the stepper's tree: a node plus its
 // indentation depth. closing marks a synthetic row generated after a
@@ -109,6 +115,20 @@ type debugModel struct {
 	// (see handleRunTabKey's own doc comment on which keys stay
 	// reserved there and why).
 	runAllStores bool
+
+	// navFiles/navCursor back the Files tab (debug_nav.go): every
+	// *.crust file alongside the one currently open (including it),
+	// sorted, and which one navCursor currently points at. Rescanned on
+	// every tab switch that lands on Files (maybeRefreshNav) rather than
+	// cached across the whole session — directory contents can change
+	// between visits, and an os.ReadDir is cheap enough not to bother
+	// caching. navErr holds the last switch attempt's parse error, if
+	// any, so a broken target file doesn't disturb the still-valid
+	// current view (the same "leave the last good state alone" choice
+	// editorErr already makes for a failed nvim launch).
+	navFiles  []string
+	navCursor int
+	navErr    string
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -189,17 +209,23 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "tab", "right", "l":
 		m.active = (m.active + 1) % tabCount
+		m.maybeRefreshNav()
 		return m, m.maybeOpenEditor()
 	case "shift+tab", "left", "h":
 		m.active = (m.active + tabCount - 1) % tabCount
+		m.maybeRefreshNav()
 		return m, m.maybeOpenEditor()
 	case "down", "j":
 		if m.active == tabStepper {
 			m.moveCursor(1)
+		} else if m.active == tabNav {
+			m.moveNavCursor(1)
 		}
 	case "up", "k":
 		if m.active == tabStepper {
 			m.moveCursor(-1)
+		} else if m.active == tabNav {
+			m.moveNavCursor(-1)
 		}
 	case "enter", " ":
 		switch m.active {
@@ -207,6 +233,8 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.toggleFold()
 		case tabEditor:
 			return m, m.openEditorCmd()
+		case tabNav:
+			m = m.switchToSelectedFile()
 		}
 	}
 	return m, nil
@@ -279,6 +307,8 @@ func (m debugModel) View() string {
 		body = m.viewEditor()
 	case tabRun:
 		body = m.viewRun()
+	case tabNav:
+		body = m.viewNav()
 	}
 
 	var b strings.Builder
@@ -325,13 +355,15 @@ func (m debugModel) helpText() string {
 			return "↑↓: field/entry point   ←→: move/change   enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+	case tabNav:
+		return "tab/←→: switch tab   ↑↓: move   enter: switch to this file   q: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
 	}
 }
 
 func (m debugModel) viewTabs() string {
-	timeS, memS, stepper, editor, run := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
+	timeS, memS, stepper, editor, run, nav := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
 	switch m.active {
 	case tabTime:
 		timeS = styleTabActive
@@ -343,10 +375,12 @@ func (m debugModel) viewTabs() string {
 		editor = styleTabActive
 	case tabRun:
 		run = styleTabActive
+	case tabNav:
+		nav = styleTabActive
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		timeS.Render("Time"), memS.Render("Memory"), stepper.Render("Stepper"),
-		editor.Render("Editor"), run.Render("Run"))
+		editor.Render("Editor"), run.Render("Run"), nav.Render("Files"))
 }
 
 // viewEditor is the Editor tab's placeholder. It hands off to a real
@@ -613,13 +647,17 @@ func (r stdinNoNamer) Fd() uintptr                 { return r.f.Fd() }
 // call to keep the tab bar on screen regardless of window size.
 // m.runInput is pre-filled from this file's remembered settings
 // (debug_state.go's restoreRunInput), same as opts.Store already
-// reflects them via runDebug's applySavedStore.
+// reflects them via runDebug's applySavedStore. m.refreshNavFiles
+// populates the Files tab's listing up front too, rather than waiting
+// for the first tab switch that lands on it, so it's never seen empty
+// due to simply not having been visited yet.
 func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	m := newDebugModel(view)
 	m.opts = opts
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
 	m.runInput = restoreRunInput(view.path)
 	m.runAllStores = restoreRunAll(view.path)
+	m.refreshNavFiles()
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {
 		progOpts = append(progOpts, tea.WithInput(stdinNoNamer{f}))

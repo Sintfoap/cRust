@@ -165,7 +165,7 @@ not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
 not one row per call site.
 
-On a real terminal this opens an interactive five-tab TUI: **Time**
+On a real terminal this opens an interactive six-tab TUI: **Time**
 and **Memory** (one pie chart each, so both get the full window),
 **Stepper** (the tree), **Editor** (opens `nvim` on the file being
 debugged as soon as you switch to it — `nvim` behaves normally in
@@ -175,12 +175,18 @@ takes you to the Time tab. Quitting *without* saving, e.g. a plain
 `:q`, skips the rerun but still refreshes the Run tab's entry-point
 list either way — so adding, removing, or renaming a `store`/
 `store_<name>` recipe shows up there the moment you leave the editor,
-not only after a save), and **Run** (type a path to an input file
+not only after a save), **Run** (type a path to an input file
 and press enter to run the file with it as stdin, showing the raw
 output exactly like `crust run day01.crust < input.txt` would — no
 tracing, just the program's own stdout/stderr; if the file declares
 more than one `store`/`store_<name>` entry point, ↑↓ moves down to a
-selector row listing them and ←→ picks one before you hit enter).
+selector row listing them and ←→ picks one before you hit enter), and
+**Files** (every other `.crust` file alongside the one currently
+open — the natural "AoC folder full of day01.crust..day25.crust"
+layout — ↑↓ to move, enter to switch straight to one without leaving
+`crust develop` and relaunching it on a different path; each file
+keeps its own remembered store/input/run-all settings, the same as
+reopening it fresh from the command line would).
 Ctrl+R toggles running *every* entry point in sequence instead of just
 the selected one — each against the same input file, one full run
 apiece, output concatenated under a `=== part1 ===`-style heading per

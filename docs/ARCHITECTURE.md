@@ -3058,6 +3058,83 @@ code was written.
     against the same input file, with the header's step count updating
     from "0 steps" to the real merged total.
 
+- **Files tab** (`debug_nav.go`, `tabNav`), from a follow-up request:
+  browse and switch to another `.crust` file alongside the one
+  currently open, without leaving `crust develop` and relaunching it
+  against a different path on the command line — the natural next
+  thing to want on a directory full of `day01.crust`..`day25.crust`
+  AoC solutions sitting side by side.
+  - **Appended as a sixth tab, after Run, rather than inserted
+    anywhere else in the lineup.** `tab` is a plain `int` `iota`
+    enum, and every existing tab is referred to by its symbolic
+    const (`tabTime`, `tabEditor`, ...) everywhere in the codebase, so
+    reordering the block would have been safe too — but appending at
+    the end was still the simpler diff, touching `tabCount` and one
+    new case per switch rather than renumbering anything, and it
+    keeps the existing tabs' muscle-memory order (Time/Memory/Stepper/
+    Editor/Run) completely undisturbed.
+  - **File listing and switching reuse existing machinery almost
+    entirely** rather than inventing a parallel path: `listCrustFiles`
+    is a plain `os.ReadDir` + `.crust`-suffix filter + `sort.Strings`
+    (AoC's own `day01.crust`..`day25.crust` naming already sorts into
+    the order you'd want) that degrades to `[]string{currentPath}` on
+    a read failure, the same "don't fail the whole tab over a listing
+    problem" choice `scanEntryPoints` already makes for a bad parse.
+    `switchToFile` builds the target file's view via `emptyDebugView`
+    — the exact same "parsed but not yet run" starting point the whole
+    session begins with (`runDebug`'s real-terminal path already
+    builds one before bubbletea ever takes the screen, specifically so
+    a `store` recipe's `unbox()` can never silently eat a keystroke
+    meant for the TUI instead of the interactive session; see that
+    function's own doc comment) — rather than eagerly tracing the
+    newly-opened file, which would reintroduce exactly the bug that
+    machinery was built to avoid. Every per-file setting (`opts.Store`,
+    the Run tab's input path, the run-all toggle) reloads from the
+    *target* file's own remembered state (`debug_state.go`) rather than
+    carrying over whatever the file being left had, matching what a
+    fresh `crust develop otherday.crust` invocation would start with —
+    not "the same settings, new file," but "this file, however it was
+    last left."
+  - **A parse failure in the target file surfaces on the Files tab
+    (`navErr`) without disturbing the still-valid current
+    view/recording** — the same "leave the last good state alone"
+    choice `handleReload` already makes for a save that breaks the
+    file being edited. `navErr` renders *above* the file list rather
+    than replacing it, deliberately: hiding every other file behind
+    the error would leave no way to pick a working target after a
+    failed attempt, and `refreshNavFiles` clears it on the next visit
+    to the tab so a stale error from a prior attempt doesn't linger
+    once you've moved on.
+  - **Rescanned on every tab switch that lands on Files
+    (`maybeRefreshNav`), not cached for the session** — directory
+    contents can change between visits (a new day's file added, one
+    renamed), and an `os.ReadDir` is cheap enough that trusting a
+    stale list would save nothing worth the staleness. This is also
+    what repositions `navCursor` onto whichever file just became
+    current after a switch, so returning to the tab always shows you
+    where you are, not where you started.
+  - **A real gap this surfaced, not an intentional design choice**:
+    reaching Files by tabbing *forward* from Run goes through
+    `handleRunTabKey`, the Run tab's own separate key handler (it
+    needs almost every key for its text field, so it doesn't share the
+    rest of the TUI's `handleKey` switch — see that function's own doc
+    comment) — which has its *own* Tab/Shift+Tab cases, not the ones
+    `maybeRefreshNav` got added to first. Missing the call there meant
+    reaching Files the most direct way (tabbing forward from Run,
+    where it sits immediately after) showed a stale or empty listing
+    even though every other path into the tab worked. Caught by
+    `TestTabFromRunReachesFilesTabAndRefreshesIt`, fixed by adding the
+    same `maybeRefreshNav()` call `handleRunTabKey`'s own Tab/Shift+Tab
+    cases were missing.
+  - Verified with unit tests — 100% statement coverage on every
+    function in `debug_nav.go` — and a real pty-driven `crust develop`
+    session: opened `day01.crust` alongside a `day02.crust`, confirmed
+    the Files tab listed both with `day01.crust` marked `(current)`
+    and the cursor already there, moved down and pressed enter, and
+    confirmed the header switched to `day02.crust — 0 steps` and a
+    return trip to the Files tab now marked `day02.crust` current
+    instead.
+
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).

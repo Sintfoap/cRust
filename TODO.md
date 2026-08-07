@@ -952,6 +952,45 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       under their own headings against the same input file, with the
       header's step count updating from "0 steps" to the real merged
       total.
+- [x] (Stretch) Files tab (`debug_nav.go`), from a follow-up request:
+      browse and switch to another `.crust` file alongside the one
+      currently open, without leaving `crust develop` and relaunching
+      it against a different path — the natural next thing to want on
+      a directory full of `day01.crust`..`day25.crust`-style AoC
+      solutions. Appended as a sixth tab (`tabNav`, after `tabRun`) so
+      no existing tab's `const` value shifts under it; `↑↓` moves a
+      cursor over `listCrustFiles`' alphabetically-sorted listing of
+      every `.crust` file in the current file's own directory
+      (including it, marked `(current)`, with the cursor starting
+      there), enter switches. `switchToFile` reuses the exact "parsed
+      but not yet run" starting point the whole session begins with
+      (`emptyDebugView` — the same reason the interactive TUI never
+      eagerly runs a file: touching real process stdin before
+      bubbletea owns the keyboard would let a `store` recipe's
+      `unbox()` silently eat a keystroke meant for the TUI), and
+      reloads the target file's own remembered store/input/run-all
+      settings (`debug_state.go`) rather than carrying over whatever
+      the file being left had, matching what a fresh `crust develop
+      otherday.crust` invocation would start with. A parse failure in
+      the target file surfaces on the Files tab (`navErr`) without
+      disturbing the still-valid current recording, the same
+      "leave the last good state alone" choice the Editor tab's failed
+      reload already makes. The listing is rescanned on every tab
+      switch that lands on Files rather than cached for the session —
+      directory contents can change between visits, and an
+      `os.ReadDir` is cheap enough not to bother caching — which
+      surfaced a real gap while wiring it up: reaching Files by
+      tabbing *forward* from Run goes through `handleRunTabKey`
+      (`debug_run.go`'s own separate key handler, not the shared
+      `handleKey` switch), so that handler needed its own
+      `maybeRefreshNav()` call too, caught by
+      `TestTabFromRunReachesFilesTabAndRefreshesIt`. Verified with unit
+      tests (100% coverage on every function in `debug_nav.go`) and a
+      real pty-driven `crust develop` session: opened `day01.crust`
+      alongside a `day02.crust`, confirmed the Files tab listed both
+      with `day01.crust` marked current, moved the cursor down and hit
+      enter, and confirmed the header switched to `day02.crust` and a
+      return trip to the Files tab now marked *it* current instead.
 
 ## Phase 7 — Testing & Quality
 - [ ] Unit tests across lexer/parser/interpreter

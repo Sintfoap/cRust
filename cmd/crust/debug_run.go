@@ -112,9 +112,11 @@ func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyTab:
 		m.active = (m.active + 1) % tabCount
+		m.maybeRefreshNav()
 		return m, m.maybeOpenEditor()
 	case tea.KeyShiftTab:
 		m.active = (m.active + tabCount - 1) % tabCount
+		m.maybeRefreshNav()
 		return m, m.maybeOpenEditor()
 	case tea.KeyEnter:
 		if m.runAllStores {
