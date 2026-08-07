@@ -2753,6 +2753,80 @@ code was written.
     wiring), `/keywords`, and a 404 path all returned the expected
     content, plus a real headless-Chromium screenshot of both the
     light and dark themes and the Standard Library page's search box.
+- **`crust repl`** (`cmd/crust/repl.go`) — one persistent
+  `*interpreter.Interpreter`/`*object.Environment` pair for the whole
+  session, wrapped in a `bufio.Scanner`-driven read loop over the same
+  `lexer.New`/`parser.New`/`Eval` pipeline `crust run` already uses.
+  Three design points worth recording:
+  - **Multi-line continuation reuses the real parser's own notion of
+    "incomplete," rather than a second, approximate one.** The
+    tempting shortcut — track brace/paren/bracket depth across lines
+    by hand — is exactly the kind of logic that can quietly disagree
+    with what the parser itself considers balanced (string escapes,
+    comments, `..`/`.<` ranges that look like they could be
+    ambiguous but aren't, ...), and cRust already has one correct
+    definition of "this doesn't parse yet because more tokens are
+    coming" sitting right there in `internal/parser`: every error path
+    that can fire because the token stream ran dry (`peekError`'s "got
+    %s (%q) instead", `noPrefixParseFnError`'s "no prefix parse
+    function for %s found", the block/statement-terminator errors)
+    substitutes the offending token's `Type` into the message, and
+    `token.EOF`'s `Type` is literally the string `"EOF"` — a substring
+    nothing a human would type as part of a real error collides with.
+    `needsMoreInput` checks only the *last* collected error for that
+    substring, not any of them: `synchronize()` stops advancing the
+    moment it reaches EOF, so a genuine earlier error in a buffered
+    multi-line chunk (which more input could never fix) still gets its
+    own, earlier entry and isn't mistaken for "just needs more" — the
+    two cases are told apart correctly rather than by which one
+    happens to be checked first. Failing that fast is what keeps the
+    REPL from getting stuck at a `...>` prompt no amount of typing
+    could ever resolve.
+  - **Only a bare expression statement's value auto-echoes** — the
+    same convention Python's REPL (and most others) use, checked by
+    `lastStatementIsExpression` looking at whether the chunk's last
+    top-level statement is an `*ast.ExpressionStatement`. An
+    assignment, loop, or conditional doesn't print anything of its
+    own, since their entire point is the side effect. A recipe
+    declaration is the one case worth calling out: `recipe foo() {
+    ... }` parses as an `*ast.ExpressionStatement` wrapping an
+    `*ast.FunctionLiteral` (the same shape `collectEntryPoints`,
+    SPEC.md §9, already relies on to find `store`/`store_<name>`
+    recipes), so defining one *does* auto-echo —
+    `Function.Inspect()`'s `recipe(n) { ... }` — which reads less like
+    an inconsistency and more like useful confirmation the definition
+    took, the same spirit as Node's REPL echoing `[Function: foo]`
+    after a `function` statement. `object.NULL` results are suppressed
+    regardless (an explicit `nobox` included, matching Python
+    suppressing `None` even when typed directly) — otherwise every
+    `deliver(...)` call, which itself already wrote its own output and
+    returns `nobox`, would print a redundant `nobox` right after.
+  - **Known, accepted limitation: `unbox()` (no argument) shares stdin
+    with the REPL's own line scanner.** `interpreter.New(stdout,
+    stdin)` wires the same `stdin` the outer `bufio.Scanner` is reading
+    lines from into the interpreter's `unbox` builtin — on a real
+    interactive terminal this doesn't collide in practice (each
+    blocking read only sees whatever's currently queued, typically
+    just the line just entered), but under piped/redirected input the
+    `Scanner` can have already buffered ahead of whatever line is
+    currently being evaluated, so a mid-session `unbox()` call could
+    observe fewer bytes than a naive reading would expect. Not solved
+    here, unlike `crust develop`'s TUI (which really did need a fix,
+    since a debugger silently eating a puzzle's real input as
+    keystrokes was the actual bug being reported) — the REPL's stdin
+    is for typing commands, and processing a real input file was
+    always `crust run <file>`'s job, not something a REPL session is
+    the intended tool for. Documented rather than engineered around,
+    the same way this codebase notes other deliberately-out-of-scope
+    edges elsewhere instead of silently leaving them unexplained.
+  - Verified with Go tests (echoing, suppression, cross-line state and
+    recipe persistence, multi-line continuation actually completing
+    and evaluating, a genuine syntax error surfacing immediately
+    rather than hanging at a continuation prompt, a runtime error not
+    ending the session, blank lines, and a clean EOF exit) plus a real
+    subprocess session piped through `printf | crust repl` reproducing
+    all of the above end to end, including chained recipe definition
+    and invocation and an error recovering back to a working prompt.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

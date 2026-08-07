@@ -109,8 +109,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 
 	switch rest[0] {
 	case "repl":
-		notImplemented(stderr, "repl")
-		return 1
+		if len(rest) > 1 {
+			fmt.Fprintf(stderr, "crust repl: takes no arguments (got %q)\n", rest[1])
+			return 2
+		}
+		return runREPL(stdin, stdout, stderr)
 	case "run":
 		path, storeFlag, err := parseRunArgs(rest[1:])
 		if err != nil {
@@ -164,8 +167,4 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 		}
 		return runFile(path, storeFlag, stdin, stdout, stderr)
 	}
-}
-
-func notImplemented(w io.Writer, what string) {
-	fmt.Fprintf(w, "crust %s: not in the oven yet — the interpreter lands in Phase 4 (see TODO.md)\n", what)
 }

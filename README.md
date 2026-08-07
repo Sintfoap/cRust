@@ -24,13 +24,16 @@ step-by-step debugger with time/memory-per-function KPIs
 (`internal/trace`, `internal/debugger`) — see
 [Debugging](#debugging-time-and-memory-per-function) above. `crust bake
 documentation` serves a browsable, pizza-themed reference site on
-`localhost` — see [Documentation site](#documentation-site) below. See
-[TODO.md](./TODO.md) for the roadmap and milestones,
-[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the technical design
-behind each phase (including a
+`localhost` — see [Documentation site](#documentation-site) below.
+`crust repl` starts an interactive session — see
+[Building](#building) below. See [TODO.md](./TODO.md) for the roadmap
+and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
+technical design behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
 section), and [docs/SPEC.md](./docs/SPEC.md) for the actual language —
-keyword table, grammar, and semantics. Next up: Phase 6's REPL.
+keyword table, grammar, and semantics. Phase 6's tooling is now
+essentially complete; next up is rounding out Phase 7's test coverage
+and Phase 8's AoC-readiness checklist.
 
 ## Why
 
@@ -72,19 +75,43 @@ go build ./cmd/crust
 ./crust examples/hello.crust     # or: ./crust run examples/hello.crust
 ```
 
-`crust repl` still just says "not implemented yet" (see
-[TODO.md](./TODO.md)) — `crust run <file.crust>` (also reachable as a
-bare `crust <file.crust>`) is real, though: it lexes, parses, and
-evaluates the file end to end. If the file defines a `recipe store()`
-(or named variants, `recipe store_part1()`/`store_part2()`/...), that's
-run as the entry point after the rest of the file's top-level code;
-`--store=<name>` picks a named one instead of the bare `store`
-(SPEC.md §9) — handy for AoC's usual part-1/part-2 split:
+`crust run <file.crust>` (also reachable as a bare `crust
+<file.crust>`) lexes, parses, and evaluates the file end to end. If the
+file defines a `recipe store()` (or named variants, `recipe
+store_part1()`/`store_part2()`/...), that's run as the entry point
+after the rest of the file's top-level code; `--store=<name>` picks a
+named one instead of the bare `store` (SPEC.md §9) — handy for AoC's
+usual part-1/part-2 split:
 
 ```
 crust day01.crust                  # runs store, if the file has one
 crust day01.crust --store=part2    # runs store_part2 instead
 ```
+
+`crust repl` starts an interactive session — one persistent
+environment for as long as it's open, so a variable or recipe defined
+on one line is still there on the next:
+
+```
+$ crust repl
+crust repl — Ctrl+D to quit
+crust> x = 21
+crust> x * 2
+42
+crust> recipe double(n) { serve n * 2 }
+recipe(n) { ... }
+crust> double(x)
+42
+```
+
+An unclosed `{`/`(`/`[` (or a trailing operator with nothing after it)
+switches to a `...>` continuation prompt instead of reporting an error
+— keep typing and it picks back up once the construct is closed. Only
+a bare expression's value echoes back (`x * 2` above, or a recipe
+definition's own `recipe(n) { ... }` representation, as one last
+confirmation it took); an assignment, loop, or conditional doesn't,
+same as most REPLs. A runtime error is reported without ending the
+session — everything bound before it is still there afterward.
 
 `--help` (and running `crust` with no arguments) prints the pizza
 banner in color; customize it with:

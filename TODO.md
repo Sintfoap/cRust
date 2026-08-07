@@ -246,7 +246,22 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter
       makes this real; the bare-file shorthand and `--store` entry-point
       selection both work — see SPEC.md §9)
-- [ ] REPL mode — natural next step now that `Eval` exists, not yet built
+- [x] REPL mode (`crust repl`, `cmd/crust/repl.go`) — one persistent
+      Interpreter/Environment for the whole session, so state (variables,
+      recipes) carries across lines. Multi-line continuation (an unclosed
+      `{`/`(`/`[`, or a trailing operator) detected by checking whether
+      the parser's own last error mentions EOF, rather than a hand-rolled
+      bracket counter -- reuses the real parser's own notion of
+      "incomplete" instead of a second, approximate one that could
+      disagree with it. Only a bare expression statement's value
+      auto-echoes (matching most REPLs' convention); a runtime error is
+      reported but doesn't end the session. Known limitation: `unbox()`
+      (no argument) still reads from the same stdin the REPL's own line
+      scanner consumes -- fine on a real interactive terminal (each read
+      only sees what's currently typed), but piped/redirected input can
+      have already been buffered ahead by the scanner. `crust run` is
+      the intended way to process real stdin input; the REPL is for
+      trying things out.
 - [x] Clear, pizza-themed error messages *(started ahead of schedule)*
 - [x] Colorized `--help` banner (the pizza, customizable via
       `--toppings`/`--no-banner`/`--no-color`) — see

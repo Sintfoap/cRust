@@ -83,10 +83,16 @@ func TestRun(t *testing.T) {
 			wantStdout: "Hello, World!",
 		},
 		{
-			name:       "repl stub",
+			name:       "repl with empty stdin exits cleanly",
 			args:       []string{"repl"},
-			wantCode:   1,
-			wantStderr: "repl: not in the oven yet",
+			wantCode:   0,
+			wantStdout: "crust repl",
+		},
+		{
+			name:       "repl takes no arguments",
+			args:       []string{"repl", "bogus"},
+			wantCode:   2,
+			wantStderr: "repl: takes no arguments",
 		},
 		{
 			name:       "bare file shorthand",
