@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -276,11 +277,103 @@ func TestRunDebugShowsRuntimeErrorInPlace(t *testing.T) {
 	}
 }
 
+// TestRunDebugMissingFile covers a missing *parent directory*
+// specifically -- ensureFileExists deliberately never creates one (see
+// its own doc comment), so this stays a real error even after
+// auto-create landed; TestRunDebugAutoCreatesMissingFile below covers
+// the actual auto-create case (parent directory exists, only the file
+// itself doesn't).
 func TestRunDebugMissingFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runDebug("/no/such/file.crust", debugOptions{}, strings.NewReader(""), &stdout, &stderr)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
+	}
+}
+
+func TestEnsureFileExistsCreatesAMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newday.crust")
+	var stderr bytes.Buffer
+	if err := ensureFileExists(path, &stderr); err != nil {
+		t.Fatalf("ensureFileExists: %s", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file was not created: %s", err)
+	}
+	if len(data) != 0 {
+		t.Errorf("created file has %d bytes, want empty", len(data))
+	}
+	if !strings.Contains(stderr.String(), "doesn't exist yet") {
+		t.Errorf("stderr = %q, want a note that the file was created", stderr.String())
+	}
+}
+
+func TestEnsureFileExistsLeavesAnExistingFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "day01.crust")
+	if err := os.WriteFile(path, []byte(`deliver("already here")`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if err := ensureFileExists(path, &stderr); err != nil {
+		t.Fatalf("ensureFileExists: %s", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `deliver("already here")` {
+		t.Errorf("existing file was modified: %q", data)
+	}
+	if stderr.String() != "" {
+		t.Errorf("stderr = %q, want nothing printed for a file that already existed", stderr.String())
+	}
+}
+
+func TestEnsureFileExistsMissingParentDirIsAnError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no-such-subdir", "day01.crust")
+	var stderr bytes.Buffer
+	if err := ensureFileExists(path, &stderr); err == nil {
+		t.Error("expected an error for a missing parent directory, got nil")
+	}
+}
+
+// TestRunDebugAutoCreatesMissingFile is the actual feature: `crust
+// develop newday.crust` on a file that hasn't been written yet, in a
+// directory that does exist, creates it and proceeds -- exit 0, not
+// the missing-file error TestRunDebugMissingFile above still (and
+// correctly) gets for a missing parent directory.
+func TestRunDebugAutoCreatesMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newday.crust")
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{Plain: true}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("file was not created: %s", err)
+	}
+	if !strings.Contains(stdout.String(), "0 steps") {
+		t.Errorf("stdout = %q, want the (empty, harmless) recording of a freshly-created empty file", stdout.String())
+	}
+}
+
+// TestRunDebugAutoCreateWorksInTUIPath confirms auto-create is applied
+// before runDebug branches into the TUI path too, not just --plain --
+// emptyDebugView itself has no auto-create logic of its own (that's
+// deliberately runDebug's job, applied once ahead of both branches),
+// so it still fails on a path that doesn't exist yet; only after
+// ensureFileExists runs does the same call succeed.
+func TestRunDebugAutoCreateWorksInTUIPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newday.crust")
+	if _, err := emptyDebugView(path); err == nil {
+		t.Fatal("expected emptyDebugView to fail on a file that doesn't exist yet (auto-create lives in runDebug, not here)")
+	}
+	if err := ensureFileExists(path, io.Discard); err != nil {
+		t.Fatalf("ensureFileExists: %s", err)
+	}
+	if _, err := emptyDebugView(path); err != nil {
+		t.Fatalf("emptyDebugView after auto-create: %s", err)
 	}
 }
 

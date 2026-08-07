@@ -164,7 +164,12 @@ crust parse examples/hello.crust
 ### Debugging: time and memory per function
 
 `crust develop day01.crust` shows exactly where the time and memory
-went in a run, statement by statement: a step-by-step trace tree
+went in a run, statement by statement. If `day01.crust` doesn't exist
+yet, it's created empty rather than treated as an error — starting a
+new AoC day's file is the most common reason to point `develop` at a
+path that isn't there, so it opens straight into the same tool instead
+of a dead end (only the file itself is created, never a missing parent
+directory). It's a step-by-step trace tree
 (recipe calls and `knead`/`bake` loop laps are frames you can see
 into, each closed by a `// end ...` marker so a long block's extent
 reads the same way matching braces would) plus a ranking of every

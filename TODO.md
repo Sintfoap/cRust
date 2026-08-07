@@ -1005,6 +1005,25 @@ confirmed, not before.
       with `day01.crust` marked current, moved the cursor down and hit
       enter, and confirmed the header switched to `day02.crust` and a
       return trip to the Files tab now marked *it* current instead.
+- [x] `crust develop <file.crust>` auto-creates a missing target file
+      instead of erroring out, on direct request: "if I `crust develop
+      file.crust` where file.crust doesn't exist, [make] it create it
+      and then enter the develop tool on that file" — starting a new
+      AoC day's file is the single most common reason to point
+      `develop` at a path that isn't there yet. `ensureFileExists`
+      (`cmd/crust/debug.go`) runs first, ahead of even the saved-store
+      lookup, using `O_CREATE|O_EXCL` so the existence check and the
+      create are atomic; only ever creates the file itself, never a
+      missing parent directory (a missing directory reads as a typo,
+      not a scaffolding request), and notes the creation on stderr so
+      it's never silent. From there `runDebug` proceeds exactly as it
+      would for a file that already existed. Verified with unit tests
+      and a real pty-driven `crust develop` session against a path
+      that didn't exist: file created empty, TUI came up normally on
+      the Time tab, and tabbing to Editor opened real `nvim` on the
+      freshly-created file — see ARCHITECTURE.md's Phase 6 notes for
+      why that pty check mattered (it caught an inaccurate doc comment
+      claiming auto-create landed straight in the Editor tab).
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate

@@ -107,7 +107,22 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // a --plain recording (and the TUI's Run-tab entry-point selector's
 // starting position) already reflects whichever entry point was last
 // used here.
+//
+// ensureFileExists runs first, ahead of even that: starting a new
+// AoC day's file is the single most common reason to invoke `develop`
+// on a path that isn't there yet, so a missing file is created (empty)
+// rather than treated as an error, letting the rest of this function
+// proceed exactly as it would for a file that already existed — the
+// interactive TUI opens on its usual default (Time) tab, empty and
+// harmless for a file with nothing recorded yet, with the Editor tab's
+// nvim hand-off one tab-key away (or, --plain, an (empty, harmless)
+// "0 steps" printout) instead of a dead end.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
+	if err := ensureFileExists(path, stderr); err != nil {
+		fmt.Fprintf(stderr, "crust develop: %s\n", err)
+		return 1
+	}
+
 	opts = applySavedStore(path, opts)
 
 	if opts.Plain || !isColorTerminal(stdout) {
@@ -126,6 +141,32 @@ func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io
 		return 1
 	}
 	return runDebugTUI(view, opts, stdin, stdout, stderr)
+}
+
+// ensureFileExists creates path as an empty file when it doesn't
+// exist yet, so `crust develop newday.crust` on a file that hasn't
+// been written yet lands in the tool ready to type instead of just
+// erroring out. Deliberately narrow: only the file itself is created,
+// never a missing parent directory — a typo'd path (the wrong
+// directory, not a new file to scaffold) should still fail exactly
+// the way it always has, rather than silently creating directories
+// nobody asked for. O_EXCL makes the existence check and the create
+// atomic (no separate Stat-then-Write race), and os.IsExist on the
+// resulting error is what tells "someone already put a file there"
+// apart from every other reason the open could have failed (a missing
+// parent directory, a permissions problem, ...) — only the latter is
+// actually reported.
+func ensureFileExists(path string, stderr io.Writer) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer f.Close()
+	fmt.Fprintf(stderr, "crust develop: %s doesn't exist yet — created it\n", path)
+	return nil
 }
 
 // parseDebugFile parses path, the shared first step buildDebugView and

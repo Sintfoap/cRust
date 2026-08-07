@@ -3134,6 +3134,49 @@ code was written.
     confirmed the header switched to `day02.crust — 0 steps` and a
     return trip to the Files tab now marked `day02.crust` current
     instead.
+- **`crust develop <file.crust>` auto-creates a missing target file**
+  (`ensureFileExists`, `cmd/crust/debug.go`) instead of erroring out —
+  starting a new AoC day's file is the single most common reason to
+  point `develop` at a path that isn't there yet, and the old behavior
+  (`crust develop: open day06.crust: no such file or directory`, exit
+  1) meant that always had to be a two-step "touch the file, then
+  develop it" dance. `ensureFileExists` runs first, ahead of even
+  `applySavedStore`, and only ever creates the target file itself —
+  never a missing parent directory, since a missing directory much
+  more likely means a typo'd path than an intentional "scaffold a new
+  subdirectory" request, and silently creating directories nobody
+  asked for is a bigger, more surprising side effect than creating one
+  empty file. `os.OpenFile` with `O_CREATE|O_EXCL` makes the
+  existence check and the create atomic (no separate Stat-then-Write
+  race); `os.IsExist` on the resulting error is what tells "a file was
+  already there" apart from every other reason the open could fail
+  (missing parent directory, permissions, ...) — only the latter is
+  actually reported as an error, both from `ensureFileExists` and
+  visibly as `crust develop: <path> doesn't exist yet — created it` on
+  stderr when it *does* create something, so the behavior is never
+  silent. From there the rest of `runDebug` proceeds exactly as it
+  would for a file that already existed: the interactive TUI opens on
+  its ordinary default (Time) tab — empty and harmless, since there's
+  nothing recorded yet for a file nobody has run — with the Editor
+  tab's `nvim` hand-off one tab-key away, or, `--plain`, an (empty,
+  harmless) "0 steps" printout. Verified with unit tests
+  (`TestEnsureFileExistsCreatesAMissingFile`,
+  `TestEnsureFileExistsLeavesAnExistingFileAlone` — confirms an
+  existing file's contents are left untouched and nothing is printed
+  to stderr for it, `TestEnsureFileExistsMissingParentDirIsAnError`,
+  `TestRunDebugAutoCreatesMissingFile`,
+  `TestRunDebugAutoCreateWorksInTUIPath` — confirms the auto-create
+  happens once in `runDebug` itself, ahead of the `--plain`/TUI branch
+  point, not duplicated into each branch) and a real pty-driven `crust
+  develop` session against a path that didn't exist: confirmed the
+  file was created (0 bytes) and the TUI came up normally on the Time
+  tab, then tabbed over to Editor and confirmed real `nvim` opened on
+  the freshly-created empty file (correct filename in nvim's own
+  status line) rather than erroring — the first draft of this doc
+  comment claimed auto-create landed "straight into the Editor tab,"
+  which this same pty session caught as wrong: it lands on the normal
+  default tab like any other file, and reaching Editor is still a
+  deliberate tab-key press away, same as always.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
