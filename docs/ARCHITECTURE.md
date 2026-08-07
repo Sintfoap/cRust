@@ -1599,6 +1599,63 @@ below). Phase 5's stdlib checklist is now fully complete.
   in-range/past-the-end/negative/backward/lapping cases against
   hand-computed expected indices) and a real `crust run` subprocess
   reproducing the exact `wrapSlice(xs, 3, 6)` example from the request.
+- **`wrapReplace(list, start, end, value)`** — the write counterpart
+  to `wrap`/`wrapSlice`, added right alongside them on the natural
+  follow-up request: "can you make a function so I can assign to a
+  circular list? ... something like wrapReplace(list, start, end,
+  value) where value can shrink the list." A separate builtin rather
+  than teaching `wrapSlice`'s own result to be assignable — cRust
+  index-assignment (`xs[i] = v`) is a single-position write handled
+  entirely inside the interpreter's own `evalIndexAssignment`, with no
+  general notion of "assign to an arbitrary computed sub-selection,"
+  and building one just for this would be a much bigger, more
+  general-purpose feature than what was actually asked for.
+  - **Design**: `value` (a List or Tuple) doesn't have to match the
+    span's own length — the whole point, since a Python-style
+    `list[i:j] = value` already lets `value` shrink or grow the
+    target, and `wrap(Slice)`'s whole pitch is generalizing plain
+    indexing/slicing to wrap, not narrowing what's possible once you
+    do. The implementation: compute the exact same modular index
+    sequence `wrapSliceFn`'s own `wrapIndices` would (in read order),
+    remove every one of those positions from `list`, and splice
+    `value`'s elements in as *one block* at the position of the span's
+    *first* index in that read order, keeping every other element in
+    its original relative order. That single rule, with no special
+    casing for direction or wraparound, is what makes the motivating
+    example — `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))`, reversing
+    positions `3..5` by writing back an already-reversed *backward*
+    read of that same span — come out exactly right: the destination
+    span (`3..5`) is a plain forward selection, so the splice-at-
+    first-index rule reduces to ordinary in-place replacement at
+    those three positions, in the order `value` hands them over
+    (already reversed). A plain in-range, non-wrapped, non-reversed
+    destination reduces the whole algorithm to exactly the splice
+    Python's own `list[i:j] = value` performs. A *wrapped* or
+    *backward* destination still gets a well-defined answer under the
+    same rule (`value`'s elements land, in the order given, starting
+    at wherever the first selected position falls in `list`'s own
+    0-indexed order) — a rarer, more advanced case, but never
+    ambiguous or a silent surprise the way guessing at "which
+    direction should the write go" would be.
+  - **Mutates in place, List-only** — `push`/`setAt`'s own convention,
+    not `wrapSlice`'s (which always returns a new value): Tuple and
+    String are immutable in cRust, so there's nothing for a
+    length-changing write to mutate on either of them, and a
+    "circular list you can assign into" is squarely about the one
+    genuinely mutable collection type. `value` itself can be a List
+    *or* Tuple — a plain ordered sequence of replacement elements, the
+    same "iterable" requirement `map`/`filter`/`reduce` already share
+    for their own argument, not narrowed to match `list`'s own type.
+  - An empty `list` is still a runtime error, same as `wrap`/
+    `wrapSlice` — no valid index to wrap onto regardless of how it's
+    reduced.
+  - Verified with table-driven Go tests covering same-length
+    replacement (the reversal case), growing, shrinking, an empty
+    `value` deleting the span outright, a genuinely wrapped span with
+    survivors on both sides, and a full-wrap replace-everything case,
+    plus a real `crust run` subprocess reproducing the exact
+    `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reversal from the
+    request end to end.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,
@@ -3225,6 +3282,92 @@ code was written.
   which this same pty session caught as wrong: it lands on the normal
   default tab like any other file, and reaching Editor is still a
   deliberate tab-key press away, same as always.
+- **The Files tab can create a new `.crust` file directly**
+  (`debug_nav.go`'s `handleNavCreateKey`/`createNavFile`), on direct
+  request: "can you make it so I can create a new crust file from the
+  file tab in the develop tool?" — the interactive counterpart to
+  `crust develop`'s own missing-file auto-create above, for starting a
+  *second* (or third, ...) day's file without leaving the session.
+  Pressing `n` on the Files tab sets `navCreating` and swaps the tab's
+  body to a single-field prompt, reusing `runInputModel` (the Run
+  tab's own hand-rolled text field) rather than building a second
+  implementation of the same small job; `handleKey` routes every key
+  to a dedicated `handleNavCreateKey` the moment `navCreating` is true,
+  the same "this mode wants nearly every key for itself" reasoning
+  `handleRunTabKey` already established. Enter appends a `.crust`
+  suffix if the typed name doesn't already have one and creates the
+  file via the same `O_CREATE|O_EXCL` atomic-existence-check pattern
+  `ensureFileExists` uses — but with the opposite answer for "it
+  already exists": `ensureFileExists` treats that as success (a
+  missing target is the *expected* case it's guarding against), while
+  this reports it as `navErr` and leaves the prompt up, since creating
+  is an explicit "make something new" action where silently switching
+  to an existing `day01.crust` typed by habit would be a surprise, not
+  a convenience. A successful create clears `navCreating` and hands
+  off to `switchToFile` — the exact same path Files-tab switching
+  already uses — so the new file gets the identical fresh-view/
+  reset-settings treatment any other switch does. Esc cancels the
+  prompt without quitting (it's a transient dialog over the ordinary
+  Files list, not a permanent tab fixture with nothing to back out
+  of); Ctrl+C still quits the whole session regardless, the same
+  always-available hard exit the Run tab's own field keeps for the
+  same reason. Verified with unit tests (typing, Esc/Ctrl+C, empty
+  name, an already-existing name, the `.crust`-suffix behavior both
+  ways, and the full create-then-switch path) and a real pty-driven
+  session: pressed `n`, typed a name, hit enter, confirmed the file
+  existed on disk at 0 bytes and the session had switched to it.
+- **Fixed: the Run tab's entry-point selector sometimes silently
+  failed to refresh after saving in the Editor tab** (`debug_editor.go`),
+  on direct request: "I'd like stores in the run tab to refresh when I
+  exit from the editor" — surprising, since exactly this refresh was
+  already built and tested (the auto-create entry above's neighbor in
+  the checklist). A real pty-driven session reproduced the actual
+  bug: `nvim` exiting cleanly (status 0) after a genuine `:wq` save,
+  but `handleNvimExit`'s `msg.err` still non-nil — a spurious `read
+  /dev/stdin: resource temporarily unavailable` (`EAGAIN`) — which
+  `handleNvimExit` treats as a hard launch/exit failure and returns
+  from immediately, before ever reaching the entry-point rescan or the
+  save-triggered reload, so a perfectly good save silently never
+  updated the Run tab.
+  - **Root cause**: `openEditorCmd`'s `exec.Command("nvim", path)` left
+    `Stdin` unset, so bubbletea's own `ExecProcess`
+    (`osExecCommand.SetStdin`'s "if `c.Stdin == nil`" guard) filled it
+    with `p.input` — `runDebugTUI`'s `stdinNoNamer{f}` wrapper around
+    the real terminal, deliberately *not* a concrete `*os.File` so
+    `cancelreader`/`term.File`'s own type assertions engage correctly
+    (see `stdinNoNamer`'s own doc comment, and the WSL-epoll bug
+    earlier in this section that motivated it). That's exactly wrong
+    for a *child process*, though: since Go's `os/exec` can only hand
+    a real `*os.File`'s fd directly to a spawned process, anything
+    else forces it onto a slower fallback — open an `os.Pipe` and
+    spin up a background goroutine that copies bytes from the wrapped
+    reader into the pipe's write end, with the child's own stdin
+    wired to the read end. `nvim` itself never touches the real
+    terminal fd at all in that setup; the copier goroutine does, and
+    it was that goroutine's own blocking `Read` on the real terminal
+    racing `nvim`'s exit that returned the transient `EAGAIN` — which
+    Go's `os/exec` then surfaces as `cmd.Run()`'s own returned error
+    (collecting a non-nil error from an I/O copier goroutine when the
+    process itself exited successfully is documented `os/exec`
+    behavior, not a bug in the standard library), even though `nvim`
+    itself never saw or caused it.
+  - **Fix**: a new `nvimCmd(path string) *exec.Cmd` helper (split out
+    of `openEditorCmd` specifically so `cmd.Stdin`'s value is directly
+    assertable by a Go test, not only observable through a real pty
+    session) presets `cmd.Stdin = os.Stdin` — the real, global
+    `*os.File` — *before* `tea.ExecProcess` ever runs, so
+    `SetStdin`'s "if unset" guard never fires and `os/exec` dup's the
+    fd straight into `nvim`, the same way any ordinary shell
+    redirection would. No pipe, no copier goroutine, nothing left to
+    race.
+  - Verified two ways: a direct Go test
+    (`TestNvimCmdUsesRealStdinNotAWrapper`, asserting `cmd.Stdin ==
+    os.Stdin`) that locks the fix in independently of pty timing, and
+    the same real pty-driven session that first reproduced the bug
+    (adding a `store_part1` recipe inside `nvim`, saving, quitting),
+    re-run repeatedly post-fix and confirmed clean every time: no
+    `editorErr`, and the Run tab's selector shows `part1` immediately
+    on return.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

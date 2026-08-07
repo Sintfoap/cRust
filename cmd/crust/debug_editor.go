@@ -37,6 +37,38 @@ type reloadMsg struct {
 	err  error
 }
 
+// nvimCmd builds the *exec.Cmd that opens nvim on path, split out from
+// openEditorCmd purely so cmd.Stdin's value is directly assertable by
+// a Go test rather than only observable through a real pty session.
+//
+// cmd.Stdin is set explicitly to the real os.Stdin here, ahead of
+// tea.ExecProcess -- bubbletea's own ExecProcess only fills in Stdin
+// when it's still unset (osExecCommand.SetStdin's "if c.Stdin == nil"
+// guard), and would otherwise hand nvim its own wrapped p.input
+// (debug_tui.go's stdinNoNamer), which is deliberately not a real
+// *os.File so cancelreader/term.File's own type assertions treat it
+// right (see stdinNoNamer's doc comment). That's exactly the problem
+// for a child *process*, though: since it isn't a concrete *os.File,
+// Go's os/exec can't hand its fd to nvim directly and instead opens an
+// os.Pipe and spins up a background goroutine to copy bytes from it --
+// a real, if intermittent, bug in practice: a real pty-driven session
+// reproduced nvim exiting cleanly (0) after a genuine :wq save, but
+// with that copier goroutine's own Read on the real terminal fd racing
+// the exit and returning a transient EAGAIN, which os/exec then
+// surfaces as cmd.Run()'s own error even though nvim itself never saw
+// it -- and openEditorCmd's caller (handleNvimExit) treats *any*
+// non-nil err as a hard launch/exit failure, stopping there instead of
+// reaching the entry-point rescan or the save-triggered reload, so a
+// perfectly good save silently never refreshed the Run tab. Presetting
+// a real *os.File sidesteps the whole pipe-and-goroutine path: os/exec
+// dup's the fd straight into the child, the same as any ordinary
+// shell's redirection would, with nothing left to race.
+func nvimCmd(path string) *exec.Cmd {
+	cmd := exec.Command("nvim", path)
+	cmd.Stdin = os.Stdin
+	return cmd
+}
+
 // openEditorCmd hands the terminal to nvim on m.view.path. mtime,
 // captured before nvim runs, is how the callback tells "the file
 // changed during this session" apart from "nothing was saved" once
@@ -48,7 +80,7 @@ func (m debugModel) openEditorCmd() tea.Cmd {
 	path := m.view.path
 	before := mtimeOf(path)
 
-	cmd := exec.Command("nvim", path)
+	cmd := nvimCmd(path)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return nvimExitMsg{err: err, saved: err == nil && mtimeOf(path) != before}
 	})

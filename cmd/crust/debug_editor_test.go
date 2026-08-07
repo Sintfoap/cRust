@@ -24,6 +24,26 @@ func TestMtimeOfMissingFileIsZero(t *testing.T) {
 	}
 }
 
+// TestNvimCmdUsesRealStdinNotAWrapper locks in the fix for a real bug
+// a pty-driven session reproduced: nvim exiting cleanly (0) after a
+// genuine :wq, but with cmd.Run() itself still returning a spurious
+// "read /dev/stdin: resource temporarily unavailable" (EAGAIN) error
+// -- which handleNvimExit then treated as a hard launch/exit failure,
+// silently skipping both the entry-point rescan and the save-triggered
+// reload. Root cause: leaving cmd.Stdin unset let bubbletea's own
+// ExecProcess fill in its wrapped p.input (stdinNoNamer), which isn't
+// a concrete *os.File, so os/exec couldn't hand nvim the fd directly
+// and instead spun up an os.Pipe plus a background copy goroutine --
+// exactly the kind of extra machinery that can race a fast, clean
+// child-process exit. cmd.Stdin must stay a real *os.File so os/exec
+// dup's it straight into the child instead.
+func TestNvimCmdUsesRealStdinNotAWrapper(t *testing.T) {
+	cmd := nvimCmd("some.crust")
+	if cmd.Stdin != os.Stdin {
+		t.Errorf("cmd.Stdin = %v, want os.Stdin itself (a real *os.File) -- anything else forces os/exec into a pipe+goroutine-copy path that can leak a spurious error into nvim's reported exit", cmd.Stdin)
+	}
+}
+
 func TestOpenEditorCmdReturnsNonNilCmd(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.view.path = writeDebugFile(t, "x = 1\n")

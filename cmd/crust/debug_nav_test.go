@@ -396,6 +396,226 @@ func TestHelpTextOnFilesTab(t *testing.T) {
 	}
 }
 
+// --- create-new-file ----------------------------------------------------
+
+func TestKeyNOnFilesTabStartsCreating(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabNav
+
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	got := next.(debugModel)
+	if !got.navCreating {
+		t.Error("expected navCreating to be true after pressing n on the Files tab")
+	}
+}
+
+func TestKeyNElsewhereIsNoOp(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabTime
+
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	got := next.(debugModel)
+	if got.navCreating {
+		t.Error("expected n to be a no-op off the Files tab")
+	}
+}
+
+func TestHandleNavCreateKeyTypesIntoNewName(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreating = true
+
+	next, _ := m.handleNavCreateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("day06")})
+	got := next.(debugModel)
+	if got.navNewName.String() != "day06" {
+		t.Errorf("navNewName = %q, want %q", got.navNewName.String(), "day06")
+	}
+}
+
+func TestHandleNavCreateKeyEscCancelsWithoutQuitting(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreating = true
+	m.navNewName.insert('x')
+	m.navErr = "stale"
+
+	next, cmd := m.handleNavCreateKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(debugModel)
+	if got.navCreating {
+		t.Error("expected navCreating to be cleared by Esc")
+	}
+	if got.navNewName.String() != "" {
+		t.Errorf("navNewName = %q, want cleared", got.navNewName.String())
+	}
+	if got.navErr != "" {
+		t.Errorf("navErr = %q, want cleared", got.navErr)
+	}
+	if cmd != nil {
+		t.Error("expected Esc to cancel, not quit (nil Cmd)")
+	}
+}
+
+func TestHandleNavCreateKeyCtrlCQuits(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreating = true
+
+	_, cmd := m.handleNavCreateKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected ctrl+c to return tea.Quit")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Errorf("cmd() = %v, want tea.Quit()", msg)
+	}
+}
+
+func TestCreateNavFileEmptyNameIsError(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreating = true
+
+	next, _ := m.createNavFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for an empty name")
+	}
+	if !got.navCreating {
+		t.Error("expected navCreating to stay true so the prompt stays up")
+	}
+}
+
+func TestCreateNavFileAppendsCrustSuffix(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreating = true
+	m.navNewName.insert('d')
+	m.navNewName.insert('a')
+	m.navNewName.insert('y')
+	m.navNewName.insert('0')
+	m.navNewName.insert('6')
+
+	next, _ := m.createNavFile()
+	got := next.(debugModel)
+	if got.navErr != "" {
+		t.Fatalf("createNavFile: %s", got.navErr)
+	}
+	wantPath := filepath.Join(dir, "day06.crust")
+	if got.view.path != wantPath {
+		t.Errorf("view.path = %q, want %q", got.view.path, wantPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("file was not created: %s", err)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 0 {
+		t.Errorf("created file has %d bytes, want empty", len(data))
+	}
+}
+
+func TestCreateNavFileKeepsExplicitCrustSuffix(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreating = true
+	for _, r := range "day06.crust" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavFile()
+	got := next.(debugModel)
+	wantPath := filepath.Join(dir, "day06.crust")
+	if got.view.path != wantPath {
+		t.Errorf("view.path = %q, want %q (no doubled suffix)", got.view.path, wantPath)
+	}
+}
+
+func TestCreateNavFileSwitchesToTheNewFile(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreating = true
+	m.active = tabNav
+	for _, r := range "day06" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavFile()
+	got := next.(debugModel)
+	if got.navCreating {
+		t.Error("expected navCreating cleared after a successful create")
+	}
+	if got.active != tabTime {
+		t.Errorf("active = %v, want tabTime after switching to the new file", got.active)
+	}
+	if got.view.rec.Steps() != 0 {
+		t.Error("expected a fresh, unrecorded view of the brand-new file")
+	}
+}
+
+func TestCreateNavFileAlreadyExistsIsError(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	writeCrustFileIn(t, dir, "day02.crust", `deliver("already here")`)
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreating = true
+	for _, r := range "day02" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for a name that already exists")
+	}
+	if !got.navCreating {
+		t.Error("expected navCreating to stay true so the prompt stays up")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "day02.crust"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `deliver("already here")` {
+		t.Error("expected the existing file to be left untouched")
+	}
+}
+
+func TestViewNavShowsCreatePromptWhenCreating(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreating = true
+	m.navNewName.insert('d')
+
+	out := m.viewNav()
+	if !strings.Contains(out, "new file name") {
+		t.Errorf("viewNav() = %q, want the create-prompt heading", out)
+	}
+	if !strings.Contains(out, "d") {
+		t.Errorf("viewNav() = %q, want the typed name shown", out)
+	}
+}
+
+func TestViewNavCreatePromptTakesPriorityOverNoSiblingsPlaceholder(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.refreshNavFiles() // only one file -- would normally show the placeholder
+	m.navCreating = true
+
+	out := m.viewNav()
+	if strings.Contains(out, "no other") {
+		t.Errorf("viewNav() = %q, want the create prompt, not the no-other-files placeholder", out)
+	}
+}
+
+func TestHelpTextOnFilesTabWhileCreating(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabNav
+	m.navCreating = true
+	help := m.helpText()
+	if !strings.Contains(help, "create") || !strings.Contains(help, "cancel") {
+		t.Errorf("helpText() = %q, want it to mention create/cancel", help)
+	}
+}
+
 func TestViewRendersFilesTabWithoutPanicking(t *testing.T) {
 	dir := t.TempDir()
 	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")

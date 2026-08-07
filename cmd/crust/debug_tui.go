@@ -129,6 +129,14 @@ type debugModel struct {
 	navFiles  []string
 	navCursor int
 	navErr    string
+
+	// navCreating/navNewName back the Files tab's "new file" prompt
+	// (debug_nav.go's createNavFile): navCreating switches the tab from
+	// the file list to a single text field for the new name, reusing
+	// runInputModel (the Run tab's own hand-rolled field) rather than a
+	// second implementation of the same small job.
+	navCreating bool
+	navNewName  runInputModel
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -204,6 +212,14 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.active == tabRun {
 		return m.handleRunTabKey(msg)
 	}
+	// Same reasoning as the Run tab's own field above: typing a new
+	// filename wants nearly every key for itself (including letters
+	// that mean something elsewhere, like q or j/k), so it gets its own
+	// handler the moment the prompt is up rather than a case threaded
+	// through the switch below.
+	if m.active == tabNav && m.navCreating {
+		return m.handleNavCreateKey(msg)
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -235,6 +251,12 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openEditorCmd()
 		case tabNav:
 			m = m.switchToSelectedFile()
+		}
+	case "n":
+		if m.active == tabNav {
+			m.navCreating = true
+			m.navNewName = runInputModel{}
+			m.navErr = ""
 		}
 	}
 	return m, nil
@@ -356,7 +378,10 @@ func (m debugModel) helpText() string {
 		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
-		return "tab/←→: switch tab   ↑↓: move   enter: switch to this file   q: quit"
+		if m.navCreating {
+			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"
+		}
+		return "tab/←→: switch tab   ↑↓: move   enter: switch to this file   n: new file   q: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
 	}

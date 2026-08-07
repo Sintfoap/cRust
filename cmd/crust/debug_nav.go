@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Sintfoap/cRust/internal/debugger"
@@ -160,6 +161,101 @@ func (m debugModel) switchToFile(path string) debugModel {
 	return m
 }
 
+// handleNavCreateKey routes keys while the Files tab's "new file"
+// prompt is up (m.navCreating) — reusing runInputModel's own key
+// handling (insert/backspace/left/right), the same field the Run tab's
+// input-file box already uses, plus the three keys the field itself
+// has no use for: Enter to actually create the file, Esc to back out
+// to the plain file list without creating anything, and Ctrl+C as the
+// same always-available hard quit every other tab keeps regardless of
+// what's mid-edit (the Run tab's own input field makes the identical
+// choice, and for the identical reason — see handleRunTabKey's doc
+// comment). Esc deliberately does *not* quit here, unlike the Run
+// tab's field: that field is a permanent fixture of its tab with
+// nothing to "cancel" back out of, while this one is a transient
+// prompt over the ordinary Files list, so Esc reads as "close this
+// prompt" the way it would for any other modal input.
+func (m debugModel) handleNavCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.navCreating = false
+		m.navNewName = runInputModel{}
+		m.navErr = ""
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEnter:
+		return m.createNavFile()
+	case tea.KeyLeft:
+		m.navNewName.left()
+	case tea.KeyRight:
+		m.navNewName.right()
+	case tea.KeyRunes:
+		for _, r := range msg.Runes {
+			m.navNewName.insert(r)
+		}
+	case tea.KeySpace:
+		m.navNewName.insert(' ')
+	case tea.KeyBackspace:
+		m.navNewName.backspace()
+	case tea.KeyDelete:
+		m.navNewName.deleteForward()
+	case tea.KeyHome, tea.KeyCtrlA:
+		m.navNewName.cursor = 0
+	case tea.KeyEnd, tea.KeyCtrlE:
+		m.navNewName.cursor = len(m.navNewName.value)
+	}
+	return m, nil
+}
+
+// createNavFile creates a new, empty .crust file alongside the one
+// currently open (the same directory listCrustFiles already scopes
+// to) from whatever name was typed into the Files tab's prompt, and
+// switches straight to it — the interactive counterpart to `crust
+// develop newday.crust` auto-creating a missing target file
+// (debug.go's ensureFileExists), for starting a new day's file without
+// leaving the session at all. A ".crust" suffix is appended
+// automatically when the typed name doesn't already end in one, since
+// typing the extension every single time is exactly the friction this
+// exists to remove.
+//
+// Unlike ensureFileExists (which treats "the file's already there" as
+// success, since a missing target is the expected case it's guarding
+// against), a name that already exists here is reported as navErr
+// instead: this is an explicit "make something new" action, not an
+// idempotent auto-create, so silently switching to someone's existing
+// day01.crust after they typed its name by habit would be a surprise,
+// not a convenience. O_CREATE|O_EXCL keeps the existence check and the
+// create atomic, same reasoning as ensureFileExists. Any failure
+// (empty name, already exists, unwritable directory) leaves navCreating
+// on so the prompt stays up to fix and retry, rather than silently
+// dropping back to the plain list.
+func (m debugModel) createNavFile() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.navNewName.String())
+	if name == "" {
+		m.navErr = "type a filename first"
+		return m, nil
+	}
+	if !strings.HasSuffix(name, ".crust") {
+		name += ".crust"
+	}
+	path := filepath.Join(filepath.Dir(m.view.path), name)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			m.navErr = name + " already exists"
+		} else {
+			m.navErr = err.Error()
+		}
+		return m, nil
+	}
+	f.Close()
+
+	m.navCreating = false
+	m.navNewName = runInputModel{}
+	return m.switchToFile(path), nil
+}
+
 // viewNav lists every file listCrustFiles found alongside the one
 // currently open, one per line: "> " marks navCursor (enter's target,
 // the same cursor-row convention the Stepper and Run tab's own
@@ -169,7 +265,25 @@ func (m debugModel) switchToFile(path string) debugModel {
 // pending navErr renders above the list rather than in place of it —
 // showing only the error and hiding every file would leave no way to
 // pick a different, working target after a failed switch attempt.
+//
+// The "new file" prompt (m.navCreating) takes over the whole tab
+// rather than appearing alongside the list — checked first, ahead of
+// even the "only one file here" early return below, since starting a
+// second file in an otherwise-empty directory is exactly the case this
+// exists for.
 func (m debugModel) viewNav() string {
+	if m.navCreating {
+		var b strings.Builder
+		b.WriteString(styleTitle.Render("new file name (created alongside " + filepath.Base(m.view.path) + "):"))
+		b.WriteByte('\n')
+		b.WriteString("  " + m.navNewName.render())
+		if m.navErr != "" {
+			b.WriteString("\n\n")
+			b.WriteString(styleError.Render(m.navErr))
+		}
+		return b.String()
+	}
+
 	if len(m.navFiles) <= 1 {
 		msg := "no other .crust files found alongside " + filepath.Base(m.view.path)
 		if m.navErr != "" {

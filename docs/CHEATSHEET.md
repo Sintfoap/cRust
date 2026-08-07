@@ -85,7 +85,10 @@ same as Python module-level code.
 `find(collection, value)`, `contains(collection, item)`,
 `wrap(collection, i)` (circular index — mods past-the-end/negative `i`
 back into range instead of erroring), `wrapSlice(collection, start, end)`
-(circular slice — `wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]`)
+(circular slice — `wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]`),
+`wrapReplace(list, start, end, value)` (write counterpart to `wrapSlice`
+— `value` can be a different length, shrinking/growing `list` in place;
+`wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reverses positions `3..5`)
 
 **Map** — `keys(m)`, `values(m)`, `freq(x)` (List/Tuple/Set → Map of
 counts) — a missing key reads as `nobox`, not an error

@@ -199,7 +199,9 @@ open — the natural "AoC folder full of day01.crust..day25.crust"
 layout — ↑↓ to move, enter to switch straight to one without leaving
 `crust develop` and relaunching it on a different path; each file
 keeps its own remembered store/input/run-all settings, the same as
-reopening it fresh from the command line would).
+reopening it fresh from the command line would; `n` starts a new file
+right there — type a name, enter creates it (`.crust` appended if you
+leave it off) and switches straight to it).
 Ctrl+R toggles running *every* entry point in sequence instead of just
 the selected one — each against the same input file, one full run
 apiece, output concatenated under a `=== part1 ===`-style heading per

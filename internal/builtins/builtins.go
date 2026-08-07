@@ -36,63 +36,64 @@ type Call func(fn object.Object, args []object.Object) object.Object
 // global state.
 func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builtin {
 	return map[string]*object.Builtin{
-		"deliver":    {Fn: deliverFn(output)},
-		"slices":     {Fn: slicesFn},
-		"wrap":       {Fn: wrapFn},
-		"wrapSlice":  {Fn: wrapSliceFn},
-		"sauce":      {Fn: sauceFn},
-		"chars":      {Fn: charsFn},
-		"ints":       {Fn: intsFn},
-		"push":       {Fn: pushFn},
-		"copy":       {Fn: copyFn},
-		"map":        {Fn: mapFn(call)},
-		"filter":     {Fn: filterFn(call)},
-		"reduce":     {Fn: reduceFn(call)},
-		"find":       {Fn: findFn},
-		"min":        {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
-		"max":        {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
-		"pizzasort":  {Fn: pizzasortFn},
-		"combos":     {Fn: combosFn},
-		"enumerate":  {Fn: enumerateFn},
-		"grid":       {Fn: gridFn},
-		"newGrid":    {Fn: newGridFn},
-		"at":         {Fn: atFn},
-		"setAt":      {Fn: setAtFn},
-		"gridBounds": {Fn: gridBoundsFn},
-		"neighbors4": {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
-		"neighbors8": {Fn: neighborsFn("neighbors8", allOffsets)},
-		"idiv":       {Fn: idivFn},
-		"abs":        {Fn: absFn},
-		"pow":        {Fn: powFn},
-		"sqrt":       {Fn: sqrtFn},
-		"gcd":        {Fn: gcdFn},
-		"lcm":        {Fn: lcmFn},
-		"gather":     {Fn: gatherFn},
-		"list":       {Fn: listFn},
-		"tuple":      {Fn: tupleFn},
-		"set":        {Fn: setFn},
-		"freq":       {Fn: freqFn},
-		"keys":       {Fn: keysFn},
-		"values":     {Fn: valuesFn},
-		"sprinkle":   {Fn: sprinkleFn},
-		"scrape":     {Fn: scrapeFn},
-		"topped":     {Fn: toppedFn},
-		"contains":   {Fn: containsFn},
-		"combine":    {Fn: combineFn},
-		"shared":     {Fn: sharedFn},
-		"strip":      {Fn: stripFn},
-		"unbox":      {Fn: unboxFn(stdin)},
-		"lines":      {Fn: linesFn},
-		"join":       {Fn: joinFn},
-		"split":      {Fn: splitFn},
-		"trim":       {Fn: trimFn},
-		"replace":    {Fn: replaceFn},
-		"upper":      {Fn: upperFn},
-		"lower":      {Fn: lowerFn},
-		"str":        {Fn: strFn},
-		"int":        {Fn: intFn},
-		"float":      {Fn: floatFn},
-		"bool":       {Fn: boolFn},
+		"deliver":     {Fn: deliverFn(output)},
+		"slices":      {Fn: slicesFn},
+		"wrap":        {Fn: wrapFn},
+		"wrapSlice":   {Fn: wrapSliceFn},
+		"wrapReplace": {Fn: wrapReplaceFn},
+		"sauce":       {Fn: sauceFn},
+		"chars":       {Fn: charsFn},
+		"ints":        {Fn: intsFn},
+		"push":        {Fn: pushFn},
+		"copy":        {Fn: copyFn},
+		"map":         {Fn: mapFn(call)},
+		"filter":      {Fn: filterFn(call)},
+		"reduce":      {Fn: reduceFn(call)},
+		"find":        {Fn: findFn},
+		"min":         {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
+		"max":         {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
+		"pizzasort":   {Fn: pizzasortFn},
+		"combos":      {Fn: combosFn},
+		"enumerate":   {Fn: enumerateFn},
+		"grid":        {Fn: gridFn},
+		"newGrid":     {Fn: newGridFn},
+		"at":          {Fn: atFn},
+		"setAt":       {Fn: setAtFn},
+		"gridBounds":  {Fn: gridBoundsFn},
+		"neighbors4":  {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
+		"neighbors8":  {Fn: neighborsFn("neighbors8", allOffsets)},
+		"idiv":        {Fn: idivFn},
+		"abs":         {Fn: absFn},
+		"pow":         {Fn: powFn},
+		"sqrt":        {Fn: sqrtFn},
+		"gcd":         {Fn: gcdFn},
+		"lcm":         {Fn: lcmFn},
+		"gather":      {Fn: gatherFn},
+		"list":        {Fn: listFn},
+		"tuple":       {Fn: tupleFn},
+		"set":         {Fn: setFn},
+		"freq":        {Fn: freqFn},
+		"keys":        {Fn: keysFn},
+		"values":      {Fn: valuesFn},
+		"sprinkle":    {Fn: sprinkleFn},
+		"scrape":      {Fn: scrapeFn},
+		"topped":      {Fn: toppedFn},
+		"contains":    {Fn: containsFn},
+		"combine":     {Fn: combineFn},
+		"shared":      {Fn: sharedFn},
+		"strip":       {Fn: stripFn},
+		"unbox":       {Fn: unboxFn(stdin)},
+		"lines":       {Fn: linesFn},
+		"join":        {Fn: joinFn},
+		"split":       {Fn: splitFn},
+		"trim":        {Fn: trimFn},
+		"replace":     {Fn: replaceFn},
+		"upper":       {Fn: upperFn},
+		"lower":       {Fn: lowerFn},
+		"str":         {Fn: strFn},
+		"int":         {Fn: intFn},
+		"float":       {Fn: floatFn},
+		"bool":        {Fn: boolFn},
 	}
 }
 
@@ -286,6 +287,94 @@ func wrapSliceFn(args ...object.Object) object.Object {
 	default:
 		return wrongArgType("wrapSlice", 0, "a List, Tuple, or String", args[0])
 	}
+}
+
+// wrapReplaceFn is `wrapReplace(list, start, end, value)` (SPEC.md
+// §7) — the write counterpart to wrapSlice, and the one place a
+// circular selection can actually change list's length: value (a List
+// or Tuple) replaces the wrapSlice(list, start, end) span in place,
+// with no requirement that len(value) match the span's own length — a
+// shorter value shrinks list, a longer one grows it, an empty value
+// deletes the span outright. On direct request, as the natural next
+// question after wrap/wrapSlice: "can you make a wrapper... something
+// like wrapReplace(list, start, end, value) where value can shrink the
+// list."
+//
+// The span's positions — computed exactly like wrapSliceFn's own —
+// are removed from list, and value's elements are spliced in as one
+// block at the position of the span's *first* index in read order,
+// with everything else kept in its original relative order. That
+// single rule is what makes `wrapReplace(xs, 3, 5, wrapSlice(xs, 5,
+// 3))` (the motivating example: reversing positions 3..5 by writing
+// back a backward, and therefore already-reversed, read of the same
+// span) come out exactly right without any special-casing for
+// direction, wraparound, or a length change — a plain in-range forward
+// destination (the common case) reduces to exactly the splice
+// Python's own `list[i:j] = value` does; a wrapped or backward
+// destination still has a well-defined answer (value's elements land,
+// in the order given, starting at wherever the first selected
+// position falls in list's own 0-indexed order) — less likely to be
+// the operation actually being reached for, but never ambiguous or a
+// silent surprise.
+//
+// list must be a real List, mutated in place like push/setAt — Tuple
+// and String are immutable in cRust, so there's nothing for a
+// resizing write to mutate. value can be a List or Tuple, the same
+// "plain ordered sequence" requirement map/filter/reduce already share
+// for their own iterable argument. An empty list has no valid index to
+// wrap onto, same as wrap/wrapSlice.
+func wrapReplaceFn(args ...object.Object) object.Object {
+	if len(args) != 4 {
+		return wrongArgCount("wrapReplace", "4", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("wrapReplace", 0, "a List", args[0])
+	}
+	start, ok := args[1].(*object.Integer)
+	if !ok {
+		return wrongArgType("wrapReplace", 1, "an Integer", args[1])
+	}
+	end, ok := args[2].(*object.Integer)
+	if !ok {
+		return wrongArgType("wrapReplace", 2, "an Integer", args[2])
+	}
+	var value []object.Object
+	switch v := args[3].(type) {
+	case *object.List:
+		value = v.Elements
+	case *object.Tuple:
+		value = v.Elements
+	default:
+		return wrongArgType("wrapReplace", 3, "a List or Tuple", args[3])
+	}
+
+	n := int64(len(list.Elements))
+	if n == 0 {
+		return newError("wrapReplace: cannot index an empty List")
+	}
+
+	step, count := int64(1), end.Value-start.Value+1
+	if start.Value > end.Value {
+		step, count = -1, start.Value-end.Value+1
+	}
+	anchor := trueMod(start.Value, n)
+	removed := make(map[int64]bool, count)
+	for k := int64(0); k < count; k++ {
+		removed[trueMod(start.Value+k*step, n)] = true
+	}
+
+	out := make([]object.Object, 0, n-int64(len(removed))+int64(len(value)))
+	for i := int64(0); i < n; i++ {
+		if i == anchor {
+			out = append(out, value...)
+		}
+		if !removed[i] {
+			out = append(out, list.Elements[i])
+		}
+	}
+	list.Elements = out
+	return object.NULL
 }
 
 // sauceFn is `sauce(value, fallback)` (SPEC.md §7) — value unless it's

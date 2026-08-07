@@ -120,7 +120,7 @@ func wantListOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "wrap", "wrapSlice", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "wrap", "wrapSlice", "wrapReplace", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -290,6 +290,76 @@ func TestWrapSliceWrongArgs(t *testing.T) {
 	wantError(t, call(t, table, "wrapSlice", object.NewInteger(1), object.NewInteger(0), object.NewInteger(1)))
 	wantError(t, call(t, table, "wrapSlice", intList(1, 2), &object.String{Value: "0"}, object.NewInteger(1)))
 	wantError(t, call(t, table, "wrapSlice", intList(1, 2), object.NewInteger(0), &object.String{Value: "1"}))
+}
+
+func TestWrapReplaceSameLengthReversesASubsection(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3, 4, 5)
+	value := call(t, table, "wrapSlice", xs, object.NewInteger(5), object.NewInteger(3))
+	got := call(t, table, "wrapReplace", xs, object.NewInteger(3), object.NewInteger(5), value)
+	if got != object.NULL {
+		t.Errorf("wrapReplace return = %v, want nobox", got)
+	}
+	wantListOfInts(t, xs, 0, 1, 2, 5, 4, 3)
+}
+
+func TestWrapReplaceGrowsTheList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3)
+	call(t, table, "wrapReplace", xs, object.NewInteger(1), object.NewInteger(2), intList(9, 8, 7))
+	wantListOfInts(t, xs, 0, 9, 8, 7, 3)
+}
+
+func TestWrapReplaceShrinksTheList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3)
+	call(t, table, "wrapReplace", xs, object.NewInteger(1), object.NewInteger(2), intList(9))
+	wantListOfInts(t, xs, 0, 9, 3)
+}
+
+func TestWrapReplaceEmptyValueDeletesTheSpan(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3)
+	call(t, table, "wrapReplace", xs, object.NewInteger(1), object.NewInteger(2), intList())
+	wantListOfInts(t, xs, 0, 3)
+}
+
+func TestWrapReplaceWrappedSpanSplicesAtFirstReadPosition(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3, 4, 5)
+	// span reads 4,5,0,1 (wraps); surviving positions 2,3 keep their
+	// place, new values land where the first read position (4) was.
+	call(t, table, "wrapReplace", xs, object.NewInteger(4), object.NewInteger(7), intList(9, 8, 7, 6, 5))
+	wantListOfInts(t, xs, 2, 3, 9, 8, 7, 6, 5)
+}
+
+func TestWrapReplaceFullWrapReplacesEverything(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(10, 20, 30, 40)
+	call(t, table, "wrapReplace", xs, object.NewInteger(3), object.NewInteger(6), intList(99, 98))
+	wantListOfInts(t, xs, 99, 98)
+}
+
+func TestWrapReplaceOnEmptyListIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrapReplace", object.NewList(nil), object.NewInteger(0), object.NewInteger(0), intList(1)))
+}
+
+func TestWrapReplaceAcceptsTupleValue(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3)
+	value := object.NewTuple([]object.Object{object.NewInteger(9), object.NewInteger(8)})
+	call(t, table, "wrapReplace", xs, object.NewInteger(1), object.NewInteger(2), value)
+	wantListOfInts(t, xs, 0, 9, 8, 3)
+}
+
+func TestWrapReplaceWrongArgs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrapReplace", intList(1, 2), object.NewInteger(0), object.NewInteger(0)))
+	wantError(t, call(t, table, "wrapReplace", object.NewInteger(1), object.NewInteger(0), object.NewInteger(0), intList(1)))
+	wantError(t, call(t, table, "wrapReplace", intList(1, 2), &object.String{Value: "0"}, object.NewInteger(0), intList(1)))
+	wantError(t, call(t, table, "wrapReplace", intList(1, 2), object.NewInteger(0), &object.String{Value: "0"}, intList(1)))
+	wantError(t, call(t, table, "wrapReplace", intList(1, 2), object.NewInteger(0), object.NewInteger(0), object.NewInteger(1)))
 }
 
 func TestSauce(t *testing.T) {

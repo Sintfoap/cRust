@@ -1038,6 +1038,66 @@ confirmed, not before.
       freshly-created file — see ARCHITECTURE.md's Phase 6 notes for
       why that pty check mattered (it caught an inaccurate doc comment
       claiming auto-create landed straight in the Editor tab).
+- [x] The Files tab can create a new `.crust` file directly, on direct
+      request: "can you make it so I can create a new crust file from
+      the file tab in the develop tool?" Press `n` on the Files tab for
+      a one-line name prompt (`.crust` appended automatically if
+      omitted); enter creates the file (empty, `O_CREATE|O_EXCL` for
+      the same atomic existence check `ensureFileExists` already uses)
+      alongside the one currently open and switches straight to it,
+      same as any other Files-tab switch. Unlike `ensureFileExists`, a
+      name that already exists here is a reported error, not a silent
+      no-op — this is an explicit "make something new" action, so
+      switching to an existing file by habit would be a surprise, not
+      a convenience. Esc cancels the prompt without quitting; Ctrl+C
+      still quits the whole session, the same always-available hard
+      exit the Run tab's own text field already keeps. Verified with
+      unit tests and a real pty-driven session: pressed `n`, typed a
+      name, hit enter, confirmed the file existed on disk (0 bytes)
+      and the session had switched to it.
+- [x] Fixed: the Run tab's entry-point selector sometimes silently
+      failed to refresh after saving in the Editor tab, on direct
+      request: "I'd like stores in the run tab to refresh when I exit
+      from the editor." Root cause traced to a real, if intermittent,
+      bug reproduced via a real pty session: `nvim` exiting cleanly
+      (status 0) after a genuine `:wq`, but with `cmd.Run()` itself
+      still returning a spurious `read /dev/stdin: resource temporarily
+      unavailable` (EAGAIN) — `handleNvimExit` treats any non-nil err
+      as a hard launch/exit failure and stops there, before reaching
+      either the entry-point rescan or the save-triggered reload.
+      Cause: `openEditorCmd`'s `exec.Command` left `Stdin` unset, so
+      bubbletea's own `ExecProcess` filled it with its wrapped
+      `p.input` (`stdinNoNamer` — deliberately not a real `*os.File`,
+      for unrelated raw-mode/cancelreader reasons, see its own doc
+      comment) — which forces Go's `os/exec` into an `os.Pipe`-plus-
+      background-copy-goroutine path instead of handing `nvim` the fd
+      directly, and it was that copier goroutine's own read of the
+      real terminal racing `nvim`'s exit that produced the EAGAIN.
+      Fixed by presetting `cmd.Stdin = os.Stdin` (a genuine `*os.File`)
+      in a new `nvimCmd` helper, ahead of `tea.ExecProcess` — `os/exec`
+      then dup's the fd straight into `nvim`, nothing left to race.
+      Locked in with a direct Go test asserting `cmd.Stdin == os.Stdin`
+      (not reachable through pty flakiness) plus the same real
+      pty-driven session that first reproduced the bug, re-run and
+      confirmed clean: `nvim` exits, no error shown, and the Run tab's
+      selector picks up a newly-added `store_part1` recipe immediately.
+- [x] `wrapReplace(list, start, end, value)` — the write counterpart
+      to `wrap`/`wrapSlice`, on direct request: "can you make a
+      function so I can assign to a circular list? ... something like
+      wrapReplace(list, start, end, value) where value can shrink the
+      list." Replaces the `wrapSlice(list, start, end)` span with
+      `value`'s elements in place; `value` doesn't have to be the same
+      length (shrinks/grows `list`, an empty `value` deletes the span
+      outright). The span's positions are removed and `value` is
+      spliced in as one block at the span's first index in read order,
+      everything else keeping its relative order — the single rule
+      that makes `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` (the
+      motivating example) reverse positions `3..5` exactly right, and
+      that an ordinary in-range forward destination reduces to the
+      same splice Python's `list[i:j] = value` does. Verified with
+      table-driven Go tests (same-length, grow, shrink, delete, a
+      partially-wrapped span, a full-wrap replace) and a real `crust
+      run` subprocess reproducing the reversal example.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate
