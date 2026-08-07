@@ -82,7 +82,10 @@ same as Python module-level code.
 `copy(value)`, `min(...)` / `min(list)`, `max(...)` / `max(list)`,
 `pizzasort(list)`, `combos(list, n)`, `enumerate(list)`,
 `map(iterable, fn)`, `filter(iterable, fn)`, `reduce(iterable, fn, init)`,
-`find(collection, value)`, `contains(collection, item)`
+`find(collection, value)`, `contains(collection, item)`,
+`wrap(collection, i)` (circular index — mods past-the-end/negative `i`
+back into range instead of erroring), `wrapSlice(collection, start, end)`
+(circular slice — `wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]`)
 
 **Map** — `keys(m)`, `values(m)`, `freq(x)` (List/Tuple/Set → Map of
 counts) — a missing key reads as `nobox`, not an error

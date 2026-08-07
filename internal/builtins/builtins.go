@@ -38,6 +38,8 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 	return map[string]*object.Builtin{
 		"deliver":    {Fn: deliverFn(output)},
 		"slices":     {Fn: slicesFn},
+		"wrap":       {Fn: wrapFn},
+		"wrapSlice":  {Fn: wrapSliceFn},
 		"sauce":      {Fn: sauceFn},
 		"chars":      {Fn: charsFn},
 		"ints":       {Fn: intsFn},
@@ -139,6 +141,150 @@ func slicesFn(args ...object.Object) object.Object {
 		return object.NewInteger(int64(x.Len()))
 	default:
 		return newError("slices: argument must be a String, List, Tuple, Map, or Set, got %s", x.Type())
+	}
+}
+
+// trueMod is x mod n, always in [0, n) for n > 0 — Go's own `%`
+// returns a result with x's sign (e.g. -1 % 4 == -1), which is exactly
+// wrong for "wrap a possibly-negative or past-the-end index back into
+// range." wrapFn/wrapSliceFn are the only callers; nothing else in
+// this package needs modulo with this sign convention.
+func trueMod(x, n int64) int64 {
+	m := x % n
+	if m < 0 {
+		m += n
+	}
+	return m
+}
+
+// wrapFn is `wrap(collection, i)` (SPEC.md §7) — like a plain
+// `collection[i]`, except i is never out of range: it's reduced modulo
+// the collection's length first, so it loops back to the start (or, if
+// negative, counts backward from the end and keeps going past the
+// start) instead of erroring the way `collection[i]` and `at` both do
+// for a genuinely out-of-bounds index. `wrap([10,20,30], 3)` is `10`;
+// `wrap([10,20,30], -1)` is `30`, same element `[-1]` would reach if
+// cRust's plain indexing were negative-wrappable (SPEC.md §6 — it
+// deliberately isn't; `wrap` is the escape hatch for code that
+// actually wants that). An empty collection has no valid index to wrap
+// onto, so it's still an error rather than an infinite loop of
+// division by zero.
+func wrapFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("wrap", "2", len(args))
+	}
+	idx, ok := args[1].(*object.Integer)
+	if !ok {
+		return wrongArgType("wrap", 1, "an Integer", args[1])
+	}
+	switch v := args[0].(type) {
+	case *object.List:
+		if len(v.Elements) == 0 {
+			return newError("wrap: cannot index an empty List")
+		}
+		return v.Elements[trueMod(idx.Value, int64(len(v.Elements)))]
+	case *object.Tuple:
+		if len(v.Elements) == 0 {
+			return newError("wrap: cannot index an empty Tuple")
+		}
+		return v.Elements[trueMod(idx.Value, int64(len(v.Elements)))]
+	case *object.String:
+		runes := []rune(v.Value)
+		if len(runes) == 0 {
+			return newError("wrap: cannot index an empty String")
+		}
+		return &object.String{Value: string(runes[trueMod(idx.Value, int64(len(runes)))])}
+	default:
+		return wrongArgType("wrap", 0, "a List, Tuple, or String", args[0])
+	}
+}
+
+// wrapSliceFn is `wrapSlice(collection, start, end)` (SPEC.md §7) —
+// the circular-indexing counterpart to `collection[start..end]`
+// (§8's slice, always inclusive of both ends the same way `..` is;
+// there's no `.<`-style exclusive `wrapSlice`, since the whole point
+// is one span length per call and inclusive bounds already say that
+// directly). Neither bound has to stay in range — each resolved
+// position is reduced modulo the collection's length exactly like
+// `wrap` does for a single index, so a span can run past the end and
+// keep going from the start (`wrapSlice([0,1,2,3], 3, 6)` is
+// `[3, 0, 1, 2]`), or even lap the collection more than once; a
+// negative bound works the same way, just walking the other direction
+// past zero (`wrapSlice([0,1,2,3], -1, 2)` is also `[3, 0, 1, 2]`).
+// Reuses plain slicing's own "which way does this read" rule (SPEC.md
+// §6), applied to the raw start/end values rather than positions
+// already resolved into range: start <= end walks forward, start > end
+// walks backward — so, unlike a plain negative slice bound (which
+// always means "counted from the end"), start and end here are just
+// two points on an unbounded integer number line that happens to wrap
+// onto the collection every n steps; comparing them directly is what
+// makes a call like `wrapSlice([0,1,2,3], 1, -2)` walk backward through
+// 1, 0, -1, -2 (`[1, 0, 3, 2]`) rather than forward.
+// An empty collection has no valid index to wrap onto, same as `wrap`.
+func wrapSliceFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("wrapSlice", "3", len(args))
+	}
+	start, ok := args[1].(*object.Integer)
+	if !ok {
+		return wrongArgType("wrapSlice", 1, "an Integer", args[1])
+	}
+	end, ok := args[2].(*object.Integer)
+	if !ok {
+		return wrongArgType("wrapSlice", 2, "an Integer", args[2])
+	}
+
+	wrapIndices := func(n int64) []int64 {
+		step, count := int64(1), end.Value-start.Value+1
+		if start.Value > end.Value {
+			step, count = -1, start.Value-end.Value+1
+		}
+		idxs := make([]int64, count)
+		for k := range idxs {
+			idxs[k] = trueMod(start.Value+int64(k)*step, n)
+		}
+		return idxs
+	}
+
+	switch v := args[0].(type) {
+	case *object.List:
+		if len(v.Elements) == 0 {
+			return newError("wrapSlice: cannot slice an empty List")
+		}
+		idxs := wrapIndices(int64(len(v.Elements)))
+		out := make([]object.Object, len(idxs))
+		for k, i := range idxs {
+			out[k] = v.Elements[i]
+		}
+		return object.NewList(out)
+	case *object.Tuple:
+		if len(v.Elements) == 0 {
+			return newError("wrapSlice: cannot slice an empty Tuple")
+		}
+		idxs := wrapIndices(int64(len(v.Elements)))
+		out := make([]object.Object, len(idxs))
+		for k, i := range idxs {
+			out[k] = v.Elements[i]
+		}
+		// Every element already satisfied Tuple's Hashable requirement
+		// when v itself was built -- a subset (even a repeated,
+		// lapped-around one) of an all-Hashable Tuple is still
+		// all-Hashable, same reasoning evalSliceExpression's own
+		// Tuple case already relies on.
+		return object.NewTuple(out)
+	case *object.String:
+		runes := []rune(v.Value)
+		if len(runes) == 0 {
+			return newError("wrapSlice: cannot slice an empty String")
+		}
+		idxs := wrapIndices(int64(len(runes)))
+		out := make([]rune, len(idxs))
+		for k, i := range idxs {
+			out[k] = runes[i]
+		}
+		return &object.String{Value: string(out)}
+	default:
+		return wrongArgType("wrapSlice", 0, "a List, Tuple, or String", args[0])
 	}
 }
 

@@ -252,6 +252,20 @@ confirmed, not before.
       `functools.reduce`), so `reduce([], fn, 0)` is just `0` instead of
       a special case to worry about
 - [x] `slices` (length of a String/List/Map/Set)
+- [x] `wrap(collection, i)` / `wrapSlice(collection, start, end)` —
+      circular/modular indexing and slicing, on direct request: "can I
+      create a circular list in crust? where if I index past the end
+      it just auto mods and loops back to the beginning." Rather than
+      a new type, both are plain builtins over List/Tuple/String:
+      `wrap` reduces `i` modulo length before indexing (also the
+      escape hatch for negative-index-from-the-end, which plain `[i]`
+      deliberately doesn't support — SPEC.md §6); `wrapSlice` is the
+      circular counterpart to `collection[start..end]`, wrapping each
+      resolved position independently so a span can run past the end
+      and keep going from the start, or lap more than once
+      (`wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]`, exactly the
+      example asked for). Verified via the real `crust` CLI as well as
+      Go unit tests
 - [x] Sets: `gather`, `sprinkle`, `scrape`, `topped`, `combine`, `shared`, `strip`
 - [x] Nil-handling: `sauce` (fallback-if-nobox)
 - [x] Output: `deliver` *(no formatting verbs yet — space-joined

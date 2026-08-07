@@ -103,10 +103,24 @@ func wantTupleOfInts(t *testing.T, got object.Object, want ...int64) {
 	}
 }
 
+func wantListOfInts(t *testing.T, got object.Object, want ...int64) {
+	t.Helper()
+	list, ok := got.(*object.List)
+	if !ok {
+		t.Fatalf("got %T (%v), want *object.List", got, got)
+	}
+	if len(list.Elements) != len(want) {
+		t.Fatalf("got %d elements, want %d", len(list.Elements), len(want))
+	}
+	for i, w := range want {
+		wantInteger(t, list.Elements[i], w)
+	}
+}
+
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "wrap", "wrapSlice", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
 		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -170,6 +184,112 @@ func TestSlicesWrongArgs(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "slices"))
 	wantError(t, call(t, table, "slices", object.NewInteger(1)))
+}
+
+func intList(vals ...int64) *object.List {
+	elements := make([]object.Object, len(vals))
+	for i, v := range vals {
+		elements[i] = object.NewInteger(v)
+	}
+	return object.NewList(elements)
+}
+
+func TestWrapOnList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(10, 20, 30, 40)
+
+	tests := []struct {
+		name string
+		i    int64
+		want int64
+	}{
+		{"in range", 1, 20},
+		{"exactly the length loops back to the start", 4, 10},
+		{"past the length keeps looping", 6, 30},
+		{"-1 reaches the last element", -1, 40},
+		{"-4 reaches the first element", -4, 10},
+		{"a large negative index still resolves", -9, 40},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantInteger(t, call(t, table, "wrap", xs, object.NewInteger(tt.i)), tt.want)
+		})
+	}
+}
+
+func TestWrapOnTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantInteger(t, call(t, table, "wrap", tup, object.NewInteger(3)), 1)
+}
+
+func TestWrapOnString(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantString(t, call(t, table, "wrap", &object.String{Value: "café"}, object.NewInteger(5)), "a")
+}
+
+func TestWrapEmptyCollectionIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrap", object.NewList(nil), object.NewInteger(0)))
+	wantError(t, call(t, table, "wrap", &object.String{Value: ""}, object.NewInteger(0)))
+}
+
+func TestWrapWrongArgs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrap", intList(1)))
+	wantError(t, call(t, table, "wrap", object.NewInteger(1), object.NewInteger(0)))
+	wantError(t, call(t, table, "wrap", intList(1), &object.String{Value: "0"}))
+}
+
+func TestWrapSliceOnList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(0, 1, 2, 3)
+
+	tests := []struct {
+		name  string
+		start int64
+		end   int64
+		want  []int64
+	}{
+		{"fully in range, forward", 0, 2, []int64{0, 1, 2}},
+		{"spans past the end and wraps", 3, 6, []int64{3, 0, 1, 2}},
+		{"negative start wraps from before zero", -1, 2, []int64{3, 0, 1, 2}},
+		{"backward reads the same way a plain slice does", 2, 0, []int64{2, 1, 0}},
+		{"backward past zero keeps wrapping", 1, -2, []int64{1, 0, 3, 2}},
+		{"single element", 5, 5, []int64{1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := call(t, table, "wrapSlice", xs, object.NewInteger(tt.start), object.NewInteger(tt.end))
+			wantListOfInts(t, got, tt.want...)
+		})
+	}
+}
+
+func TestWrapSliceOnTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	got := call(t, table, "wrapSlice", tup, object.NewInteger(2), object.NewInteger(3))
+	wantTupleOfInts(t, got, 3, 1)
+}
+
+func TestWrapSliceOnString(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "wrapSlice", &object.String{Value: "abcd"}, object.NewInteger(3), object.NewInteger(5))
+	wantString(t, got, "dab")
+}
+
+func TestWrapSliceEmptyCollectionIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrapSlice", object.NewList(nil), object.NewInteger(0), object.NewInteger(1)))
+}
+
+func TestWrapSliceWrongArgs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "wrapSlice", intList(1, 2), object.NewInteger(0)))
+	wantError(t, call(t, table, "wrapSlice", object.NewInteger(1), object.NewInteger(0), object.NewInteger(1)))
+	wantError(t, call(t, table, "wrapSlice", intList(1, 2), &object.String{Value: "0"}, object.NewInteger(1)))
+	wantError(t, call(t, table, "wrapSlice", intList(1, 2), object.NewInteger(0), &object.String{Value: "1"}))
 }
 
 func TestSauce(t *testing.T) {

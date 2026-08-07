@@ -34,6 +34,8 @@ var keywordDocs = map[token.Type]string{
 var builtinDocs = map[string]string{
 	"deliver":    "`deliver(values...)` — print: send output out.",
 	"slices":     "`slices(x) -> Integer` — length/count of a String, List, Tuple, Map, or Set.",
+	"wrap":       "`wrap(collection, i) -> Any` — circular/modular indexing: collection[i] reduced modulo collection's length, so an out-of-range i (past the end, or negative) loops back around instead of erroring. wrap([10,20,30], 3) is 10; wrap([10,20,30], -1) is 30.",
+	"wrapSlice":  "`wrapSlice(collection, start, end) -> List|Tuple|String` — circular counterpart to collection[start..end], always inclusive of both ends. Neither bound has to stay in range: wrapSlice([0,1,2,3], 3, 6) is [3, 0, 1, 2]. start <= end walks forward, start > end walks backward.",
 	"sauce":      "`sauce(value, fallback) -> Any` — value unless it's nobox, in which case fallback. Same job as the `?:` operator.",
 	"chars":      "`chars(s) -> List` — splits a string into a List of one-character strings.",
 	"ints":       "`ints(s) -> List` / `ints(list) -> List` — ints(s) splits a string of digits into single-digit Integers; ints(list) parses each String element as a full Integer (e.g. `ints(split(line))`).",

@@ -1552,6 +1552,54 @@ below). Phase 5's stdlib checklist is now fully complete.
   conversion builtins keep their standard names on purpose; see
   `SPEC.md` §7 for why.
 
+- **`wrap(collection, i)` / `wrapSlice(collection, start, end)`**
+  (`internal/builtins/builtins.go`), added on direct request: "can I
+  create a circular list in crust? where if I index past the end it
+  just auto mods and loops back to the beginning... if I have a list
+  of size 4 ... and I index list[3..6] it would give me 3, 0, 1, 2."
+  No new type — a dedicated `Circular` wrapper would mean every other
+  builtin/operator that already works on a List (`push`, `+`,
+  `map`/`filter`/`reduce`, equality, ...) would need either a second
+  implementation or an unwrap-then-rewrap step at every call site, for
+  a feature that's really just "how do I compute an index," not a
+  different kind of collection. `wrap`/`wrapSlice` are plain functions
+  over the existing List/Tuple/String types instead: `wrap` reduces
+  `i` modulo the collection's length before doing an ordinary read
+  (`trueMod`, a small local helper — Go's own `%` keeps the dividend's
+  sign, e.g. `-1 % 4 == -1`, exactly backward from what "loop back
+  around" needs, which must always land in `[0, n)`). This doubles as
+  the negative-indexing escape hatch SPEC.md §6 deliberately leaves
+  out of plain `collection[i]` (`wrap(xs, -1)` reaches the last
+  element the way Python's `xs[-1]` would, without making *every*
+  single-index read silently negative-wrappable the way that
+  language's is).
+  `wrapSlice` is the circular counterpart to `collection[start..end]`
+  (always inclusive of both ends, matching `..`'s default — there's no
+  `.<`-style exclusive variant, since a circular span's whole point is
+  one length per call, and an inclusive bound already says that
+  directly). It reuses plain slicing's own "which way does this read"
+  rule (`start <= end` forward, `start > end` backward, SPEC.md §6) but
+  applies it to the *raw* start/end values rather than positions
+  already resolved into `[0, n)` first — unlike a plain slice's
+  negative bound (always "counted from the end"), a `wrapSlice` bound
+  is just a point on an unbounded integer line that happens to wrap
+  onto the collection every `n` steps, so comparing the raw values
+  directly is what lets a span run past the far end and keep going
+  from the start, or even lap the collection more than once, rather
+  than needing an explicit "how many laps" argument:
+  `wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]` (the exact example
+  asked for), and `wrapSlice([0,1,2,3], -1, 2)` reaches the same
+  answer walking forward from just before zero. An empty collection is
+  still a runtime error for both — there's no valid index to wrap onto
+  no matter how it's reduced, so returning something silently (`nobox`,
+  an empty result) would hide a genuine "this collection has nothing
+  in it yet" bug instead of surfacing it the way every other
+  out-of-bounds cRust operation does. Verified with Go unit tests
+  (`internal/builtins/builtins_test.go`, table-driven, covering
+  in-range/past-the-end/negative/backward/lapping cases against
+  hand-computed expected indices) and a real `crust run` subprocess
+  reproducing the exact `wrapSlice(xs, 3, 6)` example from the request.
+
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,
   now real — see Phase 4) and `crust repl` (interactive loop, still a
