@@ -3,6 +3,20 @@
 Milestones for building cRust — a Go-based interpreter with a pizza-jargon
 keyword set — in time for Advent of Code 2026 (Dec 1).
 
+## Versioning
+
+cRust is solidly in alpha — it's already being used to solve real Advent
+of Code puzzles — so `0.1.0-dev` stopped being an honest description of
+where the project stood. `v0.1.0` through `v0.1.68` are tagged
+retroactively across the existing history, one per meaningful feature/fix
+commit (purely cosmetic changes, merge noise, and doc typos were skipped);
+`flake.nix`'s `version`/`ldflags` track the latest one. Going forward, bump
+the patch number (`flake.nix`'s `version` and `-X main.version=`) and tag
+the commit `v0.1.<n>` for each commit that ships a real feature or fix —
+not every commit needs one, same judgment call the retroactive pass used.
+No `1.0.0` cut yet; that's Phase 8's job once AoC-readiness is actually
+confirmed, not before.
+
 ## Phase 0 — Project Foundations ✅
 - [x] Initialize Go module (`go.mod` — `github.com/Sintfoap/cRust`, Go 1.24)
 - [x] `cmd/crust` with a minimal CLI: `--version`, `--help`/`-h`, and

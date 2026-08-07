@@ -14,7 +14,18 @@
       {
         packages.default = pkgs.buildGoModule {
           pname = "crust";
-          version = "0.1.0-dev";
+          # Alpha-stage patch versioning: v0.1.0 through v0.1.68 are
+          # tagged retroactively across the project's existing history,
+          # one per meaningful feature/fix commit (purely cosmetic/
+          # merge-noise commits skipped) -- this repo has been used to
+          # solve real Advent of Code puzzles, past the point "0.1.0-dev"
+          # honestly described it. Going forward, bump this (and the
+          # matching -X main.version= below, and tag the commit
+          # v0.1.<n>) on each commit that ships a real feature or fix,
+          # the same granularity the retroactive tags used. Not every
+          # commit needs one -- a docs typo or CI tweak doesn't -- use
+          # judgment the way the retroactive pass did.
+          version = "0.1.69";
 
           # Only the Go build's actual inputs -- go.mod/go.sum/cmd/internal,
           # plus examples/. `src = ./.` used to pull in the whole repo
@@ -54,7 +65,7 @@
 
           subPackages = [ "cmd/crust" ];
 
-          ldflags = [ "-s" "-w" "-X main.version=0.1.0-dev" ];
+          ldflags = [ "-s" "-w" "-X main.version=0.1.69" ];
 
           meta = {
             description = "An interpreted language where every keyword is pizza jargon";
