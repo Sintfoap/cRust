@@ -1007,9 +1007,41 @@ confirmed, not before.
       return trip to the Files tab now marked *it* current instead.
 
 ## Phase 7 — Testing & Quality
-- [ ] Unit tests across lexer/parser/interpreter
-- [ ] Integration tests: sample `.crust` programs with expected output
-- [ ] Benchmark against a real prior-year AoC puzzle for performance sanity
+- [x] Unit tests across lexer/parser/interpreter — not a separate
+      one-time pass but grown incrementally alongside every language
+      feature this whole project added (table-driven, input-in/
+      AST-or-value-out, matching `lexer_test.go`/`parser_test.go`/
+      `interpreter_test.go`'s established shape throughout). Coverage
+      as of this writing: `internal/lexer` 99.4%, `internal/parser`
+      93.0%, `internal/interpreter` 95.2%, `internal/ast` 100%.
+- [x] Integration tests: sample `.crust` programs with expected output
+      — `cmd/crust/examples_test.go`'s `TestRealExamplesProduceExpectedOutput`,
+      deliberately the opposite of `TestRunFile`'s (main_test.go)
+      synthetic-snippet dispatch/error-handling coverage: real shipped
+      programs (all ten `examples/aoc2020/day01.crust`..`day05.crust`
+      part1/part2 runs, plus the two pre-existing AoC-shaped examples)
+      run through the actual `runFile` CLI pipeline, output pinned to
+      values verified independently while building each program (the
+      AoC ones against the puzzle's own documented example answers —
+      see Phase 8's dry-run entry below). An initial, real slice, not
+      exhaustive — the rest of `examples/*.crust` isn't pinned yet.
+- [x] Benchmark against a real prior-year AoC puzzle for performance
+      sanity — `cmd/crust/benchmark_test.go`'s `BenchmarkAoC2020Day1Part1`/
+      `Part2`, run through the same real `runFile` CLI pipeline (not an
+      isolated interpreter microbenchmark) against a deterministic
+      (fixed-seed), puzzle-realistic-scale synthetic input: 200 distinct
+      entries, the same size real AoC 2020 Day 1 personal inputs use —
+      the puzzle's own documented example (6 entries) is far too small
+      to be a meaningful stress test. Day 1 specifically, since its
+      two solutions are the closest thing among `examples/aoc2020/` to
+      a worst-case loop/index workload (part 1's O(n²) pair search,
+      part 2's O(n³) triple search) — the one most likely to notice a
+      regression in identifier lookup, index-expression evaluation, or
+      loop overhead. The answer pair/triple is placed last in the
+      generated input on purpose, so the early-exits-on-first-match
+      nested search does close to its full work rather than getting
+      lucky early. Baseline on this session's hardware: ~2.1ms/op
+      (part1), ~9.0ms/op (part2) at `-benchtime=1s`.
 
 ## Phase 8 — AoC 2026 Ready
 - [ ] Confirm day-1 essentials all work end-to-end: file I/O, arithmetic,

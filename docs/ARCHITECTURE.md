@@ -3140,11 +3140,41 @@ code was written.
   string in, expected tokens/AST shape out).
 - `interpreter_test.go`: evaluate a snippet, assert the resulting
   `object.Object` (type + value).
-- Integration tests live in `testdata/`: paired `*.crust` source files
-  and `*.golden` expected-output files, run through the real CLI pipeline
-  end-to-end and diffed.
-- A benchmark test (`testing.B`) runs a real prior-year AoC input through
-  cRust to catch performance regressions before they show up mid-contest.
+- **Integration tests** (`cmd/crust/examples_test.go`,
+  `TestRealExamplesProduceExpectedOutput`): real shipped `.crust`
+  programs — not synthetic snippets — run through the actual CLI
+  pipeline (`runFile`) with output pinned to values verified
+  independently of the test suite. A plain table-driven test (`path`,
+  `store`, `inputPath`, `want`), not the paired `testdata/*.crust` +
+  `*.golden`-file scheme an earlier draft of this section described:
+  every case's expected output here is one short line, and a whole
+  directory-scanning golden-file harness would be more machinery than
+  a dozen one-liners justify — see this codebase's own
+  don't-add-abstraction-beyond-what's-needed convention, applied to
+  its own test infrastructure. `TestRunFile` (`main_test.go`) already
+  covers `runFile`'s own dispatch/error-handling logic with small
+  synthetic snippets built inline; this file is deliberately the
+  opposite. Seeded with all ten `examples/aoc2020/day01.crust`..
+  `day05.crust` part1/part2 runs (Phase 8's dry-run below) plus the two
+  pre-existing AoC-shaped examples — an initial real slice, not
+  exhaustive coverage of every file under `examples/`.
+- **Benchmark** (`cmd/crust/benchmark_test.go`,
+  `BenchmarkAoC2020Day1Part1`/`Part2`): runs through the same real
+  `runFile` CLI pipeline the integration tests use, not an isolated
+  interpreter microbenchmark, against a deterministic (fixed-seed)
+  synthetic input sized like a real puzzle rather than the puzzle's own
+  tiny documented example (6 entries) — 200 distinct entries, the size
+  real AoC 2020 Day 1 personal inputs are. Day 1 specifically: its two
+  solutions are the closest thing among `examples/aoc2020/` to a
+  worst-case loop/index workload (part 1's O(n²) pair search, part 2's
+  O(n³) triple search) — the one most likely to notice a regression in
+  identifier lookup, index-expression evaluation, or loop overhead. The
+  answer pair/triple is appended last in the generated input on
+  purpose, so the early-exits-on-first-match nested search does close
+  to its full work rather than getting lucky early and understating
+  what a differently-shaped real input would cost. Baseline on the
+  hardware this was written on: ~2.1ms/op (part 1), ~9.0ms/op (part 2)
+  at `-benchtime=1s`.
 
 ### Phase 8 — AoC 2026 Readiness
 Process, not architecture: once Phases 2–5 are solid, do a dry run
