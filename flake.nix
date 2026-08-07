@@ -16,20 +16,30 @@
           pname = "crust";
           version = "0.1.0-dev";
 
-          # Only the Go build's actual inputs -- go.mod/go.sum/cmd/internal.
-          # `src = ./.` used to pull in the whole repo (docs/, editors/,
-          # examples/, assets/, TODO.md, ...), none of which the build
-          # touches (nothing uses //go:embed). That meant editing any of
-          # those unrelated files busted Nix's build cache and forced a full
-          # rebuild -- including buildGoModule's default checkPhase running
-          # the entire `go test ./...` suite -- on the next `nix develop
-          # .#crust` or direnv reload, even with zero Go source changes.
+          # Only the Go build's actual inputs -- go.mod/go.sum/cmd/internal,
+          # plus examples/. `src = ./.` used to pull in the whole repo
+          # (docs/, editors/, assets/, TODO.md, ...), none of which the
+          # build touches (nothing uses //go:embed). That meant editing any
+          # of those unrelated files busted Nix's build cache and forced a
+          # full rebuild -- including buildGoModule's default checkPhase
+          # running the entire `go test ./...` suite -- on the next `nix
+          # develop .#crust` or direnv reload, even with zero Go source
+          # changes. examples/ looks like it belongs in that same
+          # "unrelated to the build" pile, but it isn't: several tests
+          # (cmd/crust/main_test.go, internal/lexer/lexer_test.go,
+          # internal/format/format_test.go) glob examples/*.crust as real
+          # test fixtures -- exercising `crust run`/`tokens`/`parse`/
+          # `develop` and the formatter against actual `.crust` source, not
+          # synthetic snippets. checkPhase runs those tests, so leaving
+          # examples/ out of src made every `nix build` fail (files not
+          # found) despite `go test ./...` passing fine outside the sandbox.
           src = pkgs.lib.fileset.toSource {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./go.mod
               ./go.sum
               ./cmd
+              ./examples
               ./internal
             ];
           };
