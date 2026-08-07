@@ -1,0 +1,140 @@
+// AoC 2020 Day 4: Passport Processing. Passports are batches of
+// key:value fields, blank-line-separated, one field's value never
+// contains whitespace but a record's fields can be split across
+// several physical lines. Part 1 just checks the 7 required fields
+// are present (cid is optional); part 2 additionally validates each
+// field's format/range. Run with the puzzle's own part 1 example
+// input (day04_input.txt, expects 2) and a second, hand-built input
+// exercising every part 2 validation rule directly (day04_part2_input.txt,
+// expects 2 — not the official puzzle text, since that couldn't be
+// confirmed verbatim while writing this; every rule below is drawn
+// straight from the puzzle's documented field constraints):
+//
+//   crust run examples/aoc2020/day04.crust --store=part1 < examples/aoc2020/day04_input.txt
+//   crust run examples/aoc2020/day04.crust --store=part2 < examples/aoc2020/day04_part2_input.txt
+
+recipe parsePassports(raw) {
+    blocks = split(trim(raw), "\n\n")
+    passports = []
+    knead block in blocks {
+        fields = {}
+        knead token in split(replace(block, "\n", " ")) {
+            kv = split(token, ":")
+            fields[kv[0]] = kv[1]
+        }
+        push(passports, fields)
+    }
+    serve passports
+}
+
+recipe hasRequiredFields(p) {
+    knead key in ["byr", "iyr", "eyr", "hgt", "hcl", "ecl", "pid"] {
+        order (hold contains(p, key)) {
+            serve thin
+        }
+    }
+    serve stuffed
+}
+
+// isAllChars reports whether every character of s is one of allowed's
+// characters — the closest thing to a character-class check without a
+// regex engine, built on contains(String, String) treating a
+// single-character ch as a substring test against allowed.
+recipe isAllChars(s, allowed) {
+    knead ch in chars(s) {
+        order (hold contains(allowed, ch)) {
+            serve thin
+        }
+    }
+    serve stuffed
+}
+
+recipe validYear(s, lo, hi) {
+    order (hold (slices(s) == 4 with isAllChars(s, "0123456789"))) {
+        serve thin
+    }
+    n = int(s)
+    serve (n >= lo with n <= hi)
+}
+
+recipe validHeight(s) {
+    order (slices(s) < 3) {
+        serve thin
+    }
+    unit = s[slices(s) - 2 .< slices(s)]
+    numPart = s[0 .< slices(s) - 2]
+    order (hold isAllChars(numPart, "0123456789")) {
+        serve thin
+    }
+    n = int(numPart)
+    order (unit == "cm") {
+        serve (n >= 150 with n <= 193)
+    }
+    order (unit == "in") {
+        serve (n >= 59 with n <= 76)
+    }
+    serve thin
+}
+
+recipe validHairColor(s) {
+    order (slices(s) != 7) {
+        serve thin
+    }
+    order (s[0] != "#") {
+        serve thin
+    }
+    serve isAllChars(s[1 .< 7], "0123456789abcdef")
+}
+
+recipe validEyeColor(s) {
+    serve topped(toppings{"amb", "blu", "brn", "gry", "grn", "hzl", "oth"}, s)
+}
+
+recipe validPassportID(s) {
+    serve (slices(s) == 9 with isAllChars(s, "0123456789"))
+}
+
+recipe validPassport(p) {
+    order (hold hasRequiredFields(p)) {
+        serve thin
+    }
+    order (hold validYear(p["byr"], 1920, 2002)) {
+        serve thin
+    }
+    order (hold validYear(p["iyr"], 2010, 2020)) {
+        serve thin
+    }
+    order (hold validYear(p["eyr"], 2020, 2030)) {
+        serve thin
+    }
+    order (hold validHeight(p["hgt"])) {
+        serve thin
+    }
+    order (hold validHairColor(p["hcl"])) {
+        serve thin
+    }
+    order (hold validEyeColor(p["ecl"])) {
+        serve thin
+    }
+    serve validPassportID(p["pid"])
+}
+
+recipe store_part1() {
+    count = 0
+    knead p in parsePassports(unbox()) {
+        order (hasRequiredFields(p)) {
+            count++
+        }
+    }
+    deliver(count)
+}
+
+recipe store_part2() {
+    count = 0
+    knead p in parsePassports(unbox()) {
+        order (validPassport(p)) {
+            count++
+        }
+    }
+    deliver(count)
+}

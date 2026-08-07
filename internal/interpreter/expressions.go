@@ -505,9 +505,10 @@ func (i *Interpreter) evalSliceExpression(tok token.Token, left object.Object, r
 // container of length n into the concrete, in-order sequence of
 // indices the slice reads — see evalSliceExpression for the direction
 // and inclusivity rules this implements. A negative bound is resolved
-// against n once, up front; the resolved bound must then land in
-// [0, n) same as any other index, or this errors exactly like a plain
-// out-of-range `xs[i]` would.
+// against n once, up front. start must then land in [0, n), same as
+// any other index, or this errors exactly like a plain out-of-range
+// `xs[i]` would; end's own ceiling depends on whether it's ever
+// dereferenced directly (see the comment above its check below).
 func sliceIndices(tok token.Token, startVal, endVal, n int64, inclusive bool) ([]int64, *object.Error) {
 	resolve := func(idx int64) int64 {
 		if idx < 0 {
@@ -520,7 +521,22 @@ func sliceIndices(tok token.Token, startVal, endVal, n int64, inclusive bool) ([
 	if start < 0 || start >= n {
 		return nil, newError(tok, "slice index out of range: %d", startVal)
 	}
-	if end < 0 || end >= n {
+	// end's own valid range depends on whether it's ever dereferenced
+	// directly. Inclusive keeps end itself as the last position read
+	// (upper = end below), so it must be a real index, 0 <= end < n,
+	// same as start. Exclusive only ever reads up to end-1 walking
+	// forward (or down to end+1 walking backward) — end itself is a
+	// boundary marker, never a dereferenced position — so walking
+	// forward, end == n (one past the last valid index) is legitimate:
+	// the same way Python's s[3:5] on a 5-element sequence means "read
+	// up through the very end," not an off-by-one error. Walking
+	// backward, end is still dereferenced one step in from as `lower`,
+	// so it keeps the same < n ceiling inclusive mode already has.
+	endLimit := n - 1
+	if !inclusive && start <= end {
+		endLimit = n
+	}
+	if end < 0 || end > endLimit {
 		return nil, newError(tok, "slice index out of range: %d", endVal)
 	}
 

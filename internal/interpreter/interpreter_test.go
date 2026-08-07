@@ -580,6 +580,36 @@ func TestSliceString(t *testing.T) {
 	wantString(t, testEval(t, `s = "hello"; s[-1..0]`), "olleh")
 }
 
+// TestSliceExclusiveEndAtContainerLengthIsValid guards against a real
+// off-by-one regression: exclusive slicing's end bound is a boundary
+// marker, never a dereferenced position (only end-1 ever gets read
+// walking forward), so end == the container's own length is a
+// legitimate "read up through the very end" bound — the same way
+// Python's s[3:5] on a 5-character string is fine — not an
+// out-of-range error. Found while writing an AoC solution's
+// last-N-characters slice (`s[slices(s)-2 .< slices(s)]`), which used
+// to fail outright.
+func TestSliceExclusiveEndAtContainerLengthIsValid(t *testing.T) {
+	wantString(t, testEval(t, `s = "170cm"; s[3.<5]`), "cm")
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30]; xs[1.<3]"), []int64{20, 30})
+}
+
+// TestRangeEndConsumesTrailingSameLevelOperatorWithoutParens guards
+// against a real parser regression: a range's End must swallow a whole
+// term, including any of its own trailing "+"/"-" chain, the same way
+// term = factor { ("+"|"-") factor } already does on its own — writing
+// `xs[0.<a-2]` without parens around `a-2` used to leave the "-2" for
+// an outer loop that doesn't exist at the right level, misattaching it
+// to the whole slice result instead of just the range's end
+// (`xs[0.<a] - 2`, which then fails outright: List/String minus
+// Integer isn't defined). Every pre-existing slice test happened to
+// always parenthesize a compound end bound (see
+// TestSliceExpressionBoundsAreEvaluated's `xs[a..(a+2)]`), which is
+// exactly how this stayed undetected.
+func TestRangeEndConsumesTrailingSameLevelOperatorWithoutParens(t *testing.T) {
+	wantIntegerList(t, testEval(t, "xs = [10, 20, 30, 40, 50]; a = 5; xs[0.<a-2]"), []int64{10, 20, 30})
+}
+
 func TestSliceUnsupportedTypeIsError(t *testing.T) {
 	wantError(t, testEval(t, "s = toppings{1, 2}; s[0..1]"), "does not support slicing")
 }

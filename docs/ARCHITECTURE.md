@@ -3153,6 +3153,74 @@ awkward to express (missing builtin, clunky syntax) becomes a punch-list
 item to fix before December — this is the point of building the language
 months ahead of the event instead of the week before.
 
+**The dry run**: AoC 2020 days 1–5, each written as an independent,
+real solution (`examples/aoc2020/day01.crust`..`day05.crust`, own
+`store_part1`/`store_part2`, run against the puzzle's own documented
+small example input, verified against the documented example answers
+via a real built `crust run` subprocess for every part of every day —
+not just `go test`). This is a genuinely different kind of exercise
+than the earlier "shape only" examples (`day01_find_pair.crust`,
+`day06_group_answers.crust`, both pre-dating this phase): those exist
+to demonstrate one feature in isolation with data already massaged
+into the right shape, while a real day's solution has to get raw text
+*into* that shape first — multi-record parsing, string-based
+validation, coordinate arithmetic — the parts of a language that don't
+show up until something real is built with it.
+
+Two real language bugs turned up, both parser/interpreter correctness
+issues rather than missing builtins, and both fixed with regression
+tests rather than worked around in the example code:
+
+- **Slicing's exclusive end bound rejected the single most common
+  legitimate value: the container's own length.** `s[3.<5]` on a
+  5-character string ("get the last two characters") errored "slice
+  index out of range: 5" instead of returning them. `sliceIndices`
+  (`internal/interpreter/expressions.go`) required an exclusive end
+  bound to be a real, dereferenced index (`0 <= end < n`) — the correct
+  rule for an *inclusive* bound, which really is read directly, but
+  wrong for exclusive, which only ever reads up to `end-1` walking
+  forward and never touches `end` itself. Fixed by giving exclusive
+  bounds a ceiling of `n` (one past the last index) instead of `n-1`,
+  walking forward specifically — Python's `s[3:5]` on a 5-character
+  string is the same "read up through the very end" case, not an
+  off-by-one.
+- **A range's End didn't consume its own trailing `+`/`-` chain
+  without an explicit paren.** `s[0 .< slices(s) - 2]` silently
+  misparsed as `(s[0 .< slices(s)]) - 2` rather than
+  `s[0 .< (slices(s) - 2)]` — a String/List minus an Integer, which
+  isn't defined, so it surfaced as a confusing "unsupported operand
+  types" error nowhere near the actual mistake. `parseRangeExpression`
+  (`internal/parser/expressions.go`) parsed End at `SUM` precedence,
+  which is the *correct* choice for an ordinary infix operator's own
+  right operand (`parseInfixExpression` does the same, deliberately, so
+  a trailing same-precedence operator gets left for an outer loop at
+  that same precedence context to build proper left-associativity) —
+  but a range's End has no such outer "range-level" loop to hand a
+  continuation to; whatever invoked `.<`/`..` in the first place is
+  usually running at a *lower* precedence (e.g. `LOWEST`, parsing an
+  index bracket's full contents), so the trailing operator reattached
+  to the whole range one level up instead of just its End. Fixed by
+  parsing End at `SUM-1`, letting it swallow a complete term —
+  matching the grammar's own `range = term [(".."|" .<") term]`
+  production, where the second `term` was always meant to resolve its
+  own internal `+`/`-` chain exactly like the first one already does.
+
+Both bugs are the specific shape a hand-written unit test suite tends
+to route around without ever tripping: every pre-existing slice test
+happened to parenthesize a compound end bound (see
+`TestSliceExpressionBoundsAreEvaluated`'s `xs[a..(a+2)]`), and no
+existing test needed a suffix slice reaching exactly to a container's
+length. A real, independently-authored program hits both immediately,
+which is the entire reason this checklist item exists rather than
+trusting coverage percentages alone. Both fixes shipped with dedicated
+regression tests at the level each bug actually lived at —
+`TestRangeEndSwallowsATrailingSameLevelOperator` (parser, asserting the
+AST shape directly) and `TestSliceExclusiveEndAtContainerLengthIsValid`
+/ `TestRangeEndConsumesTrailingSameLevelOperatorWithoutParens`
+(interpreter, asserting the runtime result) — not just a fixed example
+file, which would only prove today's five puzzles work, not that the
+underlying bug is actually gone.
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

@@ -1,0 +1,50 @@
+// AoC 2020 Day 2: Password Philosophy. Each line is a policy plus a
+// password: "1-3 a: abcde". Part 1's policy is a min/max count of the
+// given letter; part 2's is "exactly one of positions lo/hi (1-indexed)
+// holds the letter." Run with the puzzle's own example input:
+//
+//   crust run examples/aoc2020/day02.crust --store=part1 < examples/aoc2020/day02_input.txt
+//   crust run examples/aoc2020/day02.crust --store=part2 < examples/aoc2020/day02_input.txt
+//
+// Expects 2 for part 1, 1 for part 2.
+
+recipe parseLine(line) {
+    parts = split(line, " ")
+    bounds = split(parts[0], "-")
+    lo = int(bounds[0])
+    hi = int(bounds[1])
+    letter = chars(parts[1])[0]
+    pw = parts[2]
+    serve (lo, hi, letter, pw)
+}
+
+recipe store_part1() {
+    count = 0
+    knead line in lines(unbox()) {
+        lo, hi, letter, pw = parseLine(line)
+        n = 0
+        knead ch in chars(pw) {
+            order (ch == letter) {
+                n++
+            }
+        }
+        order (n >= lo with n <= hi) {
+            count++
+        }
+    }
+    deliver(count)
+}
+
+recipe store_part2() {
+    count = 0
+    knead line in lines(unbox()) {
+        pos1, pos2, letter, pw = parseLine(line)
+        chs = chars(pw)
+        match1 = chs[pos1 - 1] == letter
+        match2 = chs[pos2 - 1] == letter
+        order (match1 != match2) {
+            count++
+        }
+    }
+    deliver(count)
+}

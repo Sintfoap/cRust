@@ -428,6 +428,7 @@ func TestOperatorPrecedence(t *testing.T) {
 		{"a[0] + b\n", "((a[0]) + b)\n"},
 		{"a ?: b ?: c\n", "(a ?: (b ?: c))\n"},
 		{"a == b ?: c\n", "((a == b) ?: c)\n"},
+		{"0 .< a - 2\n", "(0.<(a - 2))\n"},
 	}
 
 	for _, tt := range tests {
@@ -494,6 +495,37 @@ func TestChainedRangeIsError(t *testing.T) {
 	p.ParseProgram()
 	if len(p.Errors()) == 0 {
 		t.Fatal("expected a parse error for a chained range, got none")
+	}
+}
+
+// TestRangeEndSwallowsATrailingSameLevelOperator guards against a real
+// regression: a range's End must parse as one whole term, including
+// any of its own "+"/"-" chain (range = term [(".."|" .<") term], and
+// term already resolves +/- internally) — not stop right before a
+// trailing same-precedence operator the way an ordinary infix's right
+// operand correctly does (parseInfixExpression recurses at its own
+// precedence specifically so an outer loop at that same level picks up
+// a same-precedence continuation, building left-associativity). A
+// range's End has no such outer "range-level" loop to hand a
+// continuation to — whatever invoked ".."/".<" is very likely running
+// at a lower precedence — so parsing End at SUM would leave a trailing
+// "- 2" to misattach to the *whole* range one level up instead of just
+// its End. See TestOperatorPrecedence's "0 .< a - 2" case for the
+// same fix from the AST-shape side.
+func TestRangeEndSwallowsATrailingSameLevelOperator(t *testing.T) {
+	program := parseProgram(t, "a[0 .< slices(a) - 2]\n")
+	stmt := singleStatement(t, program)
+	idx, ok := exprStmtExpr(t, stmt).(*ast.IndexExpression)
+	if !ok {
+		t.Fatalf("expression is %T, want *ast.IndexExpression", exprStmtExpr(t, stmt))
+	}
+	re, ok := idx.Index.(*ast.RangeExpression)
+	if !ok {
+		t.Fatalf("index is %T, want *ast.RangeExpression", idx.Index)
+	}
+	want := "(slices(a) - 2)"
+	if got := re.End.String(); got != want {
+		t.Errorf("End.String() = %q, want %q (the whole term, not just slices(a) with -2 left dangling)", got, want)
 	}
 }
 

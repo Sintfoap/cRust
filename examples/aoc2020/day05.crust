@@ -1,0 +1,57 @@
+// AoC 2020 Day 5: Binary Boarding. Each boarding pass is 10 characters:
+// 7 F/B bits picking one of 128 rows (F=lower half, B=upper half —
+// binary space partitioning, so just reading F/B as 0/1 bits gives the
+// row directly), then 3 L/R bits picking one of 8 columns the same
+// way. Seat ID is row*8 + column. Part 1 wants the highest seat ID in
+// the list. Part 2 wants your own seat: the one ID missing from the
+// list whose immediate neighbors (id-1, id+1) are both present.
+//
+//   crust run examples/aoc2020/day05.crust --store=part1 < examples/aoc2020/day05_input.txt
+//   crust run examples/aoc2020/day05.crust --store=part2 < examples/aoc2020/day05_input.txt
+//
+// Expects 820 for part 1 (the four passes decode to 357, 567, 119, 820
+// — the puzzle's own documented examples). Part 2 genuinely has no
+// answer on this small example set — none of these four IDs has both
+// neighbors present, since a real gap only shows up in the puzzle's
+// full-scale personal input (a solid block of ~800+ boarding passes
+// with exactly one hole) — so this prints that honestly instead of
+// fabricating a seat.
+
+recipe seatID(pass) {
+    row = 0
+    knead ch in chars(pass[0 .< 7]) {
+        row *= 2
+        order (ch == "B") {
+            row += 1
+        }
+    }
+    col = 0
+    knead ch in chars(pass[7 .< 10]) {
+        col *= 2
+        order (ch == "R") {
+            col += 1
+        }
+    }
+    serve row * 8 + col
+}
+
+recipe store_part1() {
+    ids = map(lines(unbox()), seatID)
+    deliver(max(ids))
+}
+
+recipe store_part2() {
+    ids = gather(map(lines(unbox()), seatID))
+    found = nobox
+    knead id in ids {
+        candidate = id + 1
+        order (hold topped(ids, candidate) with topped(ids, id + 2)) {
+            found = candidate
+        }
+    }
+    order (found == nobox) {
+        deliver("no missing seat in this example set (needs full-scale puzzle input for a real gap)")
+    } special {
+        deliver(found)
+    }
+}

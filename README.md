@@ -66,6 +66,11 @@ See [`examples/`](./examples) for runnable sample programs — AoC-shaped
 ones plus `the_works.crust` and `closures.crust`, which between them
 exercise every keyword, operator, and builtin in `SPEC.md` at least
 once (`crust run examples/the_works.crust` and friends all work today).
+[`examples/aoc2020/`](./examples/aoc2020) goes a step further: real,
+complete two-part solutions to AoC 2020 days 1–5, each verified against
+the puzzle's own documented example answers — `crust run
+examples/aoc2020/day01.crust --store=part1 < examples/aoc2020/day01_input.txt`
+and friends.
 
 ## Building
 

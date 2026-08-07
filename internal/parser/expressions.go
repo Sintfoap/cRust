@@ -107,20 +107,35 @@ func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {
 }
 
 // parseRangeExpression handles `start..end` / `start.<end` (SPEC.md
-// §5.1). The End operand parses at SUM (term) precedence, per the
-// range = term [ (".."|".<") term ] production. That alone stops the
-// recursive call from consuming a second range operator, but it doesn't
-// stop the *outer* Pratt loop from doing so — parseExpression was
-// entered at whatever precedence its caller used, which for a bare
-// range statement is LOWEST, and RANGE > LOWEST — so `1..5..10` would
-// otherwise re-enter this function with left = (1..5). The explicit
-// peek check below rejects that chain instead of silently accepting it.
+// §5.1). The End operand needs to swallow a *whole* term — the
+// range = term [ (".."|".<") term ] production's second term already
+// resolves any of its own "+"/"-" chain internally (term = factor {
+// ("+"|"-") factor }), so End has to consume that chain itself rather
+// than leaving a trailing same-precedence operator behind. Parsing at
+// SUM-1, not SUM, is what makes that happen: parseExpression(SUM)
+// would stop right before a following "+"/"-" (SUM's own precedence),
+// the correct move for an *ordinary* left-associative infix's right
+// operand (parseInfixExpression) where an outer loop at the same
+// precedence context is what's supposed to pick that continuation back
+// up — but there is no such outer "range-level" loop here to hand it
+// to. Whatever invoked the ".."/".<" infix handler in the first place
+// is very likely running at a *lower* precedence than SUM (e.g.
+// LOWEST, parsing a bracket's full expression), so a trailing "- 2"
+// left uncollected at SUM would instead misattach to the whole
+// RangeExpression one level up (`s[0.<slices(s)] - 2` instead of
+// `s[0.<(slices(s)-2)]`) once that outer loop resumed and saw it —
+// exactly the bug this off-by-one caused in practice, caught by
+// `s[0 .< slices(s) - 2]` erroring "unsupported operand types for -:
+// LIST and INTEGER" instead of slicing correctly. SUM-1 (== RANGE)
+// keeps the one behavior this *does* still need — refusing to swallow
+// a second range operator (`1..5..10`) — since the explicit peek check
+// below is the real guard for that either way.
 func (p *Parser) parseRangeExpression(left ast.Expression) ast.Expression {
 	tok := p.curToken // '..' or '.<'
 	inclusive := tok.Type == token.DOTDOT
 
 	p.nextToken()
-	end := p.parseExpression(SUM)
+	end := p.parseExpression(SUM - 1)
 	if end == nil {
 		return nil
 	}

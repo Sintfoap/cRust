@@ -1,0 +1,13 @@
+byr:1980 iyr:2015 eyr:2025 hgt:170cm hcl:#623a2f ecl:grn pid:123456789 cid:100
+
+byr:1944 iyr:2010 eyr:2021 hgt:74in hcl:#b6652a ecl:blu pid:093154719
+
+byr:1919 iyr:2015 eyr:2025 hgt:170cm hcl:#623a2f ecl:grn pid:123456789
+
+byr:1980 iyr:2015 eyr:2025 hgt:190 hcl:#623a2f ecl:grn pid:123456789
+
+byr:1980 iyr:2015 eyr:2025 hgt:170cm hcl:623a2f ecl:grn pid:123456789
+
+byr:1980 iyr:2015 eyr:2025 hgt:170cm hcl:#623a2f ecl:wat pid:123456789
+
+byr:1980 iyr:2015 eyr:2025 hgt:170cm hcl:#623a2f ecl:grn pid:12345

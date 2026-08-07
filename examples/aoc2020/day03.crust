@@ -1,0 +1,41 @@
+// AoC 2020 Day 3: Toboggan Trajectory. The map is a grid of "." (open)
+// and "#" (tree) that repeats infinitely to the right. Part 1 counts
+// trees hit sliding right 3, down 1 from the top-left until off the
+// bottom; part 2 does the same for 5 different slopes and multiplies
+// the counts together. Run with the puzzle's own example input:
+//
+//   crust run examples/aoc2020/day03.crust --store=part1 < examples/aoc2020/day03_input.txt
+//   crust run examples/aoc2020/day03.crust --store=part2 < examples/aoc2020/day03_input.txt
+//
+// Expects 7 for part 1, 336 for part 2.
+
+recipe countTrees(rows, right, down) {
+    width = slices(rows[0])
+    row = 0
+    col = 0
+    trees = 0
+    bake (row < slices(rows)) {
+        order (rows[row][col % width] == "#") {
+            trees++
+        }
+        row += down
+        col += right
+    }
+    serve trees
+}
+
+recipe store_part1() {
+    rows = lines(unbox())
+    deliver(countTrees(rows, 3, 1))
+}
+
+recipe store_part2() {
+    rows = lines(unbox())
+    slopes = [(1, 1), (3, 1), (5, 1), (7, 1), (1, 2)]
+    product = 1
+    knead slope in slopes {
+        right, down = slope
+        product *= countTrees(rows, right, down)
+    }
+    deliver(product)
+}

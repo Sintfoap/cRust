@@ -1,0 +1,34 @@
+// AoC 2020 Day 1: Report Repair. Find two (part 1) or three (part 2)
+// entries in the expense report that sum to 2020, and report their
+// product. Run with the puzzle's own example input:
+//
+//   crust run examples/aoc2020/day01.crust --store=part1 < examples/aoc2020/day01_input.txt
+//   crust run examples/aoc2020/day01.crust --store=part2 < examples/aoc2020/day01_input.txt
+//
+// Expects 514579 for part 1, 241861950 for part 2.
+
+recipe store_part1() {
+    nums = ints(lines(unbox()))
+    knead (i = 0; i < slices(nums); i++) {
+        knead (j = i + 1; j < slices(nums); j++) {
+            order (nums[i] + nums[j] == 2020) {
+                deliver(nums[i] * nums[j])
+                serve nobox
+            }
+        }
+    }
+}
+
+recipe store_part2() {
+    nums = ints(lines(unbox()))
+    knead (i = 0; i < slices(nums); i++) {
+        knead (j = i + 1; j < slices(nums); j++) {
+            knead (k = j + 1; k < slices(nums); k++) {
+                order (nums[i] + nums[j] + nums[k] == 2020) {
+                    deliver(nums[i] * nums[j] * nums[k])
+                    serve nobox
+                }
+            }
+        }
+    }
+}

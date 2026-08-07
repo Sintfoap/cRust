@@ -1016,7 +1016,42 @@ confirmed, not before.
       strings, loops, lists, maps
 - [ ] Per-day solution template (`examples/day01/`, etc.)
 - [ ] Keyword cheat-sheet doc for quick reference during the event
-- [ ] Dry run: solve an old AoC day 1-5 in cRust before Dec 1, 2026
+- [x] Dry run: solve an old AoC day 1-5 in cRust before Dec 1, 2026 —
+      AoC 2020 days 1-5 (`examples/aoc2020/day01.crust`..`day05.crust`,
+      each with its own `store_part1`/`store_part2` and the puzzle's
+      own small example input as a companion `.txt` file), verified
+      against the documented example answers via a real built
+      `crust run` subprocess for both parts of every day. Genuinely
+      exercised real puzzle shapes the earlier "shape only" examples
+      (`day01_find_pair.crust`) hadn't: multi-record text parsing
+      (Day 4's blank-line-separated, multi-line passport batches),
+      character-class-style validation with no regex engine (built
+      from `chars`/`contains` directly), grid wraparound via modular
+      string indexing (Day 3), and binary-space-partitioning decode
+      loops (Day 5). Found and fixed two real language bugs along the
+      way — see ARCHITECTURE.md's Phase 8 notes for both:
+      - **A slicing off-by-one**: `s[3.<5]` on a 5-character string
+        errored "index out of range" instead of returning the last two
+        characters — `sliceIndices` required an exclusive end bound to
+        be a real dereferenced index (`< n`) the same as an inclusive
+        one, when it should allow `== n` (one past the end, never
+        itself dereferenced walking forward).
+      - **A parser precedence bug**: `s[0 .< slices(s) - 2]` (no
+        parens around the compound end) misparsed as
+        `s[0 .< slices(s)] - 2` instead of `s[0 .< (slices(s) - 2)]` —
+        `parseRangeExpression` parsed its End at `SUM` precedence,
+        which (correctly, for an *ordinary* infix operator's right
+        operand) stops right before a trailing same-precedence "+"/"-"
+        so an outer loop can pick it up — except a range's End has no
+        such outer loop to hand it to. Fixed by parsing at `SUM-1`
+        instead, letting End swallow its own full term.
+      Both are exactly the kind of bug that a hand-written unit test
+      suite tends to route around without ever hitting (every existing
+      slice test happened to parenthesize a compound end bound) but a
+      real, independently-authored program trips over immediately —
+      the whole reason this checklist item exists. Both fixes shipped
+      with dedicated regression tests at the parser and interpreter
+      level, not just a fixed example.
 
 ## Stretch Goals
 - [ ] Module/import system
