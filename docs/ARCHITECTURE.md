@@ -2828,6 +2828,147 @@ code was written.
     all of the above end to end, including chained recipe definition
     and invocation and an error recovering back to a working prompt.
 
+- **Source formatter** (`internal/format`, `crust fmt`
+  (`cmd/crust/fmt.go`), and `crust lsp`'s `textDocument/formatting`
+  (`internal/lsp/formatting.go`)) — reprints a parsed `*ast.Program` in
+  cRust's one canonical style. Several design points worth recording:
+  - **AST-based, not a token-stream reflow.** `internal/format.Format`
+    takes a `*ast.Program` (already lexed and parsed once by the
+    caller) and walks it, emitting fresh text — the same architecture
+    `gofmt` uses, and the only one that can *guarantee* the output
+    still means the same thing, since it's built from the structure
+    the language itself assigns meaning to rather than from
+    surface-level token patterns.
+  - **Comments are entirely invisible to the AST** —
+    `internal/lexer`'s `skipLineComment` strips `//...` before the
+    parser ever produces a token for it, so a naive `Format` would
+    silently delete every comment in the file. `internal/format/comments.go`
+    runs a second, independent, string-literal-aware scan
+    (`scanComments`) directly over the raw source to recover
+    `{Line, Text, Standalone}` for every comment (tracking whether the
+    scanner is inside a string literal, and skipping exactly one rune
+    after a `\` escape, so a `//` inside a string like a URL is never
+    misread as a comment start). The printer interleaves these back in
+    by source line as it walks the AST (`flushStandaloneBefore`,
+    `trailingComment`), rather than the AST carrying comments as
+    first-class nodes — keeps `internal/ast` and `internal/parser`
+    exactly as they were, at the cost of the formatter needing its own
+    line-tracking discipline.
+  - **Parens are always recomputed, never preserved** — architecturally
+    forced, not a choice: `internal/parser`'s `parseGroupedExpression`
+    returns the inner expression directly with no wrapper node, so a
+    `(a + b) * c` and a hypothetical unparenthesized equivalent are
+    indistinguishable by the time `Format` ever sees the tree. Every
+    paren in the formatter's output is therefore derived at print time
+    from operator precedence/associativity, via a `minPrec` threshold
+    threaded down through `writeExpr` — traced per node type against
+    exactly how `internal/parser`'s Pratt-parsing loop
+    (`parseExpression(precedence)`, `for precedence < p.peekPrecedence()`)
+    would need to see that same subexpression positioned in order to
+    reparse it identically:
+    - Ordinary left-associative `InfixExpression`: Left prints at
+      `minPrec = ownPrecedence` (same-precedence chains naturally
+      left-associate, so this is both safe and minimal); Right prints
+      at `ownPrecedence + 1` (a same-precedence operator unparenthesized
+      on the right would re-associate differently, so the extra
+      precedence is load-bearing, not conservative padding).
+    - Right-associative `ElvisExpression` (`?:`, parsed via
+      `parseExpression(ELVIS-1)` for its right side): the mirror image
+      — Right at `ownPrecedence`, Left at `ownPrecedence + 1`.
+    - `RangeExpression`: Start (the accumulator side, since Range is
+      registered as an ordinary infix parse function) at `precRange`;
+      End (parsed via a separate, fixed `parseExpression(SUM)` call,
+      not folded into the same precedence-climbing loop) at
+      `precProduct` — deliberately *not* the naively-expected
+      `precRange + 1`.
+    - `PrefixExpression` operand: `precPrefix`, not `precPrefix + 1` —
+      a prefix operator's operand comes from an unconditional recursive
+      `prefix()` call with no precedence bound of its own, so nested
+      same-operator prefixes (`- -x`) reparse correctly without a paren,
+      unlike an infix operator's precedence-bounded continuation.
+    - `TernaryExpression`: Cond conservatively uses
+      `precTernary + 1` (treated as an "extension" position rather than
+      a true accumulator, because Else's own greedy
+      `parseExpression(LOWEST)` would swallow an immediately-following
+      ternary continuation before the outer loop could ever reuse the
+      whole first ternary as a new Cond); Then/Else both use
+      `precLowest` (already fully delimited by `(|`/`|)`, so this
+      almost never triggers a paren in practice).
+    - `CallExpression`/`IndexExpression` bases print at
+      `precCall`/`precIndex` (chained calls/indexes never need parens;
+      a lower-precedence base like `(a + b)(1)` correctly keeps its
+      paren). Call arguments, list/tuple/set elements, map values, and
+      index expressions all print at `precLowest` — already delimited
+      by commas/brackets/braces, never needing a synthetic wrap.
+    Validated by the single strongest test in the suite,
+    `TestFormatPreservesSemanticsAcrossExamples`: for every file in
+    `examples/*.crust`, run both the original source and the
+    formatted-then-reparsed source through `interpreter.Eval` and diff
+    `deliver()` output byte-for-byte — all 9 pass, both via `go test`
+    and independently via a real `crust fmt` subprocess.
+  - **A genuine correctness bug, not just a cosmetic one, found by
+    manual testing**: printing stacked negation (`- -1`) without a
+    separating space produced `--1`, which `internal/lexer` re-lexes as
+    the *decrement* operator (`IncDecStatement`'s `--`) — a different
+    and invalid token in that position, not merely ugly output. Fixed
+    with a single targeted check, `startsWithMinus`, that inserts a
+    space specifically when a `-` prefix's operand is itself a
+    `-`-operator `PrefixExpression` — the only place this grammar can
+    produce two adjacent operator characters that collide with a
+    different token.
+  - **Blank-line preservation** uses one running cursor,
+    `printer.lastEmittedLine`, checked by a single shared
+    `blankLineIfGap(nextLine int)` helper called both when flushing a
+    leading comment and when printing a statement — not two separate,
+    ad hoc gap checks. `blockStatements` takes an explicit
+    `headerLine int` and sets `lastEmittedLine = headerLine` before
+    recursing into a block's body, so a block-opening header line
+    written outside the shared per-statement loop (`order (...) {`,
+    `} combo (...) {`, a `recipe foo() {` header, ...) doesn't leave
+    `lastEmittedLine` stale and cause a spurious blank line right
+    after it. Reaching this design took three rounds of real-file
+    testing against `examples/the_works.crust`, each round catching a
+    genuine bug an isolated unit test wouldn't have surfaced: blank
+    lines inside block bodies being dropped entirely (only top-level
+    ones were preserved), blank lines *before* a leading comment block
+    being silently eaten (an earlier version only checked the gap
+    *after* the last flushed comment), and a regression the fix for
+    the second bug introduced — spurious blank lines appearing right
+    after cuddled-brace headers — caught by a pre-existing
+    `TestFormatIfComboSpecial` test failing.
+  - **String and float literal re-escaping is hand-rolled**
+    (`stringLiteral`/`floatLiteral` in `format.go`), not built on Go's
+    `%q`/`strconv.Quote`, because it must exactly match
+    `internal/lexer.readString`'s decode set (`\n \t \r \" \\` and
+    nothing else — no `\x`/`\u`/`\a`/`\b`/`\f`/`\v`); reusing Go's
+    quoting could emit an escape cRust's own lexer doesn't understand.
+  - **`crust fmt`** (`cmd/crust/fmt.go`) prints the formatted result to
+    stdout by default and only rewrites the file with `-w` — gofmt's
+    convention, deliberately not rustfmt's (which overwrites by
+    default) — with a `formatted == string(src)` short-circuit before
+    any `-w` write so an already-canonical file's mtime is left alone.
+  - **`textDocument/formatting`** (`internal/lsp/formatting.go`,
+    `handleFormatting` in `lsp.go`) returns one whole-document
+    `TextEdit` (`{0,0}` through the computed end-of-document
+    `Position`) rather than a minimal line-level diff — the same
+    "replace everything" shape a number of real LSP formatters use
+    when they skip diffing. Returns an empty, non-nil `[]TextEdit{}`
+    when the document is already canonical (so a format-on-save
+    binding doesn't touch the buffer's mtime/undo history for no
+    reason), and `nil` — no separate error channel fits here any
+    better than it does for `hover`/`definition`/etc. — when the
+    document doesn't parse. `formattingParams` deliberately omits the
+    real LSP spec's `options` field (`tabSize`, `insertSpaces`, ...)
+    since `internal/format` is fully opinionated with no
+    configuration knobs, gofmt's stance applied to protocol params
+    too. `initialize` advertises `documentFormattingProvider: true`.
+    Verified with Go tests exercising the full JSON-RPC session
+    (`TestServerFormattingViaJSONRPC`, matching the same
+    `clientMessage`/`decodeServerMessages` wire-level pattern every
+    other rich `internal/lsp` feature is tested with) and, separately,
+    a real `initialize`/`didOpen`/`textDocument/formatting` session
+    piped into a built `crust lsp` binary.
+
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).

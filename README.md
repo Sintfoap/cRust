@@ -26,7 +26,10 @@ step-by-step debugger with time/memory-per-function KPIs
 documentation` serves a browsable, pizza-themed reference site on
 `localhost` — see [Documentation site](#documentation-site) below.
 `crust repl` starts an interactive session — see
-[Building](#building) below. See [TODO.md](./TODO.md) for the roadmap
+[Building](#building) below. `crust fmt` canonically reformats source
+(`internal/format`), reachable both as a standalone CLI and as
+`crust lsp`'s `textDocument/formatting` — see
+[Language server](#language-server) below. See [TODO.md](./TODO.md) for the roadmap
 and milestones, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the
 technical design behind each phase (including a
 [Performance Strategy](./docs/ARCHITECTURE.md#5-performance-strategy)
@@ -112,6 +115,17 @@ definition's own `recipe(n) { ... }` representation, as one last
 confirmation it took); an assignment, loop, or conditional doesn't,
 same as most REPLs. A runtime error is reported without ending the
 session — everything bound before it is still there afterward.
+
+`crust fmt <file.crust>` prints the file reformatted to cRust's one
+canonical style (consistent spacing, indentation, and brace placement,
+minimal-but-correct parens, comments and blank-line paragraph breaks
+preserved) — same convention as `gofmt`: prints to stdout by default,
+`-w` rewrites the file in place:
+
+```
+crust fmt messy.crust        # print the formatted result
+crust fmt -w messy.crust     # rewrite messy.crust in place
+```
 
 `--help` (and running `crust` with no arguments) prints the pizza
 banner in color; customize it with:
@@ -258,13 +272,14 @@ instead — a real grammar, not a token-pattern list.
 `crust lsp` starts a language server on stdin/stdout: hover docs for
 keywords/builtins/literals, live diagnostics (lex/parse errors), go-to-
 definition, find-references, rename, document symbols (recipe
-outline), and completion (keywords, builtins, and every declared name
-in the file) — all resolved through cRust's real function-scope
-nesting (SPEC.md §3), not plain text matching, so two functions with
-identically-named parameters correctly resolve to two different
-declarations. It speaks plain JSON-RPC 2.0 over stdio, so any LSP
-client can launch `crust lsp` as the command; for Neovim specifically,
-`vim.lsp.start()` needs no plugin beyond what you likely already have:
+outline), completion (keywords, builtins, and every declared name in
+the file), and document formatting — all resolved through cRust's real
+function-scope nesting (SPEC.md §3), not plain text matching, so two
+functions with identically-named parameters correctly resolve to two
+different declarations. It speaks plain JSON-RPC 2.0 over stdio, so
+any LSP client can launch `crust lsp` as the command; for Neovim
+specifically, `vim.lsp.start()` needs no plugin beyond what you likely
+already have:
 
 ```lua
 vim.filetype.add({ extension = { crust = "crust" } })
@@ -279,9 +294,24 @@ vim.api.nvim_create_autocmd("FileType", {
     })
   end,
 })
+
+-- Format on save, the same way you'd wire up gofmt/rustfmt.
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = "*.crust",
+  callback = function()
+    vim.lsp.buf.format({ name = "crust_ls" })
+  end,
+})
 ```
 
 Drop that in `lua/config/autocmds.lua` (or wherever your config keeps
 general autocommands) and make sure `crust` itself is on `PATH` (see
 [With Nix](#with-nix) above). No LSP server registration/Mason install
 needed — `crust` *is* the language server.
+
+Prefer a plain CLI over editor integration? `crust fmt <file>` prints
+the canonically-formatted source to stdout; `crust fmt -w <file>`
+rewrites the file in place (gofmt's convention, not rustfmt's — format
+by default is a read, not a write). Both the CLI and the LSP's
+formatting request are the same `internal/format` pretty-printer under
+the hood, so they always agree.

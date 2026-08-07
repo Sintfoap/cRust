@@ -263,6 +263,38 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
       have already been buffered ahead by the scanner. `crust run` is
       the intended way to process real stdin input; the REPL is for
       trying things out.
+- [x] Source formatter (`internal/format`, `crust fmt`, and
+      `crust lsp`'s `textDocument/formatting`) — an AST-based
+      pretty-printer, not a token-stream reflow: reprints the parsed
+      `*ast.Program` with one canonical style (consistent spacing,
+      `order (...) {` / `} combo (...) {` / `} special {` cuddled-brace
+      layout, 4-space indentation) and recomputes the minimal-but-
+      correct set of parens from operator precedence/associativity
+      rather than preserving whatever parens the source happened to
+      have (`internal/parser` drops grouping parens entirely, so there
+      is nothing to preserve — every paren in the output is derived,
+      traced per node type against the parser's own precedence-
+      climbing behavior). Comments are invisible to the AST
+      (`internal/lexer` strips them before the parser ever sees a
+      token), so `internal/format/comments.go` runs a second,
+      standalone, string-literal-aware scan over the raw source to
+      recover them and re-interleave them (plus original blank-line
+      paragraph breaks) into the printed output. Verified by running
+      every real file in `examples/*.crust` through both the original
+      and the formatted-then-reparsed source and diffing `deliver()`
+      output byte-for-byte (100% match) — the strongest evidence the
+      formatter never changes a program's meaning, on top of the usual
+      Go unit tests (100% package coverage). `crust fmt <file>` prints
+      to stdout by default, `-w` writes in place — gofmt's convention,
+      not rustfmt's. `crust lsp` advertises
+      `documentFormattingProvider` and answers
+      `textDocument/formatting` with a single whole-document `TextEdit`
+      (empty, not an edit, when the document's already canonical, so
+      format-on-save doesn't touch mtime/undo history for nothing) —
+      verified against a real `crust lsp` subprocess over the wire, not
+      just Go tests. See the Neovim snippet in README.md's
+      [Language server](./README.md#language-server) section for
+      wiring up format-on-save via `vim.lsp.buf.format()`.
 - [x] Clear, pizza-themed error messages *(started ahead of schedule)*
 - [x] Colorized `--help` banner (the pizza, customizable via
       `--toppings`/`--no-banner`/`--no-color`) — see

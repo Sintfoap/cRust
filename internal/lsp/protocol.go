@@ -121,6 +121,15 @@ type documentSymbolParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 }
 
+// formattingParams is DocumentFormattingParams — the real LSP shape
+// also carries an "options" field (tab size, spaces-vs-tabs, ...), left
+// out here since internal/format is fully opinionated and takes no
+// configuration, the same "one canonical style, no knobs" stance
+// gofmt takes.
+type formattingParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+}
+
 // SymbolKind values this package uses (LSP SymbolKind enum) — only
 // Function, since recipes are the only thing documentSymbol reports.
 const symbolKindFunction = 12
@@ -217,15 +226,16 @@ type initializeParams struct {
 }
 
 type serverCapabilities struct {
-	TextDocumentSync       int                `json:"textDocumentSync"`
-	HoverProvider          bool               `json:"hoverProvider"`
-	PositionEncoding       string             `json:"positionEncoding"`
-	DefinitionProvider     bool               `json:"definitionProvider"`
-	TypeDefinitionProvider bool               `json:"typeDefinitionProvider"`
-	ReferencesProvider     bool               `json:"referencesProvider"`
-	DocumentSymbolProvider bool               `json:"documentSymbolProvider"`
-	CompletionProvider     *completionOptions `json:"completionProvider,omitempty"`
-	RenameProvider         bool               `json:"renameProvider"`
+	TextDocumentSync           int                `json:"textDocumentSync"`
+	HoverProvider              bool               `json:"hoverProvider"`
+	PositionEncoding           string             `json:"positionEncoding"`
+	DefinitionProvider         bool               `json:"definitionProvider"`
+	TypeDefinitionProvider     bool               `json:"typeDefinitionProvider"`
+	ReferencesProvider         bool               `json:"referencesProvider"`
+	DocumentSymbolProvider     bool               `json:"documentSymbolProvider"`
+	CompletionProvider         *completionOptions `json:"completionProvider,omitempty"`
+	RenameProvider             bool               `json:"renameProvider"`
+	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
 }
 
 type initializeResult struct {

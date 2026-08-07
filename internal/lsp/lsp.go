@@ -102,6 +102,8 @@ func (s *Server) handle(msg rpcMessage, logw io.Writer) bool {
 		s.handleCompletion(msg, logw)
 	case "textDocument/rename":
 		s.handleRename(msg, logw)
+	case "textDocument/formatting":
+		s.handleFormatting(msg, logw)
 	default:
 		if len(msg.ID) > 0 {
 			s.respondError(msg.ID, errMethodNotFound, fmt.Sprintf("method not found: %s", msg.Method))
@@ -140,15 +142,16 @@ func (s *Server) handleInitialize(msg rpcMessage) {
 
 	s.respondResult(msg.ID, initializeResult{
 		Capabilities: serverCapabilities{
-			TextDocumentSync:       textDocumentSyncKindFull,
-			HoverProvider:          true,
-			PositionEncoding:       s.encoding,
-			DefinitionProvider:     true,
-			TypeDefinitionProvider: true,
-			ReferencesProvider:     true,
-			DocumentSymbolProvider: true,
-			CompletionProvider:     &completionOptions{},
-			RenameProvider:         true,
+			TextDocumentSync:           textDocumentSyncKindFull,
+			HoverProvider:              true,
+			PositionEncoding:           s.encoding,
+			DefinitionProvider:         true,
+			TypeDefinitionProvider:     true,
+			ReferencesProvider:         true,
+			DocumentSymbolProvider:     true,
+			CompletionProvider:         &completionOptions{},
+			RenameProvider:             true,
+			DocumentFormattingProvider: true,
 		},
 	})
 }
@@ -277,6 +280,20 @@ func (s *Server) handleRename(msg rpcMessage, logw io.Writer) {
 		return
 	}
 	s.respondResult(msg.ID, renameAt(text, params.Position, s.encoding, params.TextDocument.URI, params.NewName))
+}
+
+func (s *Server) handleFormatting(msg rpcMessage, logw io.Writer) {
+	var params formattingParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, formatDocument(text, s.encoding))
 }
 
 func (s *Server) publishDiagnostics(uri string) {
