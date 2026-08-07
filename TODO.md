@@ -179,7 +179,8 @@ keyword set — in time for Advent of Code 2026 (Dec 1).
 - [x] `split` (`split(s)` whitespace-collapsing, `split(s, delim)`
       literal delimiter — CSV-style, preserves empty entries)
 - [x] `join` (List of Strings + separator → String, `split`'s counterpart)
-- [ ] Strings: contains, replace
+- [x] Strings: `contains`, `replace` (see the later, more detailed
+      String helpers entry further down this phase's checklist)
 - [x] `chars` (string → List of one-character strings)
 - [x] `ints` (string of digits → List of single-digit Integers; also
       accepts a List of numeric Strings, parsing each as a full
