@@ -1610,33 +1610,58 @@ below). Phase 5's stdlib checklist is now fully complete.
   general notion of "assign to an arbitrary computed sub-selection,"
   and building one just for this would be a much bigger, more
   general-purpose feature than what was actually asked for.
-  - **Design**: `value` (a List or Tuple) doesn't have to match the
-    span's own length — the whole point, since a Python-style
-    `list[i:j] = value` already lets `value` shrink or grow the
-    target, and `wrap(Slice)`'s whole pitch is generalizing plain
-    indexing/slicing to wrap, not narrowing what's possible once you
-    do. The implementation: compute the exact same modular index
-    sequence `wrapSliceFn`'s own `wrapIndices` would (in read order),
-    remove every one of those positions from `list`, and splice
-    `value`'s elements in as *one block* at the position of the span's
-    *first* index in that read order, keeping every other element in
-    its original relative order. That single rule, with no special
-    casing for direction or wraparound, is what makes the motivating
-    example — `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))`, reversing
-    positions `3..5` by writing back an already-reversed *backward*
-    read of that same span — come out exactly right: the destination
-    span (`3..5`) is a plain forward selection, so the splice-at-
-    first-index rule reduces to ordinary in-place replacement at
-    those three positions, in the order `value` hands them over
-    (already reversed). A plain in-range, non-wrapped, non-reversed
-    destination reduces the whole algorithm to exactly the splice
-    Python's own `list[i:j] = value` performs. A *wrapped* or
-    *backward* destination still gets a well-defined answer under the
-    same rule (`value`'s elements land, in the order given, starting
-    at wherever the first selected position falls in `list`'s own
-    0-indexed order) — a rarer, more advanced case, but never
-    ambiguous or a silent surprise the way guessing at "which
-    direction should the write go" would be.
+  - **Design, corrected after a real bug (below)**: two different
+    rules apply depending on whether `value`'s length matches the
+    span's own (`count`), because they answer two genuinely different
+    questions. **Same length**: a pure position-wise write-back —
+    `list[indices[k]] = value[k]` for each of the span's positions
+    (the exact same modular sequence `wrapSliceFn`'s own `wrapIndices`
+    computes, in read order), leaving every other position untouched
+    — this is the case that actually matters most in practice, since
+    reversing (or otherwise permuting) a span in place, including one
+    that wraps around the end of `list`, is a knot-hash-style
+    algorithm's entire inner loop (AoC 2017 day 10 pins a wrapping
+    span, reverses it, and repeats — see the bug report below for
+    exactly this use case). **Different length**: there's no single
+    position each new element could "belong to," so this falls back
+    to a block splice instead — the span's positions are removed from
+    `list` and `value`'s elements are inserted as one block at the
+    position of the span's *first* index in read order, with
+    everything else kept in its original relative order (a shorter
+    `value` shrinks `list`, a longer one grows it, an empty `value`
+    deletes the span outright, and a plain in-range forward
+    destination reduces to exactly the splice Python's own
+    `list[i:j] = value` does).
+  - **A real bug, found immediately after shipping the first version
+    — reported directly, with a worked example**: "For wrap replace
+    when I pass [2, 1, 0, 3, 4] 3 6 [1, 2, 4, 3] in it results with
+    [0, 1, 2, 4, 3], where I think it should result in [4,3,0,1,2]."
+    The first version of this function used the block-splice rule
+    (above) *unconditionally*, for every length — including the
+    same-length case. That happened to coincide with position-wise
+    assignment for a *non-wrapping* span (removing a contiguous run
+    and re-splicing it in place, in order, is the same operation as
+    writing each value back to its own position when the positions
+    are already contiguous and in increasing order) — which is
+    exactly what the function's own test suite covered at the time,
+    masking the bug. The moment a span actually wraps, though, its
+    positions are *not* contiguous in `list`'s own 0-indexed order
+    (`wrapSlice(l, 3, 6)` on a 5-element list reads positions `3, 4,
+    0, 1` — two separate runs), and linear block-splicing silently
+    reordered `list[2]` — a position that was never part of the
+    selected span at all — along with it, exactly the discrepancy
+    reported. Confirmed by hand (`indices = [3, 4, 0, 1]`; want
+    `list[3]=1, list[4]=2, list[0]=4, list[1]=3`, i.e. `[4, 3, 0, 1,
+    2]`, matching the report) before touching any code. Fixed by
+    splitting the same-length case out into its own position-wise
+    branch (above); the different-length branch is untouched, since
+    the bug report and the underlying real-world use case (knot-hash
+    reversal) are both exclusively same-length. Re-verified against
+    the exact reported input/output, a direct `crust run` reproduction
+    of the report, and — since the motivating use case was a genuine
+    AoC 2017 day 10 knot-hash implementation supplied along with the
+    report — the full algorithm against that puzzle's own documented
+    example (`3,4,1,5` on lengths `[0..4]` → `12`), which now passes.
   - **Mutates in place, List-only** — `push`/`setAt`'s own convention,
     not `wrapSlice`'s (which always returns a new value): Tuple and
     String are immutable in cRust, so there's nothing for a
@@ -1650,12 +1675,13 @@ below). Phase 5's stdlib checklist is now fully complete.
     `wrapSlice` — no valid index to wrap onto regardless of how it's
     reduced.
   - Verified with table-driven Go tests covering same-length
-    replacement (the reversal case), growing, shrinking, an empty
-    `value` deleting the span outright, a genuinely wrapped span with
-    survivors on both sides, and a full-wrap replace-everything case,
-    plus a real `crust run` subprocess reproducing the exact
-    `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reversal from the
-    request end to end.
+    replacement in both a non-wrapped span (the reversal example) and
+    a genuinely wrapped one (the bug report), growing, shrinking, an
+    empty `value` deleting the span outright, a wrapped span in the
+    *different-length* branch with survivors on both sides, and a
+    full-wrap replace-everything case, plus real `crust run`
+    subprocesses reproducing both the original reversal example and
+    the bug report end to end.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

@@ -324,6 +324,20 @@ func TestWrapReplaceEmptyValueDeletesTheSpan(t *testing.T) {
 	wantListOfInts(t, xs, 0, 3)
 }
 
+// TestWrapReplaceSameLengthWrappedSpanIsPositionWise is the exact bug
+// report: a wrapping, same-length wrapReplace must write each value
+// back to the exact position it was read from (list[indices[k]] =
+// value[k]), leaving every position outside the span untouched -- not
+// treat the whole span as one removable block and re-splice it in
+// list's own linear order, which reorders unrelated elements the
+// moment the span actually wraps.
+func TestWrapReplaceSameLengthWrappedSpanIsPositionWise(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	xs := intList(2, 1, 0, 3, 4)
+	call(t, table, "wrapReplace", xs, object.NewInteger(3), object.NewInteger(6), intList(1, 2, 4, 3))
+	wantListOfInts(t, xs, 4, 3, 0, 1, 2)
+}
+
 func TestWrapReplaceWrappedSpanSplicesAtFirstReadPosition(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	xs := intList(0, 1, 2, 3, 4, 5)

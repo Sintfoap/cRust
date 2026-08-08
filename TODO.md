@@ -1086,18 +1086,33 @@ confirmed, not before.
       function so I can assign to a circular list? ... something like
       wrapReplace(list, start, end, value) where value can shrink the
       list." Replaces the `wrapSlice(list, start, end)` span with
-      `value`'s elements in place; `value` doesn't have to be the same
-      length (shrinks/grows `list`, an empty `value` deletes the span
-      outright). The span's positions are removed and `value` is
-      spliced in as one block at the span's first index in read order,
-      everything else keeping its relative order — the single rule
-      that makes `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` (the
-      motivating example) reverse positions `3..5` exactly right, and
-      that an ordinary in-range forward destination reduces to the
-      same splice Python's `list[i:j] = value` does. Verified with
-      table-driven Go tests (same-length, grow, shrink, delete, a
-      partially-wrapped span, a full-wrap replace) and a real `crust
-      run` subprocess reproducing the reversal example.
+      `value`'s elements in place. Same length as the span: a pure
+      position-wise write-back, `list[indices[k]] = value[k]`, even
+      across a wrap — the case a knot-hash-style algorithm (pin a
+      wrapping span, reverse it, repeat — AoC 2017 day 10) actually
+      needs. Different length: no single position each new element
+      belongs to, so the span is removed and `value` spliced in as one
+      block at the span's first index instead (shrinks/grows `list`,
+      an empty `value` deletes the span outright).
+      **Bug found and fixed right after shipping**, reported directly
+      with a worked example (`wrapReplace([2,1,0,3,4], 3, 6, [1,2,4,3])`
+      should be `[4,3,0,1,2]`, not the `[0,1,2,4,3]` it actually
+      produced): the first version used the block-splice rule for
+      *every* length, which happens to coincide with position-wise
+      assignment for a non-wrapping span — exactly what the original
+      test suite covered — but silently reordered an untouched element
+      the moment a span actually wrapped, since a wrapped span's
+      positions aren't contiguous in `list`'s own order. Fixed by
+      splitting same-length out into its own position-wise branch.
+      Re-verified against the exact reported input/output, a real
+      `crust run` reproduction, and — since the report came with a
+      genuine AoC 2017 day 10 knot-hash implementation — that puzzle's
+      own documented example (`3,4,1,5` on `[0..4]` → `12`), which now
+      passes. Verified with table-driven Go tests (same-length in both
+      a non-wrapped and a genuinely wrapped span, grow, shrink, delete,
+      a wrapped different-length span, a full-wrap replace) and real
+      `crust run` subprocesses reproducing both the original reversal
+      example and the bug report end to end.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate

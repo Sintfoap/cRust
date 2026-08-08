@@ -87,8 +87,10 @@ same as Python module-level code.
 back into range instead of erroring), `wrapSlice(collection, start, end)`
 (circular slice — `wrapSlice([0,1,2,3], 3, 6)` is `[3, 0, 1, 2]`),
 `wrapReplace(list, start, end, value)` (write counterpart to `wrapSlice`
-— `value` can be a different length, shrinking/growing `list` in place;
-`wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reverses positions `3..5`)
+— same length as the span: position-wise write-back, even across a
+wrap; different length: spliced in as a block, shrinking/growing `list`
+in place. `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reverses positions
+`3..5` in place)
 
 **Map** — `keys(m)`, `values(m)`, `freq(x)` (List/Tuple/Set → Map of
 counts) — a missing key reads as `nobox`, not an error

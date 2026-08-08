@@ -292,30 +292,54 @@ func wrapSliceFn(args ...object.Object) object.Object {
 // wrapReplaceFn is `wrapReplace(list, start, end, value)` (SPEC.md
 // §7) — the write counterpart to wrapSlice, and the one place a
 // circular selection can actually change list's length: value (a List
-// or Tuple) replaces the wrapSlice(list, start, end) span in place,
-// with no requirement that len(value) match the span's own length — a
-// shorter value shrinks list, a longer one grows it, an empty value
-// deletes the span outright. On direct request, as the natural next
-// question after wrap/wrapSlice: "can you make a wrapper... something
-// like wrapReplace(list, start, end, value) where value can shrink the
-// list."
+// or Tuple) replaces the wrapSlice(list, start, end) span in place. On
+// direct request, as the natural next question after wrap/wrapSlice:
+// "can you make a wrapper... something like wrapReplace(list, start,
+// end, value) where value can shrink the list."
 //
-// The span's positions — computed exactly like wrapSliceFn's own —
-// are removed from list, and value's elements are spliced in as one
-// block at the position of the span's *first* index in read order,
-// with everything else kept in its original relative order. That
-// single rule is what makes `wrapReplace(xs, 3, 5, wrapSlice(xs, 5,
-// 3))` (the motivating example: reversing positions 3..5 by writing
-// back a backward, and therefore already-reversed, read of the same
-// span) come out exactly right without any special-casing for
-// direction, wraparound, or a length change — a plain in-range forward
-// destination (the common case) reduces to exactly the splice
-// Python's own `list[i:j] = value` does; a wrapped or backward
-// destination still has a well-defined answer (value's elements land,
-// in the order given, starting at wherever the first selected
-// position falls in list's own 0-indexed order) — less likely to be
-// the operation actually being reached for, but never ambiguous or a
-// silent surprise.
+// Two different rules apply depending on whether value's length
+// matches the span's own (count), because they answer two genuinely
+// different questions:
+//
+//   - len(value) == count: a pure position-wise write-back —
+//     list[indices[k]] = value[k] for each of the span's positions
+//     (computed exactly like wrapSliceFn's own), in read order,
+//     leaving every other position untouched. This is the case that
+//     actually matters most: reversing (or otherwise permuting) a
+//     span in place, including one that wraps around the end of list,
+//     is the whole reason `wrapReplace` was asked for in the first
+//     place (a knot-hash-style algorithm — AoC 2017 day 10 — pins a
+//     wrapping span, reverses it, and repeats), and a wrapping span's
+//     positions are, critically, *not* contiguous in list's own
+//     0-indexed order, so "assign each value back to the exact
+//     position it was read from" is the only rule that both (a)
+//     matches what `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))`
+//     obviously means (reverse positions 3..5 by writing back an
+//     already-reversed read of them) *and* (b) leaves every position
+//     outside the span alone even when the span itself wraps — an
+//     earlier version of this function instead treated the whole span
+//     as one removable block and re-spliced it in list's own linear
+//     order, which happened to match position-wise assignment for a
+//     *non-wrapping* span (linear removal-and-reinsertion and
+//     position-wise assignment coincide when the removed positions
+//     are already contiguous) but silently reordered unrelated
+//     elements the moment the span actually wrapped — caught against
+//     exactly this case, reported directly: wrapReplace([2,1,0,3,4],
+//     3, 6, [1,2,4,3]) must be [4,3,0,1,2], not [0,1,2,4,3].
+//   - len(value) != count: there's no single position each new
+//     element could "belong to" (there are more or fewer of them than
+//     the span had positions), so this falls back to a block splice
+//     instead — the span's positions are removed from list and
+//     value's elements are inserted as one block at the position of
+//     the span's *first* index in read order, with everything else
+//     kept in its original relative order. A plain in-range forward
+//     destination (the common case for a resizing write) reduces to
+//     exactly the splice Python's own `list[i:j] = value` does; a
+//     wrapped or backward destination still gets a well-defined
+//     answer (value's elements land, in the order given, starting at
+//     wherever the first selected position falls in list's own
+//     0-indexed order) even though there's no single obviously
+//     "correct" choice once a resize and a wrap combine.
 //
 // list must be a real List, mutated in place like push/setAt — Tuple
 // and String are immutable in cRust, so there's nothing for a
@@ -358,6 +382,14 @@ func wrapReplaceFn(args ...object.Object) object.Object {
 	if start.Value > end.Value {
 		step, count = -1, start.Value-end.Value+1
 	}
+
+	if int64(len(value)) == count {
+		for k := int64(0); k < count; k++ {
+			list.Elements[trueMod(start.Value+k*step, n)] = value[k]
+		}
+		return object.NULL
+	}
+
 	anchor := trueMod(start.Value, n)
 	removed := make(map[int64]bool, count)
 	for k := int64(0); k < count; k++ {
