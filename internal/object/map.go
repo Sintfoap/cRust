@@ -53,6 +53,22 @@ func (m *Map) Get(key Object) (value Object, ok bool) {
 	return pair.Value, true
 }
 
+// Delete removes key from the map if present, returning the value that
+// was removed (or nil) and whether it was present. removed is also
+// false if key isn't Hashable, matching Get/Set's convention.
+func (m *Map) Delete(key Object) (value Object, removed bool) {
+	h, ok := key.(Hashable)
+	if !ok {
+		return nil, false
+	}
+	pair, ok := m.Pairs[h.HashKey()]
+	if !ok {
+		return nil, false
+	}
+	delete(m.Pairs, h.HashKey())
+	return pair.Value, true
+}
+
 func (m *Map) Inspect() string {
 	var out strings.Builder
 	out.WriteByte('{')

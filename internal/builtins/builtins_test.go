@@ -120,7 +120,7 @@ func wantListOfInts(t *testing.T, got object.Object, want ...int64) {
 func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
-		"deliver", "slices", "wrap", "wrapSlice", "wrapReplace", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
+		"deliver", "slices", "wrap", "wrapSlice", "wrapReplace", "sauce", "chars", "ints", "push", "pop", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
 		"band", "bor", "bxor", "bnot", "shl", "shr", "rebox",
 		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
@@ -2582,4 +2582,134 @@ func TestFindStringNoMatchReturnsNobox(t *testing.T) {
 func TestFindStringRequiresStringItem(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "find", &object.String{Value: "pizza"}, object.NewInteger(1)))
+}
+
+func TestPopListLast(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+
+	got := call(t, table, "pop", list)
+	wantInteger(t, got, 3)
+	if len(list.Elements) != 2 {
+		t.Fatalf("got %d elements after pop, want 2", len(list.Elements))
+	}
+}
+
+func TestPopListLastMutatesInPlace(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	original := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	alias := original
+
+	call(t, table, "pop", original)
+
+	if len(alias.Elements) != 1 {
+		t.Errorf("pop didn't mutate through alias: len = %d, want 1", len(alias.Elements))
+	}
+}
+
+func TestPopListEmpty(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	errObj := wantError(t, call(t, table, "pop", object.NewList(nil)))
+	if !strings.Contains(errObj.Message, "empty") {
+		t.Errorf("Message = %q, want it to mention empty", errObj.Message)
+	}
+}
+
+func TestPopListByIndex(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(10), object.NewInteger(20), object.NewInteger(30)})
+
+	got := call(t, table, "pop", list, object.NewInteger(1))
+	wantInteger(t, got, 20)
+	wantListOfInts(t, list, 10, 30)
+}
+
+func TestPopListByIndexOutOfRange(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "pop", list, object.NewInteger(5)))
+	if !strings.Contains(errObj.Message, "out of range") {
+		t.Errorf("Message = %q, want it to mention out of range", errObj.Message)
+	}
+}
+
+func TestPopListByIndexDoesNotWrapNegative(t *testing.T) {
+	// Single-element indexing never wraps negative (SPEC.md §6) --
+	// pop(list, i) has to agree with plain xs[i], not with wrap()'s
+	// circular semantics.
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	errObj := wantError(t, call(t, table, "pop", list, object.NewInteger(-1)))
+	if !strings.Contains(errObj.Message, "out of range") {
+		t.Errorf("Message = %q, want it to mention out of range", errObj.Message)
+	}
+}
+
+func TestPopListByIndexRequiresInteger(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "pop", list, &object.String{Value: "0"}))
+}
+
+func TestPopMap(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := object.NewMap()
+	m.Set(&object.String{Value: "key"}, object.NewInteger(42))
+
+	got := call(t, table, "pop", m, &object.String{Value: "key"})
+	wantInteger(t, got, 42)
+	if _, ok := m.Get(&object.String{Value: "key"}); ok {
+		t.Error("pop did not remove the key from the Map")
+	}
+}
+
+func TestPopMapMissingKeyReturnsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := object.NewMap()
+	got := call(t, table, "pop", m, &object.String{Value: "absent"})
+	if got != object.NULL {
+		t.Errorf("pop(map, absent key) = %v, want NULL (nobox)", got)
+	}
+}
+
+func TestPopMapUnhashableKeyErrors(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	m := object.NewMap()
+	errObj := wantError(t, call(t, table, "pop", m, object.NewList(nil)))
+	if !strings.Contains(errObj.Message, "Hashable") {
+		t.Errorf("Message = %q, want it to mention Hashable", errObj.Message)
+	}
+}
+
+func TestPopSet(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(1))
+
+	got := call(t, table, "pop", set, object.NewInteger(1))
+	wantInteger(t, got, 1)
+	if set.Has(object.NewInteger(1)) {
+		t.Error("pop did not remove the item from the Set")
+	}
+}
+
+func TestPopSetMissingItemReturnsNobox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	got := call(t, table, "pop", set, object.NewInteger(99))
+	if got != object.NULL {
+		t.Errorf("pop(set, absent item) = %v, want NULL (nobox)", got)
+	}
+}
+
+func TestPopWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pop", object.NewInteger(1)))
+	wantError(t, call(t, table, "pop", object.NewInteger(1), object.NewInteger(0)))
+}
+
+func TestPopWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "pop"))
+	wantError(t, call(t, table, "pop", object.NewList(nil), object.NewInteger(0), object.NewInteger(0)))
 }

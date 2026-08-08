@@ -841,6 +841,45 @@ order), type conversion (`str`/`int`/`float`/`bool`), and
 `filter`/`reduce` (`map`'s siblings, added last — see their own note
 below). Phase 5's stdlib checklist is now fully complete.
 
+- **`pop(list)` / `pop(list, i)` / `pop(map, key)` / `pop(set, item)`**
+  (`internal/builtins/builtins.go`), added on direct request after
+  answering "Do we have a way to pop items out of collections?" — the
+  honest answer at the time was no true pop existed anywhere: `scrape`
+  removes from a Set but returns `nobox`, not the removed item; List had
+  no dedicated removal at all (only the indirect
+  `wrapReplace(list, i, i, [])`, which deletes but likewise doesn't
+  return); Map had no deletion mechanism whatsoever. `pop` is one
+  polymorphic builtin dispatching on `len(args)` and a type switch on
+  `args[0]`, deliberately the return-value counterpart to
+  `push`/`sprinkle`/`scrape` rather than a fourth removal builtin with
+  its own name, since every collection type already needed exactly this
+  one behavior and nothing type-specific beyond it. Per-type semantics
+  each mirror an existing convention rather than inventing a new one:
+  `pop(list, i)` doesn't wrap negative indices, matching plain `xs[i]`
+  (SPEC.md §6 — only slicing wraps, not single-element indexing), and
+  errors on out-of-range `i` the same way indexing does; `pop(list)`
+  (no index) pops the last element, erroring on an empty List the same
+  way `pop(list, i)` would with no valid `i` to give. `pop(map, key)`
+  returns `nobox` for a valid-but-absent key, matching every other Map
+  read (the same convention the memoization idiom in SPEC.md/CHEATSHEET
+  already leans on), but still errors on a non-Hashable key exactly the
+  way `map[key]` does on read — the two Map-read error/nobox cases (bad
+  key type vs. merely-missing key) needed to both carry over, not just
+  one. `pop(set, item)` follows `scrape`'s more permissive lead instead
+  of Map's: `item`'s type is never checked, since a non-Hashable item
+  simply can't be a member and "absent" (returning `nobox`) already
+  covers that case without a separate error path. Required one new
+  method, `object.Map.Delete(key) (value Object, removed bool)`
+  (`internal/object/map.go`), added alongside `Get`/`Set` in the same
+  shape (Hashable check, then a `Pairs` map operation) — nothing on
+  `object.Set` needed to change, since `Remove`/`Has` already existed
+  with the right signatures. All three collection cases mutate in
+  place, matching `push`/`setAt`/`sprinkle`/`scrape`'s existing
+  convention rather than returning a copy. Verified via Go unit tests
+  (`internal/object/map_test.go`, `internal/builtins/builtins_test.go`)
+  and a real `crust run` subprocess exercising all three collection
+  types plus the empty-List/out-of-range/non-Hashable-key error paths.
+
 - Most builtins are thin adapters over Go's standard library:
   `strings` (`contains`/`find`/`replace`/`upper`/`lower`, all wrapping
   `strings.Contains`/`Index`/`ReplaceAll`/`ToUpper`/`ToLower`) and

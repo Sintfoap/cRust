@@ -277,6 +277,20 @@ confirmed, not before.
   see ARCHITECTURE.md's Phase 5 section for exactly what's built.
   Phase 5's stdlib checklist is now fully complete.
 
+- [x] Follow-up, on direct request: "Do we have a way to pop items out
+      of collections?" — answered no (only `scrape`, which removes from
+      a Set but doesn't return what it removed; List and Map had no
+      removal at all), then added `pop(list)` / `pop(list, i)` /
+      `pop(map, key)` / `pop(set, item)` as one polymorphic builtin, the
+      return-value counterpart to `push`/`sprinkle`/`scrape`. List
+      indexing doesn't wrap negative, matching plain `xs[i]`; a missing
+      Map key reads as `nobox` rather than erroring, matching every
+      other Map read, but a wrong-type key still errors like `map[key]`
+      does; Set follows `scrape`'s permissiveness instead, with no type
+      check on `item`. Added `object.Map.Delete` (mirroring `Get`/`Set`)
+      since no removal method existed on Map before this. Verified via
+      Go unit tests and the real `crust run` CLI
+
 ## Phase 6 — Tooling
 - [x] CLI: `crust run <file> [--store=<name>]` (Phase 4's interpreter
       makes this real; the bare-file shorthand and `--store` entry-point

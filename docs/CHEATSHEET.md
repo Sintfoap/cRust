@@ -79,6 +79,8 @@ same as Python module-level code.
 `lower(s)`, `find(s, sub)`, `contains(s, sub)`
 
 **Collections (List/Tuple)** — `slices(x)`, `push(list, item)`,
+`pop(list)` / `pop(list, i)` (remove+return last / by index, no
+negative wrap — see `pop` in Map/Set below for the other two forms),
 `copy(value)`, `min(...)` / `min(list)`, `max(...)` / `max(list)`,
 `pizzasort(list)`, `combos(list, n)`, `enumerate(list)`,
 `map(iterable, fn)`, `filter(iterable, fn)`, `reduce(iterable, fn, init)`,
@@ -93,11 +95,14 @@ in place. `wrapReplace(xs, 3, 5, wrapSlice(xs, 5, 3))` reverses positions
 `3..5` in place)
 
 **Map** — `keys(m)`, `values(m)`, `freq(x)` (List/Tuple/Set → Map of
-counts) — a missing key reads as `nobox`, not an error
+counts), `pop(map, key)` (remove+return) — a missing key reads as
+`nobox`, not an error
 
 **Set** — `gather(list)`, `set(x)`, `sprinkle(set, item)`,
-`scrape(set, item)`, `topped(set, item)`, `combine(a, b)` (union),
-`shared(a, b)` (intersection), `strip(a, b)` (difference)
+`scrape(set, item)` (remove, no return), `pop(set, item)`
+(remove+return, or `nobox` if absent), `topped(set, item)`,
+`combine(a, b)` (union), `shared(a, b)` (intersection), `strip(a, b)`
+(difference)
 
 **Conversions between collections** — `list(x)`, `tuple(x)`, `set(x)`
 

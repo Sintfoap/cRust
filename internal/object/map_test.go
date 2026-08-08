@@ -106,6 +106,41 @@ func TestEmptyMapInspect(t *testing.T) {
 	}
 }
 
+func TestMapDelete(t *testing.T) {
+	m := NewMap()
+	m.Set(&String{Value: "a"}, NewInteger(1))
+
+	value, removed := m.Delete(&String{Value: "a"})
+	if !removed {
+		t.Fatal("Delete should report removed for a present key")
+	}
+	if value.(*Integer).Value != 1 {
+		t.Errorf("Delete returned %v, want the removed value 1", value)
+	}
+	if len(m.Pairs) != 0 {
+		t.Errorf("Delete left %d pair(s) behind, want 0", len(m.Pairs))
+	}
+	if _, ok := m.Get(&String{Value: "a"}); ok {
+		t.Error("deleted key should no longer be found by Get")
+	}
+}
+
+func TestMapDeleteMissingKey(t *testing.T) {
+	m := NewMap()
+	_, removed := m.Delete(&String{Value: "missing"})
+	if removed {
+		t.Error("Delete should report not-removed for an absent key")
+	}
+}
+
+func TestMapDeleteNonHashableKey(t *testing.T) {
+	m := NewMap()
+	_, removed := m.Delete(NewList(nil))
+	if removed {
+		t.Error("Delete with a non-Hashable key (List) should report not-removed, not panic")
+	}
+}
+
 func TestMapOverwrite(t *testing.T) {
 	m := NewMap()
 	m.Set(&String{Value: "a"}, NewInteger(1))

@@ -45,6 +45,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"chars":       {Fn: charsFn},
 		"ints":        {Fn: intsFn},
 		"push":        {Fn: pushFn},
+		"pop":         {Fn: popFn},
 		"copy":        {Fn: copyFn},
 		"map":         {Fn: mapFn(call)},
 		"filter":      {Fn: filterFn(call)},
@@ -1664,6 +1665,74 @@ func scrapeFn(args ...object.Object) object.Object {
 	}
 	set.Remove(args[1])
 	return object.NULL
+}
+
+// popFn is `pop(list)` / `pop(list, i)` / `pop(map, key)` / `pop(set,
+// item)` (SPEC.md §7) — removes and returns a value in place, the
+// return-value counterpart to push/sprinkle/scrape (none of which hand
+// back what they touched). List indexing is non-wrapping and
+// non-negative, matching plain `xs[i]` (SPEC.md §6) rather than wrap()'s
+// circular semantics, so an out-of-range i errors the same way indexing
+// does. A Map key of the wrong type errors the same way m[key] does on
+// read, but a valid, merely-absent key returns nobox rather than
+// erroring, matching every other Map read (SPEC.md's own convention).
+// Set follows scrape's more permissive lead instead of Map's: item's
+// type is never checked, since a non-Hashable item simply can't be a
+// member and "absent" already covers that case with a plain nobox.
+func popFn(args ...object.Object) object.Object {
+	switch len(args) {
+	case 1:
+		list, ok := args[0].(*object.List)
+		if !ok {
+			return wrongArgType("pop", 0, "a List (pop(collection, key) is required for a Map or Set)", args[0])
+		}
+		if len(list.Elements) == 0 {
+			return newError("pop: cannot pop from an empty List")
+		}
+		last := len(list.Elements) - 1
+		v := list.Elements[last]
+		list.Elements = list.Elements[:last]
+		return v
+
+	case 2:
+		switch coll := args[0].(type) {
+		case *object.List:
+			idx, ok := args[1].(*object.Integer)
+			if !ok {
+				return wrongArgType("pop", 1, "an Integer", args[1])
+			}
+			n := int64(len(coll.Elements))
+			if idx.Value < 0 || idx.Value >= n {
+				return newError("pop: index out of range: %d", idx.Value)
+			}
+			v := coll.Elements[idx.Value]
+			coll.Elements = append(coll.Elements[:idx.Value], coll.Elements[idx.Value+1:]...)
+			return v
+
+		case *object.Map:
+			if _, ok := args[1].(object.Hashable); !ok {
+				return newError("pop: map keys must be Hashable (String, Integer, Float, Boolean, or Tuple), got %s", args[1].Type())
+			}
+			v, existed := coll.Delete(args[1])
+			if !existed {
+				return object.NULL
+			}
+			return v
+
+		case *object.Set:
+			if !coll.Has(args[1]) {
+				return object.NULL
+			}
+			coll.Remove(args[1])
+			return args[1]
+
+		default:
+			return wrongArgType("pop", 0, "a List, Map, or Set", args[0])
+		}
+
+	default:
+		return wrongArgCount("pop", "1 or 2", len(args))
+	}
 }
 
 // toppedFn is `topped(set, item)` (SPEC.md §7) — Set membership test.

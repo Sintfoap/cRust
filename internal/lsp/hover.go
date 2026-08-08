@@ -41,6 +41,7 @@ var builtinDocs = map[string]string{
 	"chars":       "`chars(s) -> List` — splits a string into a List of one-character strings.",
 	"ints":        "`ints(s) -> List` / `ints(list) -> List` — ints(s) splits a string of digits into single-digit Integers; ints(list) parses each String element as a full Integer (e.g. `ints(split(line))`).",
 	"push":        "`push(list, item)` — appends item to list in place. For a new List instead of mutating, use `+`.",
+	"pop":         "`pop(list)` / `pop(list, i)` / `pop(map, key)` / `pop(set, item)` — removes and returns a value in place, the return-value counterpart to push/sprinkle/scrape. `pop(list, i)` doesn't wrap negative indices, matching plain `xs[i]`, and errors if i is out of range (as does `pop(list)` on an empty List). `pop(map, key)` returns nobox for a present-but-absent key (like any Map read) but errors on a non-Hashable key. `pop(set, item)` returns nobox if item isn't a member.",
 	"copy":        "`copy(value) -> Any` — an independent copy of value: for List/Map/Set/Grid, mutating the copy (push, setAt, index assignment, ...) is never seen through the original. Every other type, including Tuple, comes back unchanged (nothing about it can be mutated in place to begin with).",
 	"map":         "`map(iterable, fn) -> List` — applies fn to every element of a List or Tuple, collecting the results. fn can be a recipe or another builtin.",
 	"filter":      "`filter(iterable, fn) -> List` — keeps only the elements of a List or Tuple where fn(element) is truthy, collecting survivors in their original order.",
