@@ -513,14 +513,17 @@ func formatBytes(v float64) string {
 // benchChartHeight/benchChartWidth size each of the two mini charts
 // off the window's own dimensions, the same "derive from m.width/
 // m.height, clamp to a sane floor" shape stepperBodyHeight already
-// uses — 10 lines reserved above/between/below the two charts (the
-// run-count field, its blank line, two titles, a blank line between
-// charts, the legend, and the failure-count footer), split evenly
-// between Runtime and Memory since neither chart is more important
-// than the other. 12 columns reserved on the left of each chart for
-// its own y-axis labels.
+// uses — 12 lines reserved above/between/below the two charts (the
+// run-count field, its blank line, each chart's own title and its own
+// legend line — one legend per chart now, not one shared, so their
+// average/median/max/min values can be printed correctly for whichever
+// metric that chart is actually showing — a blank line between the
+// two charts, and the failure-count footer), split evenly between
+// Runtime and Memory since neither chart is more important than the
+// other. 12 columns reserved on the left of each chart for its own
+// y-axis labels.
 func (m debugModel) benchChartHeight() int {
-	return max(4, (m.height-10)/2)
+	return max(4, (m.height-12)/2)
 }
 
 func (m debugModel) benchChartWidth() int {
@@ -577,6 +580,8 @@ func (m debugModel) viewBench() string {
 	b.WriteByte('\n')
 	b.WriteString(benchChart(height, width, rawDur, refsDur, m.benchShow, formatDur))
 	b.WriteByte('\n')
+	b.WriteString(m.viewBenchLegend(refsDur, formatDur))
+	b.WriteString("\n\n")
 
 	rawMem := make([]float64, len(allocs))
 	for i, a := range allocs {
@@ -593,8 +598,8 @@ func (m debugModel) viewBench() string {
 	b.WriteByte('\n')
 	b.WriteString(benchChart(height, width, rawMem, refsMem, m.benchShow, formatBytes))
 	b.WriteByte('\n')
+	b.WriteString(m.viewBenchLegend(refsMem, formatBytes))
 
-	b.WriteString(m.viewBenchLegend())
 	if failed > 0 {
 		b.WriteString(styleError.Render(fmt.Sprintf("\n%d/%d runs exited non-zero", failed, len(m.benchRuns))))
 	}
@@ -605,8 +610,18 @@ func (m debugModel) viewBench() string {
 // — on in the series' own chart color, off dimmed — the same
 // on/off-by-color convention the Run tab's own entry-point selector
 // already uses (renderEntryOptions), so a glance tells you which
-// lines are actually contributing to the charts above.
-func (m debugModel) viewBenchLegend() string {
+// lines are actually contributing to the chart above. One legend per
+// chart, not one shared between both (unlike the toggle *state*
+// itself, m.benchShow, which is shared) — on direct request, "can you
+// add values for the average and median lines?": average/median/max/
+// min are otherwise only readable by eye against the chart's own
+// y-axis, and runtime and memory need their own formatted value
+// (formatDur vs formatBytes) even for the identical series, so a
+// single combined legend below both charts could never show a number
+// that was correct for either one. refs/format are exactly the same
+// pair benchChart itself was just called with, so the value printed
+// here always matches the line actually drawn above it.
+func (m debugModel) viewBenchLegend(refs [benchSeriesKindCount]float64, format func(float64) string) string {
 	parts := make([]string, 0, benchSeriesKindCount)
 	for k, info := range benchSeriesInfo {
 		kind := benchSeriesKind(k)
@@ -614,7 +629,11 @@ func (m debugModel) viewBenchLegend() string {
 		if m.benchShow[kind] {
 			state, style = "on", lipgloss.NewStyle().Foreground(info.color)
 		}
-		parts = append(parts, style.Render(fmt.Sprintf("[%c] %s (%s)", info.key, info.name, state)))
+		label := fmt.Sprintf("[%c] %s (%s)", info.key, info.name, state)
+		if kind != benchRaw {
+			label = fmt.Sprintf("[%c] %s: %s (%s)", info.key, info.name, format(refs[kind]), state)
+		}
+		parts = append(parts, style.Render(label))
 	}
 	return strings.Join(parts, "   ")
 }

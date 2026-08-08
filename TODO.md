@@ -1189,6 +1189,18 @@ confirmed, not before.
       real file on disk, error cases) and that same real pty-driven
       session, re-run clean after the fix: both charts rendered with
       real data, and toggling a series off visibly changed the chart.
+      **Follow-up, on direct request**: "can you add values for the
+      average and median lines?" — added the actual computed value to
+      all four reference lines' legend entries (max/min too, not just
+      the two named), which meant splitting the one shared legend
+      below both charts into one legend per chart, each printed with
+      that chart's own formatted value (`231.461µs` vs `55.0KiB` for
+      the identical `average` series) — the single shared legend
+      couldn't have shown a correct number for both metrics at once.
+      Verified with a dedicated test pinning the exact expected
+      average/median/max/min strings against known input, and the
+      same real pty session confirming both legends render correctly
+      under their own chart.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate

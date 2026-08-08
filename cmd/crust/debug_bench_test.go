@@ -467,6 +467,35 @@ func TestViewBenchWithResultsShowsBothCharts(t *testing.T) {
 	}
 }
 
+// TestViewBenchLegendShowsComputedValues is the exact feature asked
+// for: "can you add values for the average and median lines?" --
+// checks the legend prints the real computed numbers, in each chart's
+// own unit (a Duration string for runtime, formatBytes for memory),
+// not just the bare series name.
+func TestViewBenchLegendShowsComputedValues(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 2 * time.Millisecond, allocB: 200},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+	out := m.viewBench()
+
+	// avg = median = 2ms / 200B; max = 3ms / 300B; min = 1ms / 100B.
+	for _, want := range []string{
+		"average: 2ms", "median: 2ms", "max: 3ms", "min: 1ms",
+		"average: 200B", "median: 200B", "max: 300B", "min: 100B",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("viewBench() missing %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "runs: 2ms") || strings.Contains(out, "runs: 200B") {
+		t.Error("the raw 'runs' series has no single value and must not get one printed")
+	}
+}
+
 func TestViewBenchReportsFailedRuns(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.width, m.height = 100, 40

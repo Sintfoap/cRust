@@ -3606,6 +3606,26 @@ code was written.
     confirmed both charts rendered with real numbers and the shared
     legend, and confirmed toggling a series with `a` visibly removed
     it from the redrawn chart.
+  - **The legend prints each reference line's actual computed value**,
+    on direct follow-up request: "can you add values for the average
+    and median lines?" — added to all four reference lines (`max`/
+    `min` too, for the same reason and at essentially no extra cost,
+    not just the two explicitly named), not the shared single legend
+    the tab originally had below both charts. That single-legend shape
+    couldn't have shown a value at all: Runtime and Memory need their
+    own formatted number even for the identical series (`231.461µs`
+    means nothing printed under a chart whose own numbers are in
+    KiB), so `viewBenchLegend` became one call per chart, each passed
+    the exact same `refs`/`format` pair `benchChart` itself was just
+    called with — the printed value can never drift from the line
+    actually drawn above it. `raw` still gets no value (there's no
+    single number a per-run series could show), confirmed by a
+    dedicated test asserting the string `"runs: "` followed by a
+    formatted value never appears. `benchChartHeight`'s reserved-lines
+    budget (`10`) grew to `12` to make room for a second legend line
+    plus the blank line separating the two charts, verified against a
+    real pty session showing both legends (`average: 231.461µs`,
+    `median: 55.0KiB`, ...) rendered correctly beneath their own chart.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
