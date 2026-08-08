@@ -1215,6 +1215,26 @@ confirmed, not before.
       average/median/max/min strings against known input, and the
       same real pty session confirming both legends render correctly
       under their own chart.
+      **Follow-up, on direct request**: "is there a way for the bench
+      tool that we could somehow navigate inside the individual graphs
+      and look at the stats of individual runs?" — added inspect mode:
+      `i` toggles it on, `h`/`l` step to the previous/next run, `g`/`G`
+      jump to the first/last, and both charts highlight a caret under
+      the column that run's own data landed on while a readout line
+      below prints that run's exact duration, memory, and pass/fail —
+      none of it blended through resampling the way the aggregate
+      lines and even the raw line itself (bucketed or interpolated
+      depending on run count vs. chart width) both are. The one real
+      design problem: the chart's x-axis isn't 1:1 with run index once
+      resampling kicks in, so a new `columnForRun` helper inverts
+      whichever of the two mappings applied — bucket math when there
+      are more runs than columns, the interpolation vertex formula
+      when there are fewer — so the cursor always lands on the exact
+      column the selected run's own value was actually drawn at.
+      Verified with table-driven Go tests for `columnForRun` against
+      all three cases (fewer/equal/more runs than width) and cursor-
+      clamping edge cases, and a real pty-driven session exercising
+      `i`/`h`/`l`/`g`/`G` end to end against live data.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate

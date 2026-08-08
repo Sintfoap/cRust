@@ -28,6 +28,20 @@
 // BenchmarkAoC2020Day1Part1 already established this same
 // runFile-directly, no-tracer pattern for measuring real interpreter
 // performance, for the identical reason.
+//
+// Inspect mode ('i', h/l/g/G) — on direct request: "is there a way for
+// the bench tool that we could somehow navigate inside the individual
+// graphs and look at the stats of individual runs?" The aggregate
+// lines (average/median/max/min) and the raw line's own resampling
+// (bucketed or interpolated depending on run count vs. chart width,
+// resampleForChart) both deliberately blur individual runs together —
+// exactly the right tradeoff for spotting a trend, exactly wrong for
+// "what did run 47 actually do." Inspect mode steps a cursor across
+// benchRuns by index (h/l, g/G for first/last) and highlights the
+// column columnForRun computes for it — the same column resampling put
+// that run's own data on — with a caret row under each chart and a
+// readout line giving that run's exact duration/memory/pass-fail, no
+// resampling involved.
 package main
 
 import (
@@ -155,6 +169,19 @@ func (m debugModel) handleBenchTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch {
 			case r == 'q':
 				return m, tea.Quit
+			case r == 'i':
+				if len(m.benchRuns) > 0 {
+					m.benchInspect = !m.benchInspect
+					m.benchCursor = clampBenchCursor(m.benchCursor, len(m.benchRuns))
+				}
+			case m.benchInspect && r == 'h':
+				m.benchCursor = max(0, m.benchCursor-1)
+			case m.benchInspect && r == 'l':
+				m.benchCursor = min(len(m.benchRuns)-1, m.benchCursor+1)
+			case m.benchInspect && r == 'g':
+				m.benchCursor = 0
+			case m.benchInspect && r == 'G':
+				m.benchCursor = len(m.benchRuns) - 1
 			default:
 				if kind, ok := benchSeriesKeyOf(r); ok {
 					m.benchShow[kind] = !m.benchShow[kind]
@@ -165,6 +192,16 @@ func (m debugModel) handleBenchTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// clampBenchCursor keeps a run index in [0, n-1] (0 if n is 0, though
+// that shouldn't happen in practice — inspect mode only ever toggles on
+// once len(m.benchRuns) > 0).
+func clampBenchCursor(cursor, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return max(0, min(cursor, n-1))
 }
 
 // benchCmd reads the Run tab's current entry point and input file —
@@ -228,6 +265,7 @@ func (m debugModel) handleBenchResult(msg benchResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.benchErr = ""
 	m.benchRuns = msg.runs
+	m.benchCursor = clampBenchCursor(m.benchCursor, len(msg.runs))
 	return m, nil
 }
 
@@ -366,6 +404,34 @@ func bucketAverage(xs []float64, buckets int) []float64 {
 	return out
 }
 
+// columnForRun maps run index i (of n total runs) onto its column
+// within a width-wide chart, inverting whichever of resampleForChart's
+// two mappings actually applied to get the raw line drawn in the first
+// place — so the inspect-mode cursor (viewBench) always points at the
+// same column the run's own data landed on, not a column computed some
+// other way that could drift out of sync as the two are edited
+// separately. n == 1 has no meaningful position to invert (the single
+// run's value fills every column identically) — center it. n >= width
+// mirrors bucketAverage's own b*n/width bucket-boundary math, solved
+// for "which bucket does run i fall in" instead of "which runs does
+// bucket b average". n < width mirrors resampleForChart's own
+// interpolation position formula, solved for the column instead of the
+// value — run i sits exactly on column i*(width-1)/(n-1), the same
+// vertex resampleForChart interpolates every other column's value
+// between.
+func columnForRun(i, n, width int) int {
+	if n <= 0 || width <= 0 {
+		return 0
+	}
+	if n == 1 {
+		return width / 2
+	}
+	if n >= width {
+		return min(i*width/n, width-1)
+	}
+	return int(math.Round(float64(i) * float64(width-1) / float64(n-1)))
+}
+
 // benchChart renders one metric's mini line chart: raw (one value per
 // run, resampled onto the chart's full width via resampleForChart) as
 // a solid stepped line, plus a flat dashed line per shown reference
@@ -380,7 +446,16 @@ func bucketAverage(xs []float64, buckets int) []float64 {
 // widen the axis around a value nobody's looking at, which would also
 // visually compress every series that *is* still shown for no reason
 // the reader could see.
-func benchChart(height, width int, raw []float64, refs [benchSeriesKindCount]float64, show [benchSeriesKindCount]bool, format func(float64) string) string {
+//
+// cursorCol (-1 for none) draws inspect mode's selected-run marker: a
+// caret on its own row below the chart, pointing straight up at the
+// column columnForRun (viewBench's caller) computed for the currently
+// selected run — a separate row rather than recoloring the data cell
+// already at that column, so the marker stays visible and unambiguous
+// even when the cursor lands on a blank cell (a toggled-off series, or
+// a column between two raw points) instead of only ever showing up
+// where a line happens to already be drawn.
+func benchChart(height, width int, raw []float64, refs [benchSeriesKindCount]float64, show [benchSeriesKindCount]bool, format func(float64) string, cursorCol int) string {
 	if height < 2 {
 		height = 2
 	}
@@ -488,6 +563,17 @@ func benchChart(height, width int, raw []float64, refs [benchSeriesKindCount]flo
 		}
 		b.WriteByte('\n')
 	}
+	if cursorCol >= 0 {
+		b.WriteString(strings.Repeat(" ", labelWidth+1))
+		for c := 0; c < width; c++ {
+			if c == cursorCol {
+				b.WriteString(lipgloss.NewStyle().Foreground(colorSelected).Render("^"))
+			} else {
+				b.WriteByte(' ')
+			}
+		}
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 
@@ -521,9 +607,15 @@ func formatBytes(v float64) string {
 // two charts, and the failure-count footer), split evenly between
 // Runtime and Memory since neither chart is more important than the
 // other. 12 columns reserved on the left of each chart for its own
-// y-axis labels.
+// y-axis labels. Inspect mode (benchInspect) reserves 4 more: the
+// caret row benchChart appends below each of the two charts, plus the
+// selected run's own readout line and the blank line before it.
 func (m debugModel) benchChartHeight() int {
-	return max(4, (m.height-12)/2)
+	reserved := 12
+	if m.benchInspect {
+		reserved += 4
+	}
+	return max(4, (m.height-reserved)/2)
 }
 
 func (m debugModel) benchChartWidth() int {
@@ -564,6 +656,16 @@ func (m debugModel) viewBench() string {
 
 	height, width := m.benchChartHeight(), m.benchChartWidth()
 
+	// cursorCol is the column both charts highlight for the selected
+	// run — computed once, since it depends only on the run count and
+	// chart width, not on which metric a given chart happens to be
+	// showing, so both charts agree on exactly which column is "run
+	// m.benchCursor" (columnForRun's own doc comment).
+	cursorCol := -1
+	if m.benchInspect {
+		cursorCol = columnForRun(m.benchCursor, len(m.benchRuns), width)
+	}
+
 	rawDur := make([]float64, len(durations))
 	for i, d := range durations {
 		rawDur[i] = float64(d)
@@ -578,7 +680,7 @@ func (m debugModel) viewBench() string {
 
 	b.WriteString(styleTitle.Render(fmt.Sprintf("runtime (%d runs)", len(m.benchRuns))))
 	b.WriteByte('\n')
-	b.WriteString(benchChart(height, width, rawDur, refsDur, m.benchShow, formatDur))
+	b.WriteString(benchChart(height, width, rawDur, refsDur, m.benchShow, formatDur, cursorCol))
 	b.WriteByte('\n')
 	b.WriteString(m.viewBenchLegend(refsDur, formatDur))
 	b.WriteString("\n\n")
@@ -596,14 +698,35 @@ func (m debugModel) viewBench() string {
 
 	b.WriteString(styleTitle.Render("memory allocated"))
 	b.WriteByte('\n')
-	b.WriteString(benchChart(height, width, rawMem, refsMem, m.benchShow, formatBytes))
+	b.WriteString(benchChart(height, width, rawMem, refsMem, m.benchShow, formatBytes, cursorCol))
 	b.WriteByte('\n')
 	b.WriteString(m.viewBenchLegend(refsMem, formatBytes))
 
+	if m.benchInspect {
+		b.WriteByte('\n')
+		b.WriteString(m.viewBenchInspect())
+	}
 	if failed > 0 {
 		b.WriteString(styleError.Render(fmt.Sprintf("\n%d/%d runs exited non-zero", failed, len(m.benchRuns))))
 	}
 	return b.String()
+}
+
+// viewBenchInspect is inspect mode's readout: the selected run's exact
+// duration and memory, the two numbers the charts above can otherwise
+// only show blended into an average/median or squashed into one pixel
+// among many — on direct request, "is there a way for the bench tool
+// that we could somehow navigate inside the individual graphs and look
+// at the stats of individual runs?"
+func (m debugModel) viewBenchInspect() string {
+	r := m.benchRuns[m.benchCursor]
+	line := fmt.Sprintf("run %d of %d — runtime: %s, memory: %s",
+		m.benchCursor+1, len(m.benchRuns), r.duration, formatBytes(float64(r.allocB)))
+	out := lipgloss.NewStyle().Foreground(colorSelected).Render(line)
+	if r.failed {
+		out += "  " + styleError.Render("FAILED")
+	}
+	return out + "\n"
 }
 
 // viewBenchLegend draws the five toggles as a row of labeled swatches

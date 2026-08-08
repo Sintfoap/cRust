@@ -165,11 +165,76 @@ func TestFormatBytes(t *testing.T) {
 	}
 }
 
+// --- columnForRun ----------------------------------------------------------
+
+func TestColumnForRunSingleRunCentersColumn(t *testing.T) {
+	if got := columnForRun(0, 1, 20); got != 10 {
+		t.Errorf("columnForRun(0, 1, 20) = %d, want 10 (centered)", got)
+	}
+}
+
+func TestColumnForRunMoreRunsThanWidthBucketsForward(t *testing.T) {
+	// Mirrors bucketAverage's own bucket boundaries: with 100 runs
+	// across 10 columns, run 0 falls in bucket 0, run 50 in bucket 5,
+	// run 99 in the last bucket.
+	if got := columnForRun(0, 100, 10); got != 0 {
+		t.Errorf("columnForRun(0, 100, 10) = %d, want 0", got)
+	}
+	if got := columnForRun(50, 100, 10); got != 5 {
+		t.Errorf("columnForRun(50, 100, 10) = %d, want 5", got)
+	}
+	if got := columnForRun(99, 100, 10); got != 9 {
+		t.Errorf("columnForRun(99, 100, 10) = %d, want 9", got)
+	}
+}
+
+func TestColumnForRunFewerRunsThanWidthSpreadsAcrossFullWidth(t *testing.T) {
+	// Mirrors resampleForChart's own interpolation vertices: with 3
+	// runs across 21 columns, run 0 is the first column, run 2 the
+	// last, run 1 exactly in the middle.
+	if got := columnForRun(0, 3, 21); got != 0 {
+		t.Errorf("columnForRun(0, 3, 21) = %d, want 0", got)
+	}
+	if got := columnForRun(1, 3, 21); got != 10 {
+		t.Errorf("columnForRun(1, 3, 21) = %d, want 10", got)
+	}
+	if got := columnForRun(2, 3, 21); got != 20 {
+		t.Errorf("columnForRun(2, 3, 21) = %d, want 20", got)
+	}
+}
+
+func TestColumnForRunEqualRunsAndWidthIsOneToOne(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		if got := columnForRun(i, 10, 10); got != i {
+			t.Errorf("columnForRun(%d, 10, 10) = %d, want %d", i, got, i)
+		}
+	}
+}
+
+// --- clampBenchCursor -------------------------------------------------------
+
+func TestClampBenchCursor(t *testing.T) {
+	tests := []struct {
+		cursor, n, want int
+	}{
+		{cursor: 0, n: 5, want: 0},
+		{cursor: 4, n: 5, want: 4},
+		{cursor: 5, n: 5, want: 4},  // past the end clamps to the last run
+		{cursor: -1, n: 5, want: 0}, // never negative
+		{cursor: 3, n: 0, want: 0},  // no runs at all
+	}
+	for _, tt := range tests {
+		if got := clampBenchCursor(tt.cursor, tt.n); got != tt.want {
+			t.Errorf("clampBenchCursor(%d, %d) = %d, want %d", tt.cursor, tt.n, got, tt.want)
+		}
+	}
+}
+
 // --- chart ---------------------------------------------------------------
 
 func TestBenchChartNothingShownIsAPlaceholder(t *testing.T) {
 	var show [benchSeriesKindCount]bool // all false
-	out := benchChart(6, 20, []float64{1, 2, 3}, [benchSeriesKindCount]float64{}, show, func(v float64) string { return "" })
+	out := benchChart(6, 20, []float64{1, 2, 3}, [benchSeriesKindCount]float64{}, show, func(v float64) string { return "" }, -1)
 	if !strings.Contains(out, "nothing to show") {
 		t.Errorf("benchChart() = %q, want a placeholder", out)
 	}
@@ -178,10 +243,35 @@ func TestBenchChartNothingShownIsAPlaceholder(t *testing.T) {
 func TestBenchChartRendersRequestedHeight(t *testing.T) {
 	show := [benchSeriesKindCount]bool{benchRaw: true, benchAvg: true}
 	refs := [benchSeriesKindCount]float64{benchAvg: 2}
-	out := benchChart(5, 20, []float64{1, 2, 3}, refs, show, func(v float64) string { return "x" })
+	out := benchChart(5, 20, []float64{1, 2, 3}, refs, show, func(v float64) string { return "x" }, -1)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 5 {
 		t.Errorf("got %d lines, want 5 (the requested height)", len(lines))
+	}
+}
+
+func TestBenchChartCursorAddsACaretRow(t *testing.T) {
+	show := [benchSeriesKindCount]bool{benchRaw: true, benchAvg: true}
+	refs := [benchSeriesKindCount]float64{benchAvg: 2}
+
+	without := benchChart(5, 20, []float64{1, 2, 3}, refs, show, func(v float64) string { return "x" }, -1)
+	withCursor := benchChart(5, 20, []float64{1, 2, 3}, refs, show, func(v float64) string { return "x" }, 3)
+
+	withoutLines := strings.Split(strings.TrimRight(without, "\n"), "\n")
+	withLines := strings.Split(strings.TrimRight(withCursor, "\n"), "\n")
+	if len(withLines) != len(withoutLines)+1 {
+		t.Fatalf("got %d lines with a cursor, want %d (one extra caret row)", len(withLines), len(withoutLines)+1)
+	}
+	if !strings.Contains(withLines[len(withLines)-1], "^") {
+		t.Errorf("last line = %q, want it to contain the cursor caret", withLines[len(withLines)-1])
+	}
+}
+
+func TestBenchChartNoCursorAddsNoCaretRow(t *testing.T) {
+	show := [benchSeriesKindCount]bool{benchRaw: true}
+	out := benchChart(5, 20, []float64{1, 2, 3}, [benchSeriesKindCount]float64{}, show, func(v float64) string { return "x" }, -1)
+	if strings.Contains(out, "^") {
+		t.Errorf("benchChart() with no cursor = %q, should not contain a caret", out)
 	}
 }
 
@@ -189,7 +279,7 @@ func TestBenchChartFlatDataStillRenders(t *testing.T) {
 	// Every value identical -- yMax == yMin, which must not divide by
 	// zero computing the row fraction.
 	show := [benchSeriesKindCount]bool{benchRaw: true}
-	out := benchChart(4, 10, []float64{5, 5, 5}, [benchSeriesKindCount]float64{}, show, func(v float64) string { return "5" })
+	out := benchChart(4, 10, []float64{5, 5, 5}, [benchSeriesKindCount]float64{}, show, func(v float64) string { return "5" }, -1)
 	if out == "" {
 		t.Error("expected non-empty output for flat data")
 	}
@@ -231,6 +321,105 @@ func TestHandleBenchTabKeyAllFiveTogglesFlip(t *testing.T) {
 		if m.benchShow[k] {
 			t.Errorf("series %d still enabled after toggling every mnemonic off", k)
 		}
+	}
+}
+
+func TestHandleBenchTabKeyIToggleInspectRequiresRuns(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	got := next.(debugModel)
+	if got.benchInspect {
+		t.Error("'i' should be a no-op with no runs yet")
+	}
+}
+
+func TestHandleBenchTabKeyITogglesInspect(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{{duration: time.Millisecond}, {duration: 2 * time.Millisecond}}
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	got := next.(debugModel)
+	if !got.benchInspect {
+		t.Fatal("'i' should turn inspect mode on")
+	}
+
+	next, _ = got.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	got = next.(debugModel)
+	if got.benchInspect {
+		t.Error("a second 'i' should turn inspect mode back off")
+	}
+}
+
+func TestHandleBenchTabKeyHLStepTheCursor(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{{}, {}, {}}
+	m.benchInspect = true
+	m.benchCursor = 1
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	got := next.(debugModel)
+	if got.benchCursor != 2 {
+		t.Errorf("'l' cursor = %d, want 2", got.benchCursor)
+	}
+
+	next, _ = got.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	got = next.(debugModel)
+	if got.benchCursor != 1 {
+		t.Errorf("'h' cursor = %d, want 1", got.benchCursor)
+	}
+}
+
+func TestHandleBenchTabKeyCursorClampsAtEnds(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{{}, {}}
+	m.benchInspect = true
+	m.benchCursor = 0
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	got := next.(debugModel)
+	if got.benchCursor != 0 {
+		t.Errorf("'h' at the first run = %d, want 0 (clamped)", got.benchCursor)
+	}
+
+	m.benchCursor = 1
+	next, _ = m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	got = next.(debugModel)
+	if got.benchCursor != 1 {
+		t.Errorf("'l' at the last run = %d, want 1 (clamped)", got.benchCursor)
+	}
+}
+
+func TestHandleBenchTabKeyGAndShiftGJumpToEnds(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{{}, {}, {}, {}}
+	m.benchInspect = true
+	m.benchCursor = 2
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	got := next.(debugModel)
+	if got.benchCursor != 3 {
+		t.Errorf("'G' cursor = %d, want 3 (last run)", got.benchCursor)
+	}
+
+	next, _ = got.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	got = next.(debugModel)
+	if got.benchCursor != 0 {
+		t.Errorf("'g' cursor = %d, want 0 (first run)", got.benchCursor)
+	}
+}
+
+func TestHandleBenchTabKeyHLIgnoredOutsideInspectMode(t *testing.T) {
+	// h/l must not do anything (and specifically must not go to the
+	// count field, unlike digits) when inspect mode isn't active.
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{{}, {}, {}}
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	got := next.(debugModel)
+	if got.benchCursor != 0 {
+		t.Errorf("benchCursor = %d, want unchanged at 0", got.benchCursor)
+	}
+	if got.benchCount.String() != "" {
+		t.Errorf("benchCount = %q, want unchanged ('l' is not a digit)", got.benchCount.String())
 	}
 }
 
@@ -394,6 +583,20 @@ func TestHandleBenchResultErrorKeepsPreviousRuns(t *testing.T) {
 	}
 }
 
+func TestHandleBenchResultClampsCursorToNewRunCount(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchInspect = true
+	m.benchCursor = 9                                                            // selected a run in a 10-run batch
+	next, _ := m.handleBenchResult(benchResultMsg{runs: []benchRun{{}, {}, {}}}) // a re-run with only 3
+	got := next.(debugModel)
+	if got.benchCursor != 2 {
+		t.Errorf("benchCursor after a smaller re-run = %d, want 2 (clamped to the new last run)", got.benchCursor)
+	}
+	if !got.benchInspect {
+		t.Error("a new batch of results should not silently exit inspect mode")
+	}
+}
+
 // --- persistence -------------------------------------------------------
 
 func TestRestoreBenchCountDefaultsToTen(t *testing.T) {
@@ -496,6 +699,48 @@ func TestViewBenchLegendShowsComputedValues(t *testing.T) {
 	}
 }
 
+func TestViewBenchInspectShowsSelectedRunStats(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 2 * time.Millisecond, allocB: 200},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+	m.benchInspect = true
+	m.benchCursor = 1
+
+	out := m.viewBench()
+	if !strings.Contains(out, "run 2 of 3") {
+		t.Errorf("viewBench() = %q, want it to name the selected run (1-based)", out)
+	}
+	if !strings.Contains(out, "2ms") || !strings.Contains(out, "200B") {
+		t.Errorf("viewBench() = %q, want the selected run's own exact duration/memory", out)
+	}
+}
+
+func TestViewBenchInspectHiddenWhenNotInspecting(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 100}}
+	out := m.viewBench()
+	if strings.Contains(out, "run 1 of 1") {
+		t.Errorf("viewBench() = %q, should not show the inspect readout when benchInspect is false", out)
+	}
+}
+
+func TestViewBenchInspectFlagsAFailedRun(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: time.Millisecond, failed: true}}
+	m.benchInspect = true
+	m.benchCursor = 0
+	out := m.viewBench()
+	if !strings.Contains(out, "FAILED") {
+		t.Errorf("viewBench() = %q, want the selected run's own failure flagged", out)
+	}
+}
+
 func TestViewBenchReportsFailedRuns(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.width, m.height = 100, 40
@@ -535,6 +780,29 @@ func TestViewRendersBenchTabWithoutPanicking(t *testing.T) {
 	out := m.View()
 	if !strings.Contains(out, "runtime") {
 		t.Errorf("View() = %q, want the Bench tab body rendered", out)
+	}
+}
+
+func TestViewRendersBenchTabInspectModeWithoutPanicking(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 24
+	m.active = tabBench
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 10}, {duration: 2 * time.Millisecond, allocB: 20}}
+	m.benchInspect = true
+	m.benchCursor = 1
+	out := m.View()
+	if !strings.Contains(out, "run 2 of 2") {
+		t.Errorf("View() = %q, want the inspect readout rendered", out)
+	}
+}
+
+func TestHelpTextOnBenchTabInspectMode(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabBench
+	m.benchInspect = true
+	help := m.helpText()
+	if !strings.Contains(help, "prev/next run") {
+		t.Errorf("helpText() = %q, want inspect-mode navigation hints", help)
 	}
 }
 

@@ -155,6 +155,17 @@ type debugModel struct {
 	benchRuns  []benchRun
 	benchErr   string
 	benchShow  [benchSeriesKindCount]bool
+
+	// benchInspect/benchCursor back the Bench tab's inspect mode
+	// (debug_bench.go's handleBenchTabKey/viewBench), on direct
+	// request: a way to navigate inside the charts and see an
+	// individual run's exact stats rather than only the aggregate
+	// lines. benchInspect is whether 'i' has toggled it on; benchCursor
+	// is the currently-selected run's index into benchRuns, valid only
+	// while benchInspect is true (and only meaningful once benchRuns is
+	// non-empty — toggling on with no runs yet is a no-op).
+	benchInspect bool
+	benchCursor  int
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -408,7 +419,10 @@ func (m debugModel) helpText() string {
 		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabBench:
-		return "enter: run N times   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		if m.benchInspect {
+			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
+		return "enter: run N times   i: inspect a run   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
 		if m.navCreating {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"

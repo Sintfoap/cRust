@@ -3665,6 +3665,81 @@ code was written.
     plus the blank line separating the two charts, verified against a
     real pty session showing both legends (`average: 231.461µs`,
     `median: 55.0KiB`, ...) rendered correctly beneath their own chart.
+  - **Inspect mode** (`i`/`h`/`l`/`g`/`G`, `columnForRun`,
+    `viewBenchInspect`), on direct follow-up request: "is there a way
+    for the bench tool that we could somehow navigate inside the
+    individual graphs and look at the stats of individual runs?" Every
+    line the chart already draws deliberately blurs individual runs
+    together — the four reference lines are single aggregate numbers by
+    definition, and even the raw line's own points get resampled
+    (`resampleForChart`, bucket-averaged or interpolated depending on
+    run count vs. chart width) rather than plotted one-for-one — exactly
+    the tradeoff that makes a trend legible and makes "what did run 47
+    actually do" unanswerable from the chart alone. Inspect mode adds a
+    `benchCursor` (a run index into `benchRuns`) and `benchInspect`
+    (whether it's active) to `debugModel`, toggled with `i` (a no-op
+    with no runs yet) and stepped with `h`/`l` (±1, clamped at both
+    ends) or jumped with `g`/`G` (first/last) — deliberately not
+    Left/Right or Home/End, which the run-count field already owns, so
+    there's no ambiguity between "edit the count" and "move the cursor"
+    the same reasoning that picked the `r`/`a`/`m`/`x`/`n` toggle
+    mnemonics over reusing digits.
+
+    The one real design problem: the chart's x-axis isn't 1:1 with run
+    index once resampling is involved, so "which column is run *i* on"
+    needed its own answer, not just "which column is the cursor at."
+    `columnForRun(i, n, width)` inverts whichever of `resampleForChart`'s
+    two mappings actually produced the line being looked at: when there
+    are more runs than columns, it mirrors `bucketAverage`'s own
+    `b*n/width` bucket boundaries, solved for "which bucket does run *i*
+    fall in" instead of "which runs does bucket *b* average"; when there
+    are fewer runs than columns, it mirrors the interpolation position
+    formula, solved for the column instead of the value, so run *i*
+    lands exactly on the same vertex `resampleForChart` interpolates
+    every other column's value between; a single run centers in the
+    chart, since there's no direction to place it toward. Both charts
+    always share one `cursorCol` (computed once in `viewBench`, not
+    twice), since it depends only on run count and chart width, never on
+    which metric a given chart happens to show — the same "one shared
+    toggle set" reasoning `benchShow` already established for the five
+    line toggles.
+
+    `benchChart` gained a `cursorCol` parameter (`-1` for none) that
+    appends one extra row below the chart's own data rows: a caret
+    (`^`) at that column in `colorSelected` (the same color
+    `styleSelectedRow` already uses for "this is the selected thing"
+    elsewhere — the Run tab's entry-point selector, the Files tab's file
+    list), on its own row rather than recoloring whatever's already at
+    that cell, so the marker stays visible and unambiguous even over a
+    blank column (a toggled-off series, or a gap between two raw
+    points). `viewBenchInspect` prints the readout line underneath both
+    charts: the selected run's exact 1-based position, duration, and
+    memory, plus a `FAILED` flag if that specific run's exit code was
+    non-zero — pulled straight from `benchRuns[benchCursor]`, with no
+    resampling or aggregation in the path at all.
+    `handleBenchResult` clamps `benchCursor` (not resets it) against the
+    new batch's length whenever fresh results land, so re-running with a
+    smaller count doesn't leave the cursor pointing past the end, but a
+    same-or-larger re-run keeps the same selected run without the user
+    having to re-navigate. `benchChartHeight`'s reserved-lines budget
+    grows from `12` to `16` while inspect mode is active — one caret row
+    per chart plus the readout line and its own separating blank line —
+    and stays at `12` otherwise, so non-inspect rendering is pixel-
+    identical to before this feature existed.
+
+    Verified with table-driven Go tests (`columnForRun` against all
+    three cases — fewer/equal/more runs than width — `clampBenchCursor`'s
+    edge cases including zero runs, every new key binding including h/l
+    being inert outside inspect mode and not leaking into the count
+    field, the caret row appearing only when a cursor is passed, the
+    inspect readout appearing/disappearing with `benchInspect`, a
+    failed run getting flagged) and a real pty-driven session: navigated
+    to Bench, ran a batch, pressed `i` and confirmed a caret appeared
+    under both charts at the same column with a matching readout line
+    below, then confirmed `l`/`l` advanced the readout through
+    consecutive runs, `G` jumped straight to the last run (caret at the
+    chart's right edge), and `g` back to the first (caret at the left
+    edge) — all against real per-run data, not a mock.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
