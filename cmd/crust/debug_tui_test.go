@@ -48,7 +48,7 @@ func TestDebugModelStartsOnTimeTab(t *testing.T) {
 
 func TestDebugModelTabSwitchesBackAndForth(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	want := []tab{tabMemory, tabStepper, tabEditor, tabRun, tabNav, tabTime}
+	want := []tab{tabMemory, tabStepper, tabEditor, tabRun, tabBench, tabNav, tabTime}
 	for _, w := range want {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = next.(debugModel)

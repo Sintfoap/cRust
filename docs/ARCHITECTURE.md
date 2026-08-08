@@ -3458,6 +3458,154 @@ code was written.
     re-run repeatedly post-fix and confirmed clean every time: no
     `editorErr`, and the Run tab's selector shows `part1` immediately
     on return.
+- **A Bench tab** (`cmd/crust/debug_bench.go`, `tabBench`), on direct
+  request: "write a KPI for the develop tool that does x number of
+  runs of the current settings of the run tab and shows a graph on the
+  average runtime, the average memory, the max runtime and memory, the
+  min memory and runtime, and any other stats that would be notable in
+  the graph over those runs? Also make it so any of the lines on the
+  graph can be enabled or disable[d] depending on what I'd like to
+  compare."
+  - **Where it sits and what it reads**: inserted between Run and
+    Files in the tab order — it's a direct extension of "run this file
+    with these settings," so it belongs right next to the tab whose
+    settings it reads (`m.selectedRunEntry()`, `m.runInput`), not off
+    on its own. Type a run count into its own field (reusing
+    `runInputModel`, the Run tab's own hand-rolled text field — digits
+    only, everything else either an editing key or one of five
+    reserved toggle mnemonics), press enter, and the file runs that
+    many times back to back with whatever entry point and input file
+    the Run tab currently has selected — genuinely the *same*
+    settings, read fresh at run time, not a separate copy that could
+    drift out of sync with what the Run tab shows.
+  - **Deliberately untraced**: every iteration goes straight through
+    `runFile` (`run.go`), the exact function `crust run` and the Run
+    tab's own "run" action already use for their own command-line-style
+    output — not `buildDebugView`/`debugger.Recorder`, whose
+    per-statement tracing machinery would add real, systematic
+    overhead to every single statement executed and badly distort
+    exactly the timing numbers this feature exists to measure.
+    `cmd/crust/benchmark_test.go`'s own `BenchmarkAoC2020Day1Part1` had
+    already established this same "measure through the real CLI
+    pipeline, not an isolated interpreter microbenchmark" principle for
+    the identical reason (Phase 7, below) — reused here rather than
+    reinvented.
+  - **What gets measured**: wall-clock time via a plain
+    `time.Now()`/`time.Since()` bracket, and memory via
+    `runtime.MemStats.TotalAlloc` deltas (before/after each iteration)
+    — cumulative bytes allocated for heap objects, which only ever
+    increases, so a delta is accurate regardless of *when* a GC
+    happens to run during or between iterations, the same technique
+    `go test -bench -benchmem` itself uses internally. A run's own
+    exit code is recorded too (`benchRun.failed`) but doesn't stop the
+    batch or get excluded from the stats — a slow, failing run is
+    still real data about the program, called out separately in a
+    footer count rather than silently dropped.
+  - **Two charts, not one, each on its own scale**: Runtime above
+    Memory — the same reasoning that split the original KPI tab into
+    Time and Memory tabs in the first place (this section, above, "per
+    direct user feedback"): nanoseconds and bytes overlaid on one
+    shared Y-axis would make neither legible, since neither metric's
+    range has any relationship to the other's. Both charts share one
+    toggle set (`benchShow [benchSeriesKindCount]bool`, keyed by a
+    `benchSeriesKind` enum: raw/average/median/max/min) applied
+    identically to each — "average" is one abstract concept that shows
+    up on both charts with different underlying numbers, not two
+    independent things to track and toggle separately, so there's
+    exactly one legend, one set of `r`/`a`/`m`/`x`/`n` mnemonics,
+    governing both.
+  - **Median, specifically, as the "other stat that would be
+    notable"**: more resistant than the mean to one slow outlier run
+    (a stray GC pause, a scheduler hiccup on a shared machine) skewing
+    the whole picture — the standard first reach for a benchmarking
+    tool once you have more than a couple of samples, and directly
+    responsive to the "any other stats" part of the request rather
+    than only literally implementing the four explicitly named ones.
+  - **The stats themselves** (`benchAvgOf`/`benchMedianOf`/
+    `benchMaxOf`/`benchMinOf`) are one generic implementation each,
+    not two near-duplicate copies for `time.Duration` and `uint64` —
+    a `benchOrdered interface{ ~int64 | ~uint64 }` constraint covers
+    both, since Duration is itself defined as `~int64` and both need
+    identical arithmetic (sum, sort-and-pick-the-middle, min/max via
+    `slices.Max`/`slices.Min`).
+  - **The chart itself is hand-rolled ASCII/Unicode**, not a new
+    dependency — consistent with this project's existing pie chart
+    (`debug_style.go`'s `pieChart`, block characters filled by angle)
+    and its own "add a dependency only when needed" policy already
+    established for bubbletea/lipgloss themselves. A fixed-size grid
+    of runes plus a parallel grid of `lipgloss.Color` (one color per
+    cell, since a plain `[]rune` alone can't carry per-character
+    color): the raw series draws as a solid stepped line (`●` at each
+    data point, `│` filling the vertical gap to the previous point, so
+    a value jump reads as a connected line rather than isolated dots);
+    each shown reference line draws as a flat dashed row (`·` every
+    other column) across the *entire* width, visually distinct from
+    the raw line on sight. Reference lines paint over the raw series
+    wherever they'd land on the same cell, in a fixed draw order
+    (average, median, max, min) matching `benchSeriesInfo`'s own
+    declared order — deterministic regardless of which subset happens
+    to be toggled on, rather than depending on Go's randomized map
+    iteration order (which is exactly why `benchShow`/`refs` are fixed
+    -size arrays indexed by `benchSeriesKind`, not maps, throughout).
+  - **A real bug, found only by looking at a rendered chart, not by
+    any unit test**: the first version mapped the raw series onto the
+    chart via `bucketAverage(raw, width)` alone, which returns only
+    `min(width, n)` points — exact per-run values with no averaging
+    when there are fewer runs than columns, the common case. Those
+    points landed starting at column 0 and stopping at column
+    `n-1`, leaving the rest of the chart's width blank, while the
+    reference lines (drawn independently, always spanning the full
+    width) kept going the whole way across — the raw line visibly
+    crammed into the chart's left edge at a different effective
+    horizontal scale than everything else on the same chart. No
+    existing test caught this because every one of them asserted on
+    line *count* or *content*, never on *where within the width* a
+    line actually landed — exactly the class of bug a real rendered
+    screenshot (here, a real pty session) catches and a unit test
+    structurally can't. Fixed with a new `resampleForChart` that
+    always produces exactly `width` points: `bucketAverage` (unchanged)
+    when there are at least as many runs as columns, or linear
+    interpolation between the two nearest raw points when there are
+    fewer — stretching a short series smoothly across the *entire*
+    chart width instead of leaving it crammed against one edge, so it
+    now shares the same horizontal scale the reference lines always
+    used. A dedicated regression test
+    (`TestResampleForChartStretchesFewerRunsAcrossFullWidth`) pins
+    exactly this case: two points resampled onto eleven columns must
+    reach column 10, not stop at column 1.
+  - **`maxBenchRuns` (1000)**: `benchCmd` runs synchronously inside one
+    blocking `tea.Cmd`, the identical shape `runAllStoresCmd` already
+    established for "run every entry point in sequence" — and
+    bubbletea cannot process a quit keypress, or re-enter `Update` at
+    all, until that `Cmd` returns. An accidental extra zero on the
+    typed count (`10000` instead of `1000`) would otherwise hang the
+    whole session with no way out until every last iteration finished
+    on its own; the cap turns that into an immediate, recoverable
+    error instead.
+  - **Persistence**: the run count is remembered per file
+    (`develState.BenchCount`, `restoreBenchCount`/
+    `saveBenchCountBestEffort`), the same "reopening this file starts
+    back where you left it" convention `store`/`input`/`runAll`
+    already established — defaulting to 10 (a reasonable first-try
+    sample size) when nothing's been remembered yet, preserving
+    whatever else was already saved for that file rather than
+    clobbering it.
+  - Verified with table-driven Go tests (every stats helper including
+    empty-input edge cases, `bucketAverage`/`resampleForChart` in both
+    the downsample and stretch directions, chart rendering at a fixed
+    size including the "nothing shown" placeholder and a flat-data
+    divide-by-zero guard, every key binding including the toggle
+    mnemonics *not* leaking into the numeric field, a real multi-run
+    `benchCmd` execution against a real file on disk with a real
+    non-zero-exit case, every error path, the persistence round trip)
+    and a real pty-driven session: navigated to the Bench tab (via
+    Shift+Tab twice from Time, deliberately avoiding tabbing *forward*
+    through Editor, which auto-launches `nvim` and would steal the
+    remaining keystrokes — the same trap an earlier Files-tab pty
+    session in this same log already hit once), ran the default count,
+    confirmed both charts rendered with real numbers and the shared
+    legend, and confirmed toggling a series with `a` visibly removed
+    it from the redrawn chart.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

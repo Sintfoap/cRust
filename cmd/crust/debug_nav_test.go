@@ -320,19 +320,20 @@ func TestHandleKeyUpDownMovesNavCursor(t *testing.T) {
 
 func TestTabCyclingFromTimeReachesFilesTab(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 		m = next.(debugModel)
 	}
 	if m.active != tabNav {
-		t.Errorf("active = %v after 5 tabs from Time, want tabNav", m.active)
+		t.Errorf("active = %v after 6 tabs from Time, want tabNav", m.active)
 	}
 }
 
 // TestTabFromRunReachesFilesTabAndRefreshesIt exercises the specific
 // path that broke on first pass: reaching Files by tabbing *forward*
-// from Run goes through handleRunTabKey, not the shared handleKey
-// switch, so that handler needs its own maybeRefreshNav call too.
+// from Run (through Bench, which sits between them) goes through
+// handleRunTabKey then handleBenchTabKey, neither of them the shared
+// handleKey switch, so both need their own maybeRefreshNav call too.
 func TestTabFromRunReachesFilesTabAndRefreshesIt(t *testing.T) {
 	dir := t.TempDir()
 	writeCrustFileIn(t, dir, "day01.crust", "x = 1")
@@ -343,21 +344,27 @@ func TestTabFromRunReachesFilesTabAndRefreshesIt(t *testing.T) {
 
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(debugModel)
-	if got.active != tabNav {
-		t.Fatalf("active = %v, want tabNav", got.active)
+	if got.active != tabBench {
+		t.Fatalf("active = %v, want tabBench (Run's own next tab)", got.active)
 	}
-	if len(got.navFiles) != 2 {
-		t.Errorf("got %d navFiles, want 2 (refreshed on entering the tab)", len(got.navFiles))
+
+	next2, _ := got.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	got2 := next2.(debugModel)
+	if got2.active != tabNav {
+		t.Fatalf("active = %v, want tabNav", got2.active)
+	}
+	if len(got2.navFiles) != 2 {
+		t.Errorf("got %d navFiles, want 2 (refreshed on entering the tab)", len(got2.navFiles))
 	}
 }
 
-func TestShiftTabFromFilesReturnsToRun(t *testing.T) {
+func TestShiftTabFromFilesReturnsToBench(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	m.active = tabNav
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
 	got := next.(debugModel)
-	if got.active != tabRun {
-		t.Errorf("active = %v, want tabRun", got.active)
+	if got.active != tabBench {
+		t.Errorf("active = %v, want tabBench", got.active)
 	}
 }
 

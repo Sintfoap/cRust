@@ -183,8 +183,8 @@ func TestHandleRunTabKeyTabSwitchesTabs(t *testing.T) {
 	m.active = tabRun
 	next, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(debugModel)
-	if m.active != tabNav {
-		t.Errorf("active = %v, want tabNav (Run's own next tab)", m.active)
+	if m.active != tabBench {
+		t.Errorf("active = %v, want tabBench (Run's own next tab)", m.active)
 	}
 }
 

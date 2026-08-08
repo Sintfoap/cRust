@@ -152,7 +152,7 @@ knead n in neighbors4((row, col)) {
 ## Debugging while you work
 
 ```
-crust develop day01.crust          # interactive: Time/Memory/Stepper/Editor/Run/Files tabs
+crust develop day01.crust          # interactive: Time/Memory/Stepper/Editor/Run/Bench/Files tabs
 crust develop day01.crust --plain  # same recording, printed as text (pipeable)
 crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place

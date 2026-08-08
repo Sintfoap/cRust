@@ -3,13 +3,15 @@
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
 //
-// Six tabs, switched with tab/left/right: Time and Memory (one pie
+// Seven tabs, switched with tab/left/right: Time and Memory (one pie
 // chart each, self-time/self-memory per function/loop, plus a few
 // overall numbers), Stepper (the recorded tree, navigable with the
 // arrow keys), Editor (hands the terminal to nvim on the file being
 // debugged; see debug_editor.go for the save-triggered reload loop),
 // Run (type a path and press enter to run the file with it as stdin
-// and see the raw output, command-line style; see debug_run.go), and
+// and see the raw output, command-line style; see debug_run.go),
+// Bench (run the file N times with the Run tab's current settings and
+// chart runtime/memory across those runs; see debug_bench.go), and
 // Files (browse and switch to another .crust file alongside the one
 // currently open; see debug_nav.go).
 package main
@@ -35,6 +37,7 @@ const (
 	tabStepper
 	tabEditor
 	tabRun
+	tabBench
 	// tabNav is appended last, after every pre-existing tab, so none of
 	// their const values (or anything that stores one, like a saved
 	// m.active) shift out from under it.
@@ -44,7 +47,7 @@ const (
 // tabCount is how many tabs there are, for wrapping cursor arithmetic —
 // named rather than inlined as a literal so handleKey's wraparound math
 // stays correct if another tab ever shows up.
-const tabCount = 6
+const tabCount = 7
 
 // visRow is one visible line of the stepper's tree: a node plus its
 // indentation depth. closing marks a synthetic row generated after a
@@ -137,10 +140,28 @@ type debugModel struct {
 	// second implementation of the same small job.
 	navCreating bool
 	navNewName  runInputModel
+
+	// benchCount/benchRuns/benchErr/benchShow back the Bench tab
+	// (debug_bench.go): benchCount is the "how many runs" text field
+	// (reusing runInputModel, digits only — see handleBenchTabKey),
+	// benchRuns is the last batch's raw per-run measurements in run
+	// order, benchErr is the last attempt's error (an invalid run count
+	// or an unreadable input file — never a per-run program failure,
+	// which lives in benchRuns[i].failed instead), and benchShow tracks
+	// which of the five toggleable chart lines (raw/average/median/max/
+	// min) are currently drawn, shared identically between the Runtime
+	// and Memory charts.
+	benchCount runInputModel
+	benchRuns  []benchRun
+	benchErr   string
+	benchShow  [benchSeriesKindCount]bool
 }
 
 func newDebugModel(view *debugView) debugModel {
 	m := debugModel{view: view, expanded: map[*debugger.TraceNode]bool{}}
+	for k := range m.benchShow {
+		m.benchShow[k] = true
+	}
 	m.rebuildRows()
 	return m
 }
@@ -199,6 +220,8 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleReload(msg)
 	case runResultMsg:
 		return m.handleRunResult(msg)
+	case benchResultMsg:
+		return m.handleBenchResult(msg)
 	}
 	return m, nil
 }
@@ -211,6 +234,11 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// case or two threaded through the switch below.
 	if m.active == tabRun {
 		return m.handleRunTabKey(msg)
+	}
+	// The Bench tab's run-count field and its own toggle mnemonics
+	// (r/a/m/x/n) need the same dedicated handling, for the same reason.
+	if m.active == tabBench {
+		return m.handleBenchTabKey(msg)
 	}
 	// Same reasoning as the Run tab's own field above: typing a new
 	// filename wants nearly every key for itself (including letters
@@ -329,6 +357,8 @@ func (m debugModel) View() string {
 		body = m.viewEditor()
 	case tabRun:
 		body = m.viewRun()
+	case tabBench:
+		body = m.viewBench()
 	case tabNav:
 		body = m.viewNav()
 	}
@@ -377,6 +407,8 @@ func (m debugModel) helpText() string {
 			return "↑↓: field/entry point   ←→: move/change   enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+	case tabBench:
+		return "enter: run N times   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
 		if m.navCreating {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"
@@ -388,7 +420,7 @@ func (m debugModel) helpText() string {
 }
 
 func (m debugModel) viewTabs() string {
-	timeS, memS, stepper, editor, run, nav := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
+	timeS, memS, stepper, editor, run, bench, nav := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
 	switch m.active {
 	case tabTime:
 		timeS = styleTabActive
@@ -400,12 +432,14 @@ func (m debugModel) viewTabs() string {
 		editor = styleTabActive
 	case tabRun:
 		run = styleTabActive
+	case tabBench:
+		bench = styleTabActive
 	case tabNav:
 		nav = styleTabActive
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		timeS.Render("Time"), memS.Render("Memory"), stepper.Render("Stepper"),
-		editor.Render("Editor"), run.Render("Run"), nav.Render("Files"))
+		editor.Render("Editor"), run.Render("Run"), bench.Render("Bench"), nav.Render("Files"))
 }
 
 // viewEditor is the Editor tab's placeholder. It hands off to a real
@@ -682,6 +716,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), opts.Store)
 	m.runInput = restoreRunInput(view.path)
 	m.runAllStores = restoreRunAll(view.path)
+	m.benchCount = benchCountInput(restoreBenchCount(view.path))
 	m.refreshNavFiles()
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {

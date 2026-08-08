@@ -178,7 +178,7 @@ not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
 not one row per call site.
 
-On a real terminal this opens an interactive six-tab TUI: **Time**
+On a real terminal this opens an interactive seven-tab TUI: **Time**
 and **Memory** (one pie chart each, so both get the full window),
 **Stepper** (the tree), **Editor** (opens `nvim` on the file being
 debugged as soon as you switch to it — `nvim` behaves normally in
@@ -193,15 +193,25 @@ and press enter to run the file with it as stdin, showing the raw
 output exactly like `crust run day01.crust < input.txt` would — no
 tracing, just the program's own stdout/stderr; if the file declares
 more than one `store`/`store_<name>` entry point, ↑↓ moves down to a
-selector row listing them and ←→ picks one before you hit enter), and
+selector row listing them and ←→ picks one before you hit enter),
+**Bench** (type a run count and press enter to run the file that many
+times, back to back, with whichever entry point and input file the
+Run tab currently has selected — plain, untraced runs straight through
+the same `runFile` `crust run` itself uses, so tracing overhead never
+skews the numbers — then charts wall-clock time and memory allocated
+across those runs as two small ASCII line charts, one per metric,
+each on its own scale; five lines per chart — the raw per-run values,
+average, median, max, min — toggle independently with `r`/`a`/`m`/`x`/
+`n` so you can isolate exactly what you're comparing, shared between
+both charts since "average" means the same thing on either one), and
 **Files** (every other `.crust` file alongside the one currently
 open — the natural "AoC folder full of day01.crust..day25.crust"
 layout — ↑↓ to move, enter to switch straight to one without leaving
 `crust develop` and relaunching it on a different path; each file
-keeps its own remembered store/input/run-all settings, the same as
-reopening it fresh from the command line would; `n` starts a new file
-right there — type a name, enter creates it (`.crust` appended if you
-leave it off) and switches straight to it).
+keeps its own remembered store/input/run-all/bench-count settings, the
+same as reopening it fresh from the command line would; `n` starts a
+new file right there — type a name, enter creates it (`.crust`
+appended if you leave it off) and switches straight to it).
 Ctrl+R toggles running *every* entry point in sequence instead of just
 the selected one — each against the same input file, one full run
 apiece, output concatenated under a `=== part1 ===`-style heading per

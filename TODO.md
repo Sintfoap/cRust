@@ -1144,6 +1144,51 @@ confirmed, not before.
       table-driven Go tests (binary/hex/base-36 round trips, negative
       numbers, out-of-range bases, invalid digits for a base, wrong
       types) and a real `crust run` subprocess.
+- [x] A Bench tab for `crust develop`, on direct request: "write a KPI
+      for the develop tool that does x number of runs of the current
+      settings of the run tab and shows a graph on the average
+      runtime, the average memory, the max runtime and memory, the
+      min memory and runtime, and any other stats that would be
+      notable in the graph over those runs? Also make it so any of the
+      lines on the graph can be enabled or disable[d] depending on
+      what I'd like to compare." Type a run count, press enter, and
+      the file being debugged runs that many times back to back with
+      the Run tab's current entry point + input file — deliberately
+      untraced (plain `runFile`, the same function `crust run` and the
+      Run tab's own "run" already use), since `debugger.Recorder`'s
+      per-statement tracing overhead would badly distort exactly the
+      timing numbers this feature exists to measure. Wall-clock time
+      (`time.Since`) and bytes allocated (`runtime.MemStats.TotalAlloc`
+      deltas — cumulative, so unaffected by *when* a GC happens to run,
+      the same technique `go test -bench -benchmem` itself uses) get
+      charted as two small ASCII line charts, Runtime above Memory,
+      each on its own Y-axis scale — the same reasoning that split the
+      original KPI tab into Time and Memory tabs in the first place
+      (per direct user feedback back then): overlaying nanoseconds and
+      bytes on one shared axis would make neither legible. Five
+      toggleable lines per chart — raw per-run values, average,
+      median, max, min — one shared toggle set applied identically to
+      both charts (`r`/`a`/`m`/`x`/`n` mnemonics, chosen specifically
+      to avoid colliding with the numeric run-count field). Median
+      included as the "other stat that would be notable" the request
+      asked for — more resistant than the mean to one slow outlier run
+      skewing the picture. A run count over 1000 is rejected outright:
+      `benchCmd` runs synchronously inside one blocking `tea.Cmd` (the
+      same shape "run all stores" already uses), and bubbletea can't
+      process a quit keypress until that Cmd returns, so an accidental
+      extra zero on the typed count would otherwise hang the whole
+      session with no way out. A real pty-driven session caught a
+      genuine bug in the first draft: with fewer runs than chart
+      columns, the raw line only occupied its first N columns instead
+      of spanning the chart the same full width the reference lines
+      always do — fixed by resampling (linearly interpolating, not
+      just bucket-averaging) the raw series across the full width
+      regardless of how few runs there were. Verified with table-driven
+      Go tests (the stats helpers, the resampling/downsampling logic,
+      key handling, a real multi-run `benchCmd` execution against a
+      real file on disk, error cases) and that same real pty-driven
+      session, re-run clean after the fix: both charts rendered with
+      real data, and toggling a series off visibly changed the chart.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate

@@ -13,9 +13,10 @@ import (
 
 // develState is one file's remembered settings.
 type develState struct {
-	Store  string `json:"store"`
-	Input  string `json:"input"`
-	RunAll bool   `json:"runAll,omitempty"`
+	Store      string `json:"store"`
+	Input      string `json:"input"`
+	RunAll     bool   `json:"runAll,omitempty"`
+	BenchCount int    `json:"benchCount,omitempty"`
 }
 
 // develStateDir resolves to os.UserConfigDir() normally; tests
