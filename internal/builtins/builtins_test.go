@@ -121,6 +121,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "wrap", "wrapSlice", "wrapReplace", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
+		"band", "bor", "bxor", "bnot", "shl", "shr",
 		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -2380,6 +2381,75 @@ func TestLcm(t *testing.T) {
 func TestLcmWrongTypes(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "lcm", &object.Float{Value: 1}, object.NewInteger(2)))
+}
+
+func TestBand(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "band", object.NewInteger(0b1100), object.NewInteger(0b1010)), 0b1000)
+	wantInteger(t, call(t, table, "band", object.NewInteger(-1), object.NewInteger(6)), 6)
+}
+
+func TestBandWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "band", &object.Float{Value: 1}, object.NewInteger(2)))
+	wantError(t, call(t, table, "band", object.NewInteger(1)))
+}
+
+func TestBor(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "bor", object.NewInteger(0b1100), object.NewInteger(0b1010)), 0b1110)
+	wantInteger(t, call(t, table, "bor", object.NewInteger(0), object.NewInteger(0)), 0)
+}
+
+func TestBorWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "bor", &object.Float{Value: 1}, object.NewInteger(2)))
+}
+
+func TestBxor(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "bxor", object.NewInteger(0b1100), object.NewInteger(0b1010)), 0b0110)
+	wantInteger(t, call(t, table, "bxor", object.NewInteger(5), object.NewInteger(5)), 0)
+}
+
+func TestBxorWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "bxor", &object.Float{Value: 1}, object.NewInteger(2)))
+}
+
+func TestBnot(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "bnot", object.NewInteger(0)), -1)
+	wantInteger(t, call(t, table, "bnot", object.NewInteger(-1)), 0)
+	wantInteger(t, call(t, table, "bnot", object.NewInteger(5)), -6)
+}
+
+func TestBnotWrongArgs(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "bnot", &object.Float{Value: 1}))
+	wantError(t, call(t, table, "bnot", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestShl(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "shl", object.NewInteger(1), object.NewInteger(4)), 16)
+	wantInteger(t, call(t, table, "shl", object.NewInteger(3), object.NewInteger(0)), 3)
+}
+
+func TestShlNegativeShiftIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "shl", object.NewInteger(1), object.NewInteger(-1)))
+}
+
+func TestShr(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "shr", object.NewInteger(16), object.NewInteger(4)), 1)
+	wantInteger(t, call(t, table, "shr", object.NewInteger(-8), object.NewInteger(1)), -4)
+}
+
+func TestShrNegativeShiftIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "shr", object.NewInteger(1), object.NewInteger(-1)))
 }
 
 func TestReplace(t *testing.T) {

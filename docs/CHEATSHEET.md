@@ -108,6 +108,12 @@ a `(row, col)` Tuple
 **Math** — `idiv(a, b)` (floor div), `abs(x)`, `pow(base, exp)`,
 `sqrt(x)`, `gcd(a, b)`, `lcm(a, b)`
 
+**Bitwise** — `band(a, b)`, `bor(a, b)`, `bxor(a, b)`, `bnot(x)`,
+`shl(x, n)`, `shr(x, n)` (arithmetic — sign-extending) — all
+Integer-only; `b`-prefixed as a family for consistency (`or` is the
+only one of `and`/`or`/`not` that's actually a reserved word — cRust's
+own logical ops are spelled `with`/`or`/`hold`)
+
 No `reverse` builtin — use slicing instead: `xs[-1..0]` reverses a List
 or String.
 

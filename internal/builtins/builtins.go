@@ -68,6 +68,12 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"sqrt":        {Fn: sqrtFn},
 		"gcd":         {Fn: gcdFn},
 		"lcm":         {Fn: lcmFn},
+		"band":        {Fn: bandFn},
+		"bor":         {Fn: borFn},
+		"bxor":        {Fn: bxorFn},
+		"bnot":        {Fn: bnotFn},
+		"shl":         {Fn: shlFn},
+		"shr":         {Fn: shrFn},
 		"gather":      {Fn: gatherFn},
 		"list":        {Fn: listFn},
 		"tuple":       {Fn: tupleFn},
@@ -1286,6 +1292,100 @@ func lcmFn(args ...object.Object) object.Object {
 		result = -result
 	}
 	return object.NewInteger(result)
+}
+
+// bandFn is `band(a, b)` (SPEC.md §7) — bitwise AND, Integer-only
+// (bitwise operations aren't meaningful on a Float, the same
+// restriction `idiv`/`gcd`/`lcm` already apply). Named with a `b`
+// prefix rather than the bare `and` for consistency across the whole
+// family, not because it strictly has to be: `and`/`not` are actually
+// free identifiers in cRust (its own logical AND/NOT are the `with`/
+// `hold` keywords, SPEC.md §4, so `and`/`not` were never claimed by
+// anything). `or` is the one genuine collision (SPEC.md §4's own
+// logical OR keyword) — but naming only `bor` with a prefix while
+// `band`/`bxor`/`bnot` went bare would read as arbitrary, so the whole
+// family stays uniformly `b`-prefixed instead.
+func bandFn(args ...object.Object) object.Object {
+	a, b, errObj := twoInts("band", args)
+	if errObj != nil {
+		return errObj
+	}
+	return object.NewInteger(a & b)
+}
+
+// borFn is `bor(a, b)` (SPEC.md §7) — bitwise OR. See bandFn's doc
+// comment for the naming reasoning shared across this whole family.
+func borFn(args ...object.Object) object.Object {
+	a, b, errObj := twoInts("bor", args)
+	if errObj != nil {
+		return errObj
+	}
+	return object.NewInteger(a | b)
+}
+
+// bxorFn is `bxor(a, b)` (SPEC.md §7) — bitwise XOR, on direct
+// request ("can you also create a xor and other bitwise functions for
+// crust?") and far and away the most commonly reached-for member of
+// this family in AoC-style puzzles (checksums, parity, hash mixing,
+// ...).
+func bxorFn(args ...object.Object) object.Object {
+	a, b, errObj := twoInts("bxor", args)
+	if errObj != nil {
+		return errObj
+	}
+	return object.NewInteger(a ^ b)
+}
+
+// bnotFn is `bnot(x)` (SPEC.md §7) — bitwise NOT (one's complement):
+// every bit flipped, over the full 64-bit width cRust's Integer
+// already uses. Unlike `hold`/`!` (logical NOT on a Boolean), this is
+// a numeric transform on an Integer, so `bnot(0)` is `-1`, not an
+// error or a Boolean.
+func bnotFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("bnot", "1", len(args))
+	}
+	x, ok := args[0].(*object.Integer)
+	if !ok {
+		return wrongArgType("bnot", 0, "an Integer", args[0])
+	}
+	return object.NewInteger(^x.Value)
+}
+
+// shlFn is `shl(x, n)` (SPEC.md §7) — left shift: x's bits moved
+// toward the high end by n places, zero-filling from the low end. A
+// negative n is a runtime error rather than the runtime panic Go's
+// own `<<` operator raises for a negative shift count — cRust has no
+// precedent for a builtin crashing the whole process over a bad
+// argument anywhere else, division by zero included.
+func shlFn(args ...object.Object) object.Object {
+	x, n, errObj := twoInts("shl", args)
+	if errObj != nil {
+		return errObj
+	}
+	if n < 0 {
+		return newError("shl: shift amount must not be negative, got %d", n)
+	}
+	return object.NewInteger(x << uint64(n))
+}
+
+// shrFn is `shr(x, n)` (SPEC.md §7) — right shift: x's bits moved
+// toward the low end by n places. Arithmetic, not logical: the sign
+// bit fills in from the high end (matching Go's own `>>` on a signed
+// integer, and every mainstream language's plain `>>` on a signed
+// type), so `shr(-8, 1)` is `-4`, not a huge positive number — cRust
+// has no unsigned Integer type to make a logical shift meaningful
+// against in the first place. A negative n is a runtime error, same
+// as shl.
+func shrFn(args ...object.Object) object.Object {
+	x, n, errObj := twoInts("shr", args)
+	if errObj != nil {
+		return errObj
+	}
+	if n < 0 {
+		return newError("shr: shift amount must not be negative, got %d", n)
+	}
+	return object.NewInteger(x >> uint64(n))
 }
 
 // gatherFn is `gather(list)` (SPEC.md §7) — collects a List into a

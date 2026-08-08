@@ -1682,6 +1682,39 @@ below). Phase 5's stdlib checklist is now fully complete.
     full-wrap replace-everything case, plus real `crust run`
     subprocesses reproducing both the original reversal example and
     the bug report end to end.
+- **Bitwise builtins**: `band(a, b)`, `bor(a, b)`, `bxor(a, b)`,
+  `bnot(x)`, `shl(x, n)`, `shr(x, n)` — on direct request: "can you
+  also create a xor and other bitwise functions for crust?" Six plain
+  functions rather than new infix operators (`&`/`|`/`^`/`<<`/`>>`) —
+  cRust has no bitwise operators today, and adding them would mean
+  new tokens, lexer/parser precedence entries, and interpreter
+  evaluation cases, a much bigger and riskier change than the actual
+  ask; `idiv`'s own precedent (plain function instead of a `//`
+  operator) already established this pattern for `/`'s own edge case.
+  All six are Integer-only, the same restriction `idiv`/`gcd`/`lcm`
+  already apply, since bitwise operations aren't meaningful on a
+  Float. `band`/`bor`/`bxor`/`bnot` are `b`-prefixed as a family for
+  consistency, though only `bor` strictly needs it: `or` is cRust's
+  own logical-OR keyword (SPEC.md §4), but `and` and `not` are
+  actually free identifiers — cRust spells its logical AND/NOT as the
+  `with`/`hold` keywords instead, never claiming `and`/`not` for
+  anything (confirmed directly: `and = 5` and `recipe not(x) { serve
+  x + 1 }` both parse and run without incident). Naming only `bor`
+  with a prefix while `band`/`bxor`/`bnot` went bare would read as an
+  arbitrary inconsistency, so the whole family stays uniformly
+  prefixed instead. `shr` is arithmetic, not logical — the sign bit
+  fills in from the high end, matching Go's own `>>` on a signed
+  integer and every mainstream language's plain `>>` on a signed
+  type, since cRust has no unsigned Integer type to make a logical
+  shift meaningful against in the first place. Both shifts reject a
+  negative count as an ordinary cRust runtime error rather than
+  letting it through to Go's own `<<`/`>>`, which panics the whole
+  process for a negative shift count — cRust has no precedent for a
+  builtin crashing the interpreter over a bad argument anywhere else,
+  division by zero included. Verified with table-driven Go tests
+  (each operator's basic behavior, negative-shift-count errors, wrong
+  argument types/counts) and a real `crust run` subprocess exercising
+  all six together.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

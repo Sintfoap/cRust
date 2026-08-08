@@ -1113,6 +1113,21 @@ confirmed, not before.
       a wrapped different-length span, a full-wrap replace) and real
       `crust run` subprocesses reproducing both the original reversal
       example and the bug report end to end.
+- [x] Bitwise builtins: `band(a, b)`, `bor(a, b)`, `bxor(a, b)`,
+      `bnot(x)`, `shl(x, n)`, `shr(x, n)`, on direct request: "can you
+      also create a xor and other bitwise functions for crust?"
+      Integer-only, like `idiv`/`gcd`/`lcm`. `b`-prefixed as a family
+      for consistency, even though `or` is the only one of
+      `and`/`or`/`not` that's actually a reserved word (cRust's own
+      logical AND/OR/NOT are the `with`/`or`/`hold` keywords, §4 —
+      `and`/`not` were never claimed by anything, verified directly by
+      declaring a variable named `and` and a recipe named `not` and
+      running both). `shr` is arithmetic (sign-extending), not
+      logical, since cRust has no unsigned Integer type to make a
+      logical shift meaningful against; both shifts reject a negative
+      count as a runtime error rather than letting Go's own `<<`/`>>`
+      panic the whole process over it. Verified with table-driven Go
+      tests and a real `crust run` subprocess exercising all six.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate
