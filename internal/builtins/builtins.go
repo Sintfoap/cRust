@@ -74,6 +74,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"bnot":        {Fn: bnotFn},
 		"shl":         {Fn: shlFn},
 		"shr":         {Fn: shrFn},
+		"rebox":       {Fn: reboxFn},
 		"gather":      {Fn: gatherFn},
 		"list":        {Fn: listFn},
 		"tuple":       {Fn: tupleFn},
@@ -1386,6 +1387,64 @@ func shrFn(args ...object.Object) object.Object {
 		return newError("shr: shift amount must not be negative, got %d", n)
 	}
 	return object.NewInteger(x >> uint64(n))
+}
+
+// reboxFn is `rebox(element, fromBase, toBase)` (SPEC.md §7) — base
+// conversion, on direct request for "a base conversion std lib
+// function with a fun pizza jargon name." The name leans on the same
+// "pizza box" metaphor `nobox` already established (§4: nobox is an
+// empty box, nothing inside) — converting a number's base is
+// repacking the exact same value into boxes sized differently
+// (base-2 boxes hold one bit each, base-16 boxes hold four, ...),
+// nothing about the value itself changes.
+//
+// element is always a String — the digit representation being
+// converted, in fromBase — never an Integer, even when fromBase is
+// 10: a number only really has "digits" once it's written out in some
+// base, and requiring a String uniformly (rather than only when
+// fromBase != 10) keeps one predictable rule instead of two.
+// Converting an already-computed Integer starts from `str(x)`
+// (`rebox(str(x), 10, 16)`), the same composable step `int(s)`'s own
+// String-only requirement already expects elsewhere. The result is
+// also always a String, including for `toBase == 10` — there's no
+// special-cased return-an-Integer path, for the same one-rule-not-two
+// reasoning.
+//
+// fromBase/toBase must be in [2, 36] — the same ceiling Go's own
+// strconv.ParseInt/FormatInt enforce (2-9 use digits, 10-35 add
+// a-z/A-Z, one letter per value past 9), reported as an ordinary
+// cRust runtime error rather than propagating strconv's own
+// Go-flavored error text. Input digit letters are accepted in either
+// case ("ff" or "FF"), but output is always lowercase, matching
+// strconv.FormatInt's own convention and, not incidentally, the
+// lowercase hex AoC's own knot-hash puzzles (2017 days 10/14) expect.
+func reboxFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("rebox", "3", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("rebox", 0, "a String", args[0])
+	}
+	fromBase, ok := args[1].(*object.Integer)
+	if !ok {
+		return wrongArgType("rebox", 1, "an Integer", args[1])
+	}
+	toBase, ok := args[2].(*object.Integer)
+	if !ok {
+		return wrongArgType("rebox", 2, "an Integer", args[2])
+	}
+	if fromBase.Value < 2 || fromBase.Value > 36 {
+		return newError("rebox: fromBase must be between 2 and 36, got %d", fromBase.Value)
+	}
+	if toBase.Value < 2 || toBase.Value > 36 {
+		return newError("rebox: toBase must be between 2 and 36, got %d", toBase.Value)
+	}
+	n, err := strconv.ParseInt(s.Value, int(fromBase.Value), 64)
+	if err != nil {
+		return newError("rebox: %q is not a valid base-%d number", s.Value, fromBase.Value)
+	}
+	return &object.String{Value: strconv.FormatInt(n, int(toBase.Value))}
 }
 
 // gatherFn is `gather(list)` (SPEC.md §7) — collects a List into a

@@ -114,6 +114,9 @@ Integer-only; `b`-prefixed as a family for consistency (`or` is the
 only one of `and`/`or`/`not` that's actually a reserved word — cRust's
 own logical ops are spelled `with`/`or`/`hold`)
 
+**Base conversion** — `rebox(element, fromBase, toBase)` (String in,
+String out, bases `2..36` — `rebox("255", 10, 2)` is `"11111111"`)
+
 No `reverse` builtin — use slicing instead: `xs[-1..0]` reverses a List
 or String.
 

@@ -70,6 +70,7 @@ var builtinDocs = map[string]string{
 	"bnot":        "`bnot(x) -> Integer` — bitwise NOT (one's complement), all 64 bits flipped. bnot(0) is -1.",
 	"shl":         "`shl(x, n) -> Integer` — left shift, zero-filling from the low end. A negative n is a runtime error.",
 	"shr":         "`shr(x, n) -> Integer` — arithmetic right shift (sign bit fills from the high end). A negative n is a runtime error.",
+	"rebox":       "`rebox(element, fromBase, toBase) -> String` — base conversion: element is a String of digits in fromBase, result is a String of digits in toBase (2-36, letters for values past 9). rebox(\"255\", 10, 2) is \"11111111\"; rebox(\"ff\", 16, 10) is \"255\".",
 	"gather":      "`gather(list) -> Set` — collects a List into a Set, dropping duplicates.",
 	"list":        "`list(x) -> List` — x's elements (a List, Tuple, or Set) collected into a new List. A List in, List out is a shallow copy, same as Python's list(); for a deep copy see copy().",
 	"tuple":       "`tuple(x) -> Tuple` — x's elements (a List, Tuple, or Set) collected into a new Tuple. Every element must be Hashable, same requirement as a (a, b) Tuple literal.",

@@ -121,7 +121,7 @@ func TestNewRegistersEveryBuiltin(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	want := []string{
 		"deliver", "slices", "wrap", "wrapSlice", "wrapReplace", "sauce", "chars", "ints", "push", "copy", "map", "find", "min", "max", "pizzasort", "combos", "enumerate", "join", "split", "idiv",
-		"band", "bor", "bxor", "bnot", "shl", "shr",
+		"band", "bor", "bxor", "bnot", "shl", "shr", "rebox",
 		"gather", "list", "tuple", "set", "freq", "keys", "values", "sprinkle", "scrape", "topped", "contains", "combine", "shared", "strip",
 		"unbox", "lines", "trim", "str", "int", "float", "bool",
 		"grid", "newGrid", "at", "setAt", "gridBounds", "neighbors4", "neighbors8",
@@ -2450,6 +2450,55 @@ func TestShr(t *testing.T) {
 func TestShrNegativeShiftIsError(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "shr", object.NewInteger(1), object.NewInteger(-1)))
+}
+
+func TestRebox(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tests := []struct {
+		name             string
+		s                string
+		fromBase, toBase int64
+		want             string
+	}{
+		{"decimal to binary", "255", 10, 2, "11111111"},
+		{"binary to decimal", "11111111", 2, 10, "255"},
+		{"hex to decimal, lowercase input", "ff", 16, 10, "255"},
+		{"hex to decimal, uppercase input", "FF", 16, 10, "255"},
+		{"decimal to hex, lowercase output", "255", 10, 16, "ff"},
+		{"decimal to decimal is a no-op", "42", 10, 10, "42"},
+		{"negative number preserves the sign", "-255", 10, 16, "-ff"},
+		{"base 36", "z", 36, 10, "35"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := call(t, table, "rebox", &object.String{Value: tt.s}, object.NewInteger(tt.fromBase), object.NewInteger(tt.toBase))
+			wantString(t, got, tt.want)
+		})
+	}
+}
+
+func TestReboxBaseOutOfRangeIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "rebox", &object.String{Value: "1"}, object.NewInteger(1), object.NewInteger(10)))
+	wantError(t, call(t, table, "rebox", &object.String{Value: "1"}, object.NewInteger(10), object.NewInteger(37)))
+}
+
+func TestReboxInvalidDigitForBaseIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "rebox", &object.String{Value: "12"}, object.NewInteger(2), object.NewInteger(10)))
+	wantError(t, call(t, table, "rebox", &object.String{Value: ""}, object.NewInteger(10), object.NewInteger(2)))
+}
+
+func TestReboxWrongTypes(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "rebox", object.NewInteger(255), object.NewInteger(10), object.NewInteger(2)))
+	wantError(t, call(t, table, "rebox", &object.String{Value: "1"}, &object.Float{Value: 10}, object.NewInteger(2)))
+	wantError(t, call(t, table, "rebox", &object.String{Value: "1"}, object.NewInteger(10), &object.Float{Value: 2}))
+}
+
+func TestReboxWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "rebox", &object.String{Value: "1"}, object.NewInteger(10)))
 }
 
 func TestReplace(t *testing.T) {

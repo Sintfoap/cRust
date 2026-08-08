@@ -1715,6 +1715,37 @@ below). Phase 5's stdlib checklist is now fully complete.
   (each operator's basic behavior, negative-shift-count errors, wrong
   argument types/counts) and a real `crust run` subprocess exercising
   all six together.
+- **`rebox(element, fromBase, toBase)`** — base conversion, on direct
+  request: "can you make a base conversion std lib function with a fun
+  pizza jargon name? something like fn(element, frombase, tobase)."
+  The name leans on the same "pizza box" metaphor `nobox` already
+  established (§4: `nobox` is an empty box, nothing inside) —
+  converting a number's base is repacking the exact same value into
+  boxes sized differently (base-2 boxes hold one bit each, base-16
+  boxes hold four, ...), nothing about the value itself changes.
+  `element` is always a String — the digit representation being
+  converted, in `fromBase` — never an Integer, even when `fromBase` is
+  10: a number only really has "digits" once it's written out in some
+  base, and requiring a String uniformly (rather than only when
+  `fromBase != 10`) keeps one predictable rule instead of two.
+  Converting an already-computed Integer starts from `str(x)`
+  (`rebox(str(x), 10, 16)`), the same composable step `int(s)`'s own
+  String-only requirement already expects elsewhere. The result is
+  also always a String, including for `toBase == 10` — no
+  special-cased return-an-Integer path, same one-rule-not-two
+  reasoning. Implemented directly on `strconv.ParseInt`/`FormatInt`,
+  which is also what sets the valid range — `fromBase`/`toBase` must
+  be `2..36` (2-9 use digits, 10-35 add a-z/A-Z, one letter per value
+  past 9), reported as an ordinary cRust runtime error rather than
+  propagating `strconv`'s own Go-flavored error text. Input digit
+  letters are accepted in either case (`"ff"` or `"FF"`), but output
+  is always lowercase, matching `strconv.FormatInt`'s own convention
+  and, not incidentally, the lowercase hex AoC's own knot-hash puzzles
+  (2017 days 10/14) expect. Verified with table-driven Go tests
+  (binary/decimal/hex/base-36 round trips both directions, a negative
+  number preserving its sign, out-of-range bases, an invalid digit for
+  a base, wrong argument types/count) and a real `crust run`
+  subprocess.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

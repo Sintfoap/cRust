@@ -1128,6 +1128,22 @@ confirmed, not before.
       count as a runtime error rather than letting Go's own `<<`/`>>`
       panic the whole process over it. Verified with table-driven Go
       tests and a real `crust run` subprocess exercising all six.
+- [x] `rebox(element, fromBase, toBase)` — base conversion, on direct
+      request: "can you make a base conversion std lib function with a
+      fun pizza jargon name? something like fn(element, frombase,
+      tobase)." Leans on the same "pizza box" metaphor `nobox` already
+      established (§4): converting a number's base is repacking the
+      same value into differently-sized boxes. `element` is always a
+      String (never an Integer, even for `fromBase == 10`) and the
+      result is always a String too (even for `toBase == 10`) — one
+      predictable rule instead of a base-10 special case either
+      direction. `fromBase`/`toBase` must be `2..36`; input digit
+      letters accepted in either case, output always lowercase
+      (matching Go's own `strconv.FormatInt` and, not incidentally,
+      the lowercase hex AoC's knot-hash puzzles expect). Verified with
+      table-driven Go tests (binary/hex/base-36 round trips, negative
+      numbers, out-of-range bases, invalid digits for a base, wrong
+      types) and a real `crust run` subprocess.
 
 ## Phase 7 — Testing & Quality
 - [x] Unit tests across lexer/parser/interpreter — not a separate
