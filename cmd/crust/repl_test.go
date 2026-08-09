@@ -136,6 +136,30 @@ func TestREPLRuntimeErrorDoesNotEndSession(t *testing.T) {
 	}
 }
 
+// TestREPLRuntimeErrorPrintsCallChain confirms the REPL prints the
+// same indented "in ..., called from ..." lines the CLI's own
+// reportRuntimeError does once an error unwinds through more than one
+// recipe call, not just the bare "line:col: message" it always
+// printed before this feature existed.
+func TestREPLRuntimeErrorPrintsCallChain(t *testing.T) {
+	src := "recipe divide(a, b) { serve a / b }\nrecipe process(x) { serve divide(x, 0) }\nprocess(10)\n"
+	var stdout, stderr bytes.Buffer
+	code := runREPL(strings.NewReader(src), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "division by zero") {
+		t.Fatalf("stderr = %q, want a division-by-zero message", got)
+	}
+	if !strings.Contains(got, "in divide(...), called from") {
+		t.Errorf("stderr = %q, want a call-chain line for divide(...)", got)
+	}
+	if !strings.Contains(got, "in process(...)") {
+		t.Errorf("stderr = %q, want a call-chain line for process(...)", got)
+	}
+}
+
 // TestREPLDeliverWritesThroughInterpreterOutput confirms deliver()'s
 // own output reaches stdout, and that its NULL return value isn't also
 // echoed on top of it (deliver is a bare expression statement, but its

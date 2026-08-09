@@ -1641,8 +1641,68 @@ confirmed, not before.
       the breakpoint set on the first run was still there — and still
       took effect — on a completely separate `crust develop` launch
       afterward.
+- [x] Richer stack traces, on direct request — the most impactful of
+      the three remaining stretch goals: modules are low-payoff for
+      AoC's mostly-single-file solutions, and a bytecode VM was
+      explicitly deferred until a real profile says the tree-walker is
+      the bottleneck (see ARCHITECTURE.md's Performance Strategy);
+      this one pays off on every runtime error, with no new syntax and
+      no architectural rewrite. `object.Error` gained `Frames []Frame`
+      (`internal/object/error.go`) — one entry per recipe call the
+      error unwound through, innermost first, appended by
+      `internal/interpreter`'s `applyFunction` exactly at the point
+      each call returns an Error, which needs no separate call-stack
+      bookkeeping at all: it falls out of Go's own call stack
+      unwinding for free (and handles recursion correctly for the same
+      reason — each recursive level contributes its own frame simply
+      by being its own nested `applyFunction` call). A single level of
+      wrapping (the ordinary case: an error directly inside a
+      `store()` entry point, nothing nested beneath it) stays exactly
+      as terse as before — `Error.FrameLines()` only ever renders
+      output for two or more frames, since a lone frame adds nothing
+      the primary `path:line:col: message` line doesn't already say.
+      Deep but finite recursion hitting an error at the bottom is
+      capped at 12 printed frames (`maxErrorFrames`) with a "... and N
+      more frame(s)" tail, the same bounded-output shape
+      `DefaultMaxSteps`/`maxWatchLines`/every other capped panel in
+      this codebase already uses — the raw `Frames` slice itself stays
+      uncapped, only the rendering is bounded.
+      The one real design constraint was performance: this had to cost
+      *nothing* on the success path, however deep or recursive the
+      call chain, since that's the actual hot path for a real puzzle
+      run. `applyFunction` already had a `label` parameter for the
+      debugger's frame display, eagerly computed only when `i.Trace`
+      is set (an ordinary `crust run` never sets it) — reusing that
+      same gate for stack traces wasn't an option, since traces have
+      to work on *every* run, traced or not. Solved by passing the
+      unevaluated call-site `*ast.Expression` through
+      (`calleeExpr`) instead of its precomputed `.String()`, and only
+      stringifying it — `frameName` — inside the one branch that's
+      already on the rare error path. Verified with
+      `BenchmarkUntraced` (`internal/interpreter`, a recursive `fib`)
+      and `BenchmarkAoC2020Day1Part1`/`Part2` (`cmd/crust`) before and
+      after: both landed within normal run-to-run noise of the
+      documented baseline, confirming the zero-cost claim rather than
+      just asserting it.
+      Wired into every place a runtime error already surfaced as text
+      — `internal/runner.reportRuntimeError` (`crust run`, and
+      `crust develop`'s Run tab through it) and `crust repl`'s own
+      separate error-printing path — with the primary line's existing
+      format completely unchanged, so every pre-existing
+      substring-matching test kept passing without modification.
+      Verified with table-driven Go tests (`internal/object`'s
+      `FrameLines` rendering and capping; `internal/interpreter`'s
+      frame construction through nested calls, recursion, a builtin
+      error picking up a frame only once it propagates through an
+      *enclosing* recipe rather than getting one of its own, and
+      `Call`/`CallNamed`'s own generic/real-name fallback;
+      `internal/runner` and `cmd/crust/repl_test.go` confirming the
+      call chain actually reaches stderr) and real subprocess runs —
+      a three-level nested-call program, a single-level program
+      (confirming no added noise), and a 20-level recursive one
+      (confirming the 12-frame cap: 21 `boom()` calls + 1 `store()`
+      call = 22 frames, 12 shown + "... and 10 more frame(s)").
 
 ## Stretch Goals
 - [ ] Module/import system
 - [ ] Bytecode VM instead of tree-walking (perf)
-- [ ] Richer stack traces

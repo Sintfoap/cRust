@@ -59,6 +59,142 @@ func TestCallNamedExportedOnNonFunction(t *testing.T) {
 	wantError(t, result, "not a recipe")
 }
 
+// --- Error.Frames (stack traces) ---------------------------------------------
+
+// TestErrorFramesSingleCallHasOneFrame confirms a single level of call
+// wrapping still records exactly one frame (Error.FrameLines' own doc
+// comment on why that one frame alone doesn't get *printed*, but the
+// data itself should still be there for anything else that might want
+// it).
+func TestErrorFramesSingleCallHasOneFrame(t *testing.T) {
+	errObj := wantError(t, testEval(t, `
+recipe divide(a, b) { serve a / b }
+divide(1, 0)
+`), "division by zero")
+
+	if len(errObj.Frames) != 1 {
+		t.Fatalf("Frames = %+v, want exactly 1", errObj.Frames)
+	}
+	if errObj.Frames[0].Name != "divide(...)" {
+		t.Errorf("Frames[0].Name = %q, want %q", errObj.Frames[0].Name, "divide(...)")
+	}
+}
+
+// TestErrorFramesNestedCallsBuildInnermostFirst is this feature's core
+// claim: divide -> process -> (top level), each appended as the error
+// unwinds back up through applyFunction, in the order they're
+// unwound — innermost (the recipe whose body actually failed) first.
+func TestErrorFramesNestedCallsBuildInnermostFirst(t *testing.T) {
+	errObj := wantError(t, testEval(t, `
+recipe divide(a, b) {
+    serve a / b
+}
+recipe process(x) {
+    serve divide(x, 0)
+}
+process(10)
+`), "division by zero")
+
+	if len(errObj.Frames) != 2 {
+		t.Fatalf("Frames = %+v, want exactly 2", errObj.Frames)
+	}
+	if got := errObj.Frames[0].Name; got != "divide(...)" {
+		t.Errorf("Frames[0].Name = %q, want %q (innermost first)", got, "divide(...)")
+	}
+	if got := errObj.Frames[1].Name; got != "process(...)" {
+		t.Errorf("Frames[1].Name = %q, want %q", got, "process(...)")
+	}
+	// Frames[0].Line/Col is where divide() was called *from* -- inside
+	// process's own body, line 6 (`serve divide(x, 0)`).
+	if errObj.Frames[0].Line != 6 {
+		t.Errorf("Frames[0].Line = %d, want 6 (where divide() was called from)", errObj.Frames[0].Line)
+	}
+	// Frames[1].Line/Col is where process() was called from -- the
+	// top-level call on line 8.
+	if errObj.Frames[1].Line != 8 {
+		t.Errorf("Frames[1].Line = %d, want 8 (where process() was called from)", errObj.Frames[1].Line)
+	}
+}
+
+// TestErrorFramesRecursionOneFramePerLevel confirms recursive calls
+// each contribute their own frame rather than collapsing into one --
+// this is what falls out of appending a frame every time applyFunction
+// unwinds through a *object.Function call, with no special-casing
+// needed for recursion at all (it's just Go's own call stack
+// unwinding, once per nested applyFunction call, recursive or not).
+func TestErrorFramesRecursionOneFramePerLevel(t *testing.T) {
+	errObj := wantError(t, testEval(t, `
+recipe boom(n) {
+    order (n <= 0) {
+        serve 1 / 0
+    }
+    serve boom(n - 1)
+}
+boom(3)
+`), "division by zero")
+
+	if len(errObj.Frames) != 4 {
+		t.Fatalf("Frames = %+v, want 4 (boom(3)->boom(2)->boom(1)->boom(0))", errObj.Frames)
+	}
+	for i, f := range errObj.Frames {
+		if f.Name != "boom(...)" {
+			t.Errorf("Frames[%d].Name = %q, want %q", i, f.Name, "boom(...)")
+		}
+	}
+}
+
+// TestErrorFramesBuiltinDoesNotAddItsOwnFrame confirms a builtin's
+// error gets no frame for the builtin itself (it has no recipe body to
+// unwind through) but still picks up a frame once it propagates
+// through the enclosing recipe's own applyFunction.
+func TestErrorFramesBuiltinDoesNotAddItsOwnFrame(t *testing.T) {
+	errObj := wantError(t, testEval(t, `
+recipe process() {
+    serve sqrt(-1)
+}
+process()
+`), "")
+
+	if len(errObj.Frames) != 1 {
+		t.Fatalf("Frames = %+v, want exactly 1 (process, not sqrt)", errObj.Frames)
+	}
+	if errObj.Frames[0].Name != "process(...)" {
+		t.Errorf("Frames[0].Name = %q, want %q", errObj.Frames[0].Name, "process(...)")
+	}
+}
+
+// TestErrorFramesCallExportedUsesGenericLabel confirms Call's own
+// eagerly-set "call(...)" label is what names the frame when there's
+// no source-level call expression for frameName to read from (Call's
+// own doc comment on why this label is deliberately generic).
+func TestErrorFramesCallExportedUsesGenericLabel(t *testing.T) {
+	interp := New(io.Discard, strings.NewReader(""))
+	env := object.NewEnvironment()
+	testEvalWith(t, interp, env, `apply = recipe(x) { serve x / 0 }`)
+	fn, _ := env.Get("apply")
+
+	errObj := wantError(t, interp.Call(fn, []object.Object{object.NewInteger(1)}), "division by zero")
+	if len(errObj.Frames) != 1 || errObj.Frames[0].Name != "call(...)" {
+		t.Errorf("Frames = %+v, want a single call(...) frame", errObj.Frames)
+	}
+}
+
+// TestErrorFramesCallNamedUsesRealName is CallExportedUsesGenericLabel's
+// counterpart for CallNamed — the frame should carry the real name
+// passed in, the same one the debugger's KPI/stepper attributes the
+// run to (CallNamed's own doc comment).
+func TestErrorFramesCallNamedUsesRealName(t *testing.T) {
+	interp := New(io.Discard, strings.NewReader(""))
+	env := object.NewEnvironment()
+	testEvalWith(t, interp, env, `apply = recipe(x) { serve x / 0 }`)
+	fn, _ := env.Get("apply")
+
+	errObj := wantError(t, interp.CallNamed(fn, []object.Object{object.NewInteger(1)}, "store_part1"), "division by zero")
+	if len(errObj.Frames) != 1 || errObj.Frames[0].Name != "store_part1(...)" {
+		t.Errorf("Frames = %+v, want a single store_part1(...) frame", errObj.Frames)
+	}
+}
+
 func testEvalWith(t *testing.T, interp *Interpreter, env *object.Environment, input string) object.Object {
 	t.Helper()
 	l := lexer.New(input)

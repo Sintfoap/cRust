@@ -102,6 +102,24 @@ crust day01.crust                  # runs store, if the file has one
 crust day01.crust --store=part2    # runs store_part2 instead
 ```
 
+A runtime error (`crust run`, `crust develop`'s Run tab, and `crust
+repl` alike) prints the failing line first, same as always, plus —
+once it unwound through more than one recipe call — the call chain
+underneath it, innermost call first, so "which recipe, called from
+where" is visible without reaching for the debugger:
+
+```
+crust run: day06.crust:14:5: division by zero
+    in divide(...), called from 9:12
+    in process(...), called from 3:5
+    in store(...)
+```
+
+A single level of call wrapping (an error happening directly inside
+`store()`'s own body, nothing nested beneath it) prints exactly as it
+always has — just the one line — since a one-entry chain wouldn't add
+anything the failing line doesn't already say.
+
 Starting a new day: copy
 [`examples/dayNN_template.crust`](./examples/dayNN_template.crust) —
 a `store_part1`/`store_part2` skeleton already reading its input via

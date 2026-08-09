@@ -133,10 +133,19 @@ func StoreFlags(suffixes []string) []string {
 	return out
 }
 
+// reportRuntimeError prints errObj's primary "path:line:col: message"
+// line exactly as before, plus — when the error unwound through more
+// than one recipe call — an indented call chain underneath it
+// (errObj.FrameLines' own doc comment on exactly when that's nil vs.
+// populated), innermost call first, so "which recipe, called from
+// where" is visible without reaching for `crust develop`.
 func reportRuntimeError(stderr io.Writer, msgPrefix, path string, errObj *object.Error) {
 	if path == "" {
 		fmt.Fprintf(stderr, "%s%d:%d: %s\n", msgPrefix, errObj.Line, errObj.Col, errObj.Message)
-		return
+	} else {
+		fmt.Fprintf(stderr, "%s%s:%d:%d: %s\n", msgPrefix, path, errObj.Line, errObj.Col, errObj.Message)
 	}
-	fmt.Fprintf(stderr, "%s%s:%d:%d: %s\n", msgPrefix, path, errObj.Line, errObj.Col, errObj.Message)
+	for _, line := range errObj.FrameLines() {
+		fmt.Fprintln(stderr, line)
+	}
 }

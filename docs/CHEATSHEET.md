@@ -156,6 +156,21 @@ knead n in neighbors4((row, col)) {
 }
 ```
 
+## Runtime errors
+
+```
+crust run: day06.crust:14:5: division by zero
+    in divide(...), called from 9:12
+    in process(...), called from 3:5
+    in store(...)
+```
+
+The failing line prints first, same as always; a call chain (`crust
+run`, `crust develop`'s Run tab, and `crust repl` alike) follows
+underneath once the error unwound through more than one recipe call —
+innermost call first. A single level of wrapping (the failure directly
+inside `store()`'s own body) prints just the one line, as before.
+
 ## Debugging while you work
 
 ```

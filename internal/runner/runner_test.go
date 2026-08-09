@@ -120,6 +120,46 @@ func TestRunRuntimeErrorInsideEntryPoint(t *testing.T) {
 	}
 }
 
+// TestRunRuntimeErrorPrintsCallChain confirms Run's stderr includes
+// the indented "in ..., called from ..." lines FrameLines builds once
+// an error unwound through more than one recipe call — the primary
+// "path:line:col: message" line stays exactly as before (still the
+// innermost failure's own position), with the chain underneath it.
+func TestRunRuntimeErrorPrintsCallChain(t *testing.T) {
+	src := "recipe divide(a, b) {\n serve a / b\n}\nrecipe store() {\n deliver(divide(1, 0))\n}\n"
+	var stdout, stderr bytes.Buffer
+	code := Run(src, "", "prog.crust", "crust run: ", strings.NewReader(""), &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "division by zero") {
+		t.Fatalf("stderr = %q, want a division-by-zero message", got)
+	}
+	if !strings.Contains(got, "in divide(...), called from 5:") {
+		t.Errorf("stderr = %q, want a call-chain line for divide(...)", got)
+	}
+	if !strings.Contains(got, "in store(...)") {
+		t.Errorf("stderr = %q, want a call-chain line for store(...)", got)
+	}
+}
+
+// TestRunRuntimeErrorSingleLevelNoCallChain confirms a single level of
+// call wrapping (a failure directly inside store()'s own body, no
+// further nesting) prints exactly as it did before this feature
+// existed — no "in store()" line, since it adds nothing beyond the
+// primary line's own position.
+func TestRunRuntimeErrorSingleLevelNoCallChain(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run("recipe store() {\n deliver(1 / 0)\n}\n", "", "prog.crust", "crust run: ", strings.NewReader(""), &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if strings.Contains(stderr.String(), "in store") {
+		t.Errorf("stderr = %q, want no call-chain line for a single level of wrapping", stderr.String())
+	}
+}
+
 func TestRunMsgPrefixEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run("order (a < b {\n serve 1\n}\n", "", "prog.crust", "", strings.NewReader(""), &stdout, &stderr)

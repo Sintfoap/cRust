@@ -82,6 +82,9 @@ func runREPL(stdin io.Reader, stdout, stderr io.Writer) int {
 		result := interp.Eval(program, env)
 		if errObj, ok := result.(*object.Error); ok {
 			fmt.Fprintf(stderr, "%d:%d: %s\n", errObj.Line, errObj.Col, errObj.Message)
+			for _, line := range errObj.FrameLines() {
+				fmt.Fprintln(stderr, line)
+			}
 			continue
 		}
 		if result != object.NULL && lastStatementIsExpression(program) {

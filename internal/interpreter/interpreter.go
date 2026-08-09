@@ -57,9 +57,12 @@ func New(output io.Writer, stdin io.Reader) *Interpreter {
 // label per element would just be noise in the debugger's KPI/stepper
 // — every caller that *does* have a real name to attach (cmd/crust's
 // entry-point resolution, SPEC.md §9) should use CallNamed instead, not
-// this one.
+// this one. The nil passed for applyFunction's calleeExpr means an
+// Error's stack trace names this frame "call(...)" too — there's no
+// source-level call expression here for it to read a real name from
+// either.
 func (i *Interpreter) Call(fn object.Object, args []object.Object) object.Object {
-	return i.applyFunction(token.Token{}, "call(...)", fn, args)
+	return i.applyFunction(token.Token{}, "call(...)", nil, fn, args)
 }
 
 // CallNamed is Call with a real frame label instead of the generic
@@ -75,7 +78,7 @@ func (i *Interpreter) Call(fn object.Object, args []object.Object) object.Object
 // "store_part1"); the "(...)" suffix matches the label an ordinary
 // CallExpression's own evalCallExpression already builds.
 func (i *Interpreter) CallNamed(fn object.Object, args []object.Object, name string) object.Object {
-	return i.applyFunction(token.Token{}, name+"(...)", fn, args)
+	return i.applyFunction(token.Token{}, name+"(...)", nil, fn, args)
 }
 
 // Eval evaluates node in env and returns the resulting Object. It never

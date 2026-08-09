@@ -330,7 +330,7 @@ func (i *Interpreter) evalCallExpression(ce *ast.CallExpression, env *object.Env
 	if i.Trace != nil {
 		label = ce.Function.String() + "(...)"
 	}
-	return i.applyFunction(ce.Token, label, fn, args)
+	return i.applyFunction(ce.Token, label, ce.Function, fn, args)
 }
 
 // evalExpressions evaluates exps left to right, stopping at the first
@@ -365,7 +365,23 @@ func (i *Interpreter) evalExpressions(exps []ast.Expression, env *object.Environ
 // ("sum(...)") when known from a real call site, or a generic
 // fallback from callers with no call-site expression to read (i.Call,
 // used by e.g. the map() builtin).
-func (i *Interpreter) applyFunction(tok token.Token, label string, fn object.Object, args []object.Object) object.Object {
+//
+// calleeExpr is a second, independent way to name the callee — for an
+// Error's own stack trace (Frames), not the debugger's. It's kept
+// separate from label specifically so it costs nothing on the common,
+// no-error path: label is already computed eagerly only when i.Trace
+// is set (evalCallExpression's own doc comment), but a stack trace
+// has to be available on *every* `crust run`, traced or not, so it
+// can't reuse that same gate. Passing the unevaluated *ast.Expression
+// through instead of pre-computing its String() defers that (cheap
+// but non-zero) cost to the one branch below that actually needs it —
+// an Error is already propagating, the rare path — rather than paying
+// it on every single call, however deep or recursive the call chain
+// (BenchmarkUntraced's own recursive fib is exactly the case this
+// matters for). nil when there's no source-level call expression to
+// read from (i.Call/i.CallNamed), in which case label itself — always
+// eagerly set by those two — is the fallback.
+func (i *Interpreter) applyFunction(tok token.Token, label string, calleeExpr ast.Expression, fn object.Object, args []object.Object) object.Object {
 	switch fn := fn.(type) {
 	case *object.Function:
 		if len(args) != len(fn.Parameters) {
@@ -375,8 +391,11 @@ func (i *Interpreter) applyFunction(tok token.Token, label string, fn object.Obj
 		for idx, param := range fn.Parameters {
 			extEnv.Declare(param.Value, args[idx])
 		}
-		result := i.evalFramed(label, fn.Body, extEnv)
-		return unwrapReturnValue(result)
+		result := unwrapReturnValue(i.evalFramed(label, fn.Body, extEnv))
+		if errObj, ok := result.(*object.Error); ok {
+			errObj.Frames = append(errObj.Frames, object.Frame{Name: frameName(calleeExpr, label), Line: tok.Line, Col: tok.Col})
+		}
+		return result
 
 	case *object.Builtin:
 		result := fn.Fn(args...)
@@ -388,6 +407,21 @@ func (i *Interpreter) applyFunction(tok token.Token, label string, fn object.Obj
 	default:
 		return newError(tok, "not a recipe: %s", fn.Type())
 	}
+}
+
+// frameName is applyFunction's error-path-only name lookup: calleeExpr's
+// own source text when there's a real call-site expression to read
+// (an ordinary CallExpression — "sum" becomes the frame name
+// "sum(...)"), or the caller-supplied label (i.Call/i.CallNamed's own
+// eagerly-set "call(...)"/"name(...)") when there isn't one.
+func frameName(calleeExpr ast.Expression, label string) string {
+	if calleeExpr != nil {
+		return calleeExpr.String() + "(...)"
+	}
+	if label != "" {
+		return label
+	}
+	return "(...)"
 }
 
 // evalIndexExpression handles `left[index]` (SPEC.md §8, index) reads,

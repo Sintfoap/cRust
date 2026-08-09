@@ -4326,8 +4326,78 @@ code was written.
     `develop_state.json` that the breakpoint was still there — and
     still took effect — on an entirely separate `crust develop` launch
     afterward.
-
-### Phase 7 — Testing & Quality
+- **Richer stack traces** (`object.Error.Frames`, `internal/object/
+  error.go` + `internal/interpreter`'s `applyFunction`), on direct
+  request — the last of the three stretch goals in TODO.md, picked as
+  the most impactful of the three: modules are low-payoff for AoC's
+  mostly-single-file solutions, and a bytecode VM was explicitly
+  deferred until a real profile says the tree-walker is the bottleneck
+  (§5's Performance Strategy) — richer error output, by contrast, pays
+  off on *every* runtime error hit while solving a puzzle, with no new
+  syntax and no architectural rewrite.
+  - **No separate call-stack bookkeeping — it falls out of Go's own
+    call stack for free.** `object.Error` gained `Frames []Frame`
+    (`Frame{Name string; Line, Col int}`), appended one entry per level
+    by `applyFunction`'s `*object.Function` case, exactly at the point
+    each call's result comes back as an Error: `errObj.Frames =
+    append(errObj.Frames, object.Frame{Name: frameName(calleeExpr,
+    label), Line: tok.Line, Col: tok.Col})`. Because this happens as
+    each nested `applyFunction` call *returns* (unwinding back up
+    through Go's own recursive call stack, one level per recipe call
+    it's inside), the chain builds itself in exactly the right order —
+    innermost failure first — with no explicit stack, push, or pop
+    anywhere. Recursion needs no special-casing either: `fib`'s own
+    resulting Frames simply has one entry per recursive level that was
+    actually unwound through, since each recursive call is its own
+    independent `applyFunction` invocation on Go's call stack, same as
+    any other nested call.
+  - **Zero cost on the success path was the real design constraint,
+    not an afterthought.** `applyFunction` already had a `label`
+    parameter for the debugger's own frame display
+    (`evalCallExpression`), but that's eagerly computed only when
+    `i.Trace != nil` — an ordinary `crust run` never sets it, so
+    `label` is always `""` there. A stack trace has to work on *every*
+    run, traced or not, so it couldn't reuse that same gate — but
+    `ce.Function.String()` (turning `sum` into the frame name
+    `"sum(...)"`) still isn't free, and paying it on every single call
+    regardless of recursion depth would have directly worked against
+    the very reason this feature was picked over the bytecode VM: not
+    regressing the performance this session's own benchmarks track.
+    Solved by threading the *unevaluated* `ce.Function` expression
+    itself through as a new `calleeExpr ast.Expression` parameter
+    (`nil` from `i.Call`/`i.CallNamed`, which have no source-level call
+    expression to read from and fall back to their own already-eager
+    `label` instead) and only calling `.String()` on it — `frameName`
+    — inside the one branch that already knows an Error is
+    propagating, the rare path. Verified, not just asserted:
+    `BenchmarkUntraced` (`internal/interpreter`, a recursive `fib`) and
+    `BenchmarkAoC2020Day1Part1`/`Part2` (`cmd/crust`) both landed
+    within normal run-to-run noise of their documented baselines
+    before and after this change.
+  - **A single level of call wrapping prints exactly as before.**
+    `Error.FrameLines()` — the rendering side, called by both
+    `internal/runner.reportRuntimeError` and `crust repl`'s own
+    separate error-printing path — returns `nil` for fewer than two
+    frames: an error happening directly inside a `store()` entry
+    point's own body (the single most common shape — no further
+    nesting) produces exactly one frame (for the `store()` call
+    itself), which adds nothing beyond what the primary
+    `path:line:col: message` line already says, so no caller ever sees
+    an extra line for it. Every existing substring-matching test (the
+    primary line's own format is completely unchanged) kept passing
+    with zero modifications.
+  - **Deep but finite recursion is capped at display time, not capture
+    time.** `Frames` itself stays a complete, uncapped slice — cheap
+    even at a few thousand entries, and there's no reason to lose data
+    the caller might still want. `FrameLines` caps what it actually
+    *renders* to `maxErrorFrames` (12), with a "... and N more
+    frame(s)" tail — the same bounded-output shape
+    `debugger.DefaultMaxSteps`/the Stepper's `maxWatchLines`/every
+    other capped panel in this codebase already uses, applied here to
+    keep a legitimate 1,000-level recursive failure from dumping 1,000
+    near-identical lines. Verified with a real 20-level recursive
+    program: 21 `boom()` calls plus 1 `store()` call is 22 frames — 12
+    shown, "... and 10 more frame(s)," matching the math exactly.
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).
 - `interpreter_test.go`: evaluate a snippet, assert the resulting
