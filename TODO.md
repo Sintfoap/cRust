@@ -403,9 +403,49 @@ confirmed, not before.
       hitting an unimplemented method) that prompted the definition/
       references/rename/documentSymbol/completion work in the first
       place.
-- [ ] (Stretch) Further LSP: incremental (as opposed to full) document
-      sync, code actions — `internal/lsp` exists now (above) as a base
-      to extend rather than something to build from scratch
+- [x] (Stretch) Further LSP: incremental (as opposed to full) document
+      sync, code actions — extending `internal/lsp` (above) rather than
+      building from scratch, from the same direct request that asked
+      for the AoC fetch/timer feature above it. **Incremental sync**
+      (`sync.go`'s `applyContentChange`/`positionToByteOffset`): the
+      server now advertises `TextDocumentSyncKind.Incremental` (2, was
+      `Full`/1) in `initialize`, and `handleDidChange` applies each
+      `contentChanges` entry — a Range plus replacement text — in
+      order against whatever the document already is, splicing at a
+      byte offset computed by reusing `position.go`'s existing
+      `decodeOffset` (Position.Character, in the negotiated encoding,
+      -> a rune count within that line) and `encodeOffset` in `"utf-8"`
+      mode (that same rune count -> a byte offset), rather than adding
+      new offset-math — the encoding-aware plumbing this needed already
+      existed for hover/definition/etc., just not wired to convert a
+      Range into a document-wide byte span. A `Range`-less entry (a
+      full-document replace) is still accepted exactly as before,
+      since not every client honors the server's advertised sync kind
+      on every single edit — defensive, not a compromise. **Code
+      actions** (`codeaction.go`'s `codeActionsFor`): `textDocument/
+      codeAction` offers one action, "Format document" (kind
+      `source.fixAll`), built by reusing `formatting.go`'s
+      `formatDocument` directly — including its existing idempotency
+      check, so an already-canonical file offers no action rather than
+      a no-op edit, the same guarantee `crust fmt -w`/format-on-save
+      already give. No new diagnostic-guessing logic: cRust's
+      diagnostics are lex/parse errors with no mechanically safe
+      generic fix, so the one action offered is deliberately the
+      already-tested, always-safe one rather than a fragile guess at
+      "what did you mean." Verified with table-driven unit tests
+      (`sync_test.go`: insert/replace/delete, a multi-line span,
+      sequential changes composing, utf-8 multi-byte columns, an
+      out-of-range Position clamping instead of panicking;
+      `codeaction_test.go`: offered/not-offered/unparseable), two new
+      full-wire `Server.Run` tests (`lsp_test.go`:
+      `TestServerIncrementalDidChange` inserting then deleting an
+      illegal `@` character via real Range-based edits and checking the
+      diagnostics actually track it; `TestServerCodeActionOffersFormat`
+      confirming the wire-level JSON), and a real `crust lsp` subprocess
+      session (a Python script speaking raw JSON-RPC/stdio, not Go
+      tests) confirming `initialize` advertises both new capabilities
+      and that incremental edits and the code action's returned
+      `WorkspaceEdit` are both correct over real bytes end to end.
 - [x] (Stretch) debugger: `internal/trace` (a `Tracer` hook —
       `Step`/`PushFrame`/`PopFrame` — checked once per statement and
       once per call/loop-lap frame in `internal/interpreter`, nil when

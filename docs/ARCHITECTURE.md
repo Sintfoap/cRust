@@ -3215,6 +3215,51 @@ code was written.
     other rich `internal/lsp` feature is tested with) and, separately,
     a real `initialize`/`didOpen`/`textDocument/formatting` session
     piped into a built `crust lsp` binary.
+  - **Incremental document sync + code actions** (`sync.go`,
+    `codeaction.go`), a direct follow-up request — "further LSP:
+    incremental sync, code actions" — extending this already-shipped
+    package rather than starting over. `initialize` now advertises
+    `TextDocumentSyncKind.Incremental` (2, was `Full`/1);
+    `handleDidChange` applies each `contentChanges` entry in order
+    (per spec, later entries in one notification are relative to the
+    *result* of earlier ones, not all against the original text) via
+    `applyContentChange` — `change.Range == nil` is still accepted as a
+    full-document replace (not every client honors the server's
+    advertised kind on every edit), otherwise `change.Text` splices in
+    at a byte span computed by `positionToByteOffset`. **No new
+    offset-conversion math was needed** — `positionToByteOffset` reuses
+    `position.go`'s existing `decodeOffset` (an LSP `Position.Character`
+    in the negotiated encoding -> a rune count within that line) and
+    `encodeOffset` in its `"utf-8"` mode (that rune count -> a byte
+    count), the same encoding-aware plumbing hover/definition/etc.
+    already needed, just not previously wired to turn a `Range` into a
+    document-wide byte offset. Out-of-range Positions (a stale edit
+    racing a fast-typing client) clamp to the nearest valid offset
+    rather than panicking. `codeActionsFor` offers exactly one action —
+    "Format document" (`CodeActionKind` `source.fixAll`) — built by
+    calling `formatting.go`'s own `formatDocument` and wrapping its
+    result in a `WorkspaceEdit`; its existing idempotency check means an
+    already-canonical file offers no action at all, never a no-op edit.
+    Deliberately the *only* action offered: cRust's diagnostics are
+    lex/parse errors with no generically safe mechanical fix (unlike,
+    say, an unused-import quick fix in a language with real static
+    analysis), so this stays the one action that's always correct
+    rather than guessing at ones that sometimes wouldn't be. Verified
+    with table-driven unit tests for `applyContentChange`/
+    `positionToByteOffset` (insert, replace, delete, a multi-line span,
+    sequential changes composing, utf-8 multi-byte columns, an
+    out-of-range clamp) and `codeActionsFor` (offered/not-offered/
+    unparseable), two new full `Server.Run` wire-level tests
+    (`TestServerIncrementalDidChange` inserting then deleting an
+    illegal `@` via real `Range`-based edits, checking the resulting
+    diagnostics actually track the edit; `TestServerCodeActionOffersFormat`),
+    and — since this changes what `initialize` itself advertises, not
+    just adds a new optional method — a real `crust lsp` subprocess
+    session (raw JSON-RPC over a real pipe, not Go's own test harness)
+    confirming both `textDocumentSync: 2` and `codeActionProvider:
+    true` actually appear in a real `initialize` response and that an
+    incremental edit and a code action's `WorkspaceEdit` are both
+    correct end to end.
 
 - **Run tab "run all stores" option** (`debug_run.go`'s
   `runAllStoresCmd`, `debugModel.runAllStores`, Ctrl+R), from a

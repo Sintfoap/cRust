@@ -104,6 +104,8 @@ func (s *Server) handle(msg rpcMessage, logw io.Writer) bool {
 		s.handleRename(msg, logw)
 	case "textDocument/formatting":
 		s.handleFormatting(msg, logw)
+	case "textDocument/codeAction":
+		s.handleCodeAction(msg, logw)
 	default:
 		if len(msg.ID) > 0 {
 			s.respondError(msg.ID, errMethodNotFound, fmt.Sprintf("method not found: %s", msg.Method))
@@ -142,7 +144,7 @@ func (s *Server) handleInitialize(msg rpcMessage) {
 
 	s.respondResult(msg.ID, initializeResult{
 		Capabilities: serverCapabilities{
-			TextDocumentSync:           textDocumentSyncKindFull,
+			TextDocumentSync:           textDocumentSyncKindIncremental,
 			HoverProvider:              true,
 			PositionEncoding:           s.encoding,
 			DefinitionProvider:         true,
@@ -152,6 +154,7 @@ func (s *Server) handleInitialize(msg rpcMessage) {
 			CompletionProvider:         &completionOptions{},
 			RenameProvider:             true,
 			DocumentFormattingProvider: true,
+			CodeActionProvider:         true,
 		},
 	})
 }
@@ -175,9 +178,19 @@ func (s *Server) handleDidChange(msg rpcMessage, logw io.Writer) {
 	if len(params.ContentChanges) == 0 {
 		return
 	}
-	// Full sync (TextDocumentSyncKind.Full, advertised in initialize) —
-	// the last content change's Text is the whole new document.
-	s.docs[params.TextDocument.URI] = params.ContentChanges[len(params.ContentChanges)-1].Text
+	// Incremental sync (TextDocumentSyncKind.Incremental, advertised in
+	// initialize): each entry's Range+Text is applied in order against
+	// the document as it stood after the previous entry — per spec,
+	// later entries in the same notification are expressed relative to
+	// the result of earlier ones, not all against the original text. An
+	// entry with no Range (a full-document replace) is still accepted
+	// exactly as before, since not every client honors the server's
+	// preferred sync kind on every edit.
+	text := s.docs[params.TextDocument.URI]
+	for _, change := range params.ContentChanges {
+		text = applyContentChange(text, change, s.encoding)
+	}
+	s.docs[params.TextDocument.URI] = text
 	s.publishDiagnostics(params.TextDocument.URI)
 }
 
@@ -294,6 +307,20 @@ func (s *Server) handleFormatting(msg rpcMessage, logw io.Writer) {
 		return
 	}
 	s.respondResult(msg.ID, formatDocument(text, s.encoding))
+}
+
+func (s *Server) handleCodeAction(msg rpcMessage, logw io.Writer) {
+	var params codeActionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		s.respondError(msg.ID, errInvalidParams, err.Error())
+		return
+	}
+	text, ok := s.docs[params.TextDocument.URI]
+	if !ok {
+		s.respondResult(msg.ID, nil)
+		return
+	}
+	s.respondResult(msg.ID, codeActionsFor(text, params.TextDocument.URI, s.encoding))
 }
 
 func (s *Server) publishDiagnostics(uri string) {

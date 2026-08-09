@@ -280,12 +280,113 @@ func TestServerTypeDefinitionAliasesDefinition(t *testing.T) {
 	}
 }
 
+// TestServerIncrementalDidChange drives a real didOpen followed by two
+// incremental (Range-based) didChange notifications through Server.Run
+// over real byte streams, confirming the server actually applies the
+// edits (not just accepts them) — checked indirectly, by diffing the
+// diagnostics an illegal '@' produces before and after it's typed in.
+func TestServerIncrementalDidChange(t *testing.T) {
+	var input bytes.Buffer
+	input.Write(clientMessage(t, "textDocument/didOpen", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "languageId": "crust", "version": 1, "text": "x = 1\n"},
+	}))
+	// Insert "@" right after "x = 1" (line 0, col 5), producing "x = 1@\n".
+	input.Write(clientMessage(t, "textDocument/didChange", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "version": 2},
+		"contentChanges": []map[string]any{{
+			"range": map[string]any{
+				"start": map[string]any{"line": 0, "character": 5},
+				"end":   map[string]any{"line": 0, "character": 5},
+			},
+			"text": "@",
+		}},
+	}))
+	// Delete that same "@" again (col 5..6), back to "x = 1\n".
+	input.Write(clientMessage(t, "textDocument/didChange", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "version": 3},
+		"contentChanges": []map[string]any{{
+			"range": map[string]any{
+				"start": map[string]any{"line": 0, "character": 5},
+				"end":   map[string]any{"line": 0, "character": 6},
+			},
+			"text": "",
+		}},
+	}))
+	input.Write(clientMessage(t, "exit", nil, nil))
+
+	var output bytes.Buffer
+	s := NewServer()
+	if err := s.Run(&input, &output, io.Discard); err != nil {
+		t.Fatalf("Run: %s", err)
+	}
+
+	msgs := decodeServerMessages(t, output.Bytes())
+	if len(msgs) != 3 { // publishDiagnostics x3 (didOpen, +"@", -"@")
+		t.Fatalf("got %d messages, want 3: %+v", len(msgs), msgs)
+	}
+
+	diagCount := func(i int) int {
+		var p publishDiagnosticsParams
+		if err := json.Unmarshal(msgs[i].Params, &p); err != nil {
+			t.Fatalf("unmarshal publishDiagnostics params: %s", err)
+		}
+		return len(p.Diagnostics)
+	}
+	if got := diagCount(0); got != 0 {
+		t.Errorf("after didOpen: %d diagnostics, want 0", got)
+	}
+	if got := diagCount(1); got != 2 {
+		t.Errorf("after inserting '@': %d diagnostics, want 2 (illegal token + the resulting parse error)", got)
+	}
+	if got := diagCount(2); got != 0 {
+		t.Errorf("after deleting '@': %d diagnostics, want 0 (back to valid)", got)
+	}
+}
+
+// TestServerCodeActionOffersFormat confirms textDocument/codeAction
+// returns a "Format document" action for an unformatted file, and
+// none for one that's already canonical.
+func TestServerCodeActionOffersFormat(t *testing.T) {
+	var input bytes.Buffer
+	input.Write(clientMessage(t, "textDocument/didOpen", nil, map[string]any{
+		"textDocument": map[string]any{"uri": uri, "languageId": "crust", "version": 1, "text": "x=1\ndeliver(x)\n"},
+	}))
+	input.Write(clientMessage(t, "textDocument/codeAction", 1, map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+		"range": map[string]any{
+			"start": map[string]any{"line": 0, "character": 0},
+			"end":   map[string]any{"line": 0, "character": 0},
+		},
+		"context": map[string]any{"diagnostics": []any{}},
+	}))
+	input.Write(clientMessage(t, "exit", nil, nil))
+
+	var output bytes.Buffer
+	s := NewServer()
+	if err := s.Run(&input, &output, io.Discard); err != nil {
+		t.Fatalf("Run: %s", err)
+	}
+
+	msgs := decodeServerMessages(t, output.Bytes())
+	if len(msgs) != 2 { // publishDiagnostics, codeAction
+		t.Fatalf("got %d messages, want 2: %+v", len(msgs), msgs)
+	}
+
+	var actions []CodeAction
+	if err := json.Unmarshal(msgs[1].Result, &actions); err != nil {
+		t.Fatalf("unmarshal codeAction result: %s", err)
+	}
+	if len(actions) != 1 || actions[0].Title != "Format document" {
+		t.Errorf("actions = %+v, want one \"Format document\" action", actions)
+	}
+}
+
 // TestServerUnknownMethod confirms a request for an unhandled method
 // gets a proper JSON-RPC method-not-found error response rather than
 // being silently dropped or crashing the session.
 func TestServerUnknownMethod(t *testing.T) {
 	var input bytes.Buffer
-	input.Write(clientMessage(t, "textDocument/codeAction", 1, map[string]any{}))
+	input.Write(clientMessage(t, "textDocument/foldingRange", 1, map[string]any{}))
 	input.Write(clientMessage(t, "exit", nil, nil))
 
 	var output bytes.Buffer

@@ -443,13 +443,16 @@ instead — a real grammar, not a token-pattern list.
 keywords/builtins/literals, live diagnostics (lex/parse errors), go-to-
 definition, find-references, rename, document symbols (recipe
 outline), completion (keywords, builtins, and every declared name in
-the file), and document formatting — all resolved through cRust's real
-function-scope nesting (SPEC.md §3), not plain text matching, so two
-functions with identically-named parameters correctly resolve to two
-different declarations. It speaks plain JSON-RPC 2.0 over stdio, so
-any LSP client can launch `crust lsp` as the command; for Neovim
-specifically, `vim.lsp.start()` needs no plugin beyond what you likely
-already have:
+the file), document formatting, and a "Format document" code action —
+all resolved through cRust's real function-scope nesting (SPEC.md §3),
+not plain text matching, so two functions with identically-named
+parameters correctly resolve to two different declarations. Document
+sync is incremental (`TextDocumentSyncKind.Incremental`): an editing
+client sends just the changed range on every keystroke rather than the
+whole file, cheaper over the wire on a long file. It speaks plain
+JSON-RPC 2.0 over stdio, so any LSP client can launch `crust lsp` as
+the command; for Neovim specifically, `vim.lsp.start()` needs no
+plugin beyond what you likely already have:
 
 ```lua
 vim.filetype.add({ extension = { crust = "crust" } })

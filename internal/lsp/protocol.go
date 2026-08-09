@@ -68,8 +68,18 @@ type didOpenParams struct {
 	TextDocument textDocumentItem `json:"textDocument"`
 }
 
+// contentChange is one entry of textDocument/didChange's
+// contentChanges array. Range is absent for a full-document change
+// (TextDocumentContentChangeEvent's whole-document-text variant) and
+// present for an incremental one, where Text replaces exactly that
+// range — see applyContentChange (sync.go). RangeLength is LSP's
+// older, deprecated companion to Range (a UTF-16 code unit count
+// covering the same span); never read here since Range alone is
+// sufficient and is what every client capable of incremental sync
+// already sends.
 type contentChange struct {
-	Text string `json:"text"`
+	Range *Range `json:"range,omitempty"`
+	Text  string `json:"text"`
 }
 
 type didChangeParams struct {
@@ -217,6 +227,35 @@ type generalClientCapabilities struct {
 	PositionEncodings []string `json:"positionEncodings,omitempty"`
 }
 
+// codeActionContext carries the diagnostics VS Code (and other
+// clients) already know overlap the requested range — unused here,
+// since the one code action this package offers (formatDocument, not
+// diagnostic-specific) doesn't need to know which diagnostics
+// triggered the request.
+type codeActionContext struct {
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+type codeActionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+	Context      codeActionContext      `json:"context"`
+}
+
+// CodeAction is one LSP CodeAction — Edit is filled in directly rather
+// than a Command, since every action this package offers is a pure
+// text edit with nothing further for the server to execute once the
+// client applies it.
+type CodeAction struct {
+	Title string         `json:"title"`
+	Kind  string         `json:"kind,omitempty"`
+	Edit  *WorkspaceEdit `json:"edit,omitempty"`
+}
+
+// CodeActionKind values this package uses (LSP CodeActionKind enum —
+// a namespaced string, not an int, per spec).
+const codeActionKindSourceFixAll = "source.fixAll"
+
 type clientCapabilities struct {
 	General *generalClientCapabilities `json:"general,omitempty"`
 }
@@ -236,14 +275,21 @@ type serverCapabilities struct {
 	CompletionProvider         *completionOptions `json:"completionProvider,omitempty"`
 	RenameProvider             bool               `json:"renameProvider"`
 	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
+	CodeActionProvider         bool               `json:"codeActionProvider"`
 }
 
 type initializeResult struct {
 	Capabilities serverCapabilities `json:"capabilities"`
 }
 
-// textDocumentSyncKindFull is LSP's TextDocumentSyncKind.Full: every
-// didChange notification carries the whole new document text, not an
-// incremental edit. The simplest correct choice for a language this
-// small — no incremental-sync bookkeeping to get wrong.
-const textDocumentSyncKindFull = 1
+// textDocumentSyncKindIncremental is LSP's TextDocumentSyncKind.
+// Incremental: didChange notifications carry a Range plus the text
+// that replaces it, not the whole document — cheaper over the wire for
+// a client editing a long file one keystroke at a time, since a
+// keystroke's own contentChanges entry is a few bytes instead of the
+// entire buffer. applyContentChange (sync.go) does the actual
+// Range-to-byte-offset splice; a change with no Range (a full-document
+// replace) is still accepted the same way full sync always was, since
+// nothing in the spec requires every client to honor the server's
+// preferred sync kind on every single edit.
+const textDocumentSyncKindIncremental = 2
