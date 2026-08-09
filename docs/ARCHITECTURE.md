@@ -4427,6 +4427,53 @@ tests rather than worked around in the example code:
   production, where the second `term` was always meant to resolve its
   own internal `+`/`-` chain exactly like the first one already does.
 
+A third real bug turned up later, during the "day-1 essentials"
+confirmation pass — a formatter idempotency bug this time, found by the
+same mechanism as the two above: a real, independently-written program
+(`examples/day1_essentials.crust`) tripping over something a synthetic
+test never happened to exercise.
+
+- **`crust fmt` wasn't idempotent for a call whose argument is a
+  compact, single-line `recipe(...) { ... }` literal** — e.g.
+  `deliver(map(xs, recipe(x) { serve x * x }))` immediately followed by
+  another statement with no blank line between them, a perfectly
+  ordinary way to pass a short callback to `map`/`filter`/`reduce`.
+  Formatting once correctly inserted no blank line; formatting *that
+  output* again spuriously inserted one. `internal/format`'s
+  `lastLine`/`blankLineIfGap` (format.go) decide whether to preserve a
+  blank line between two statements by comparing an estimate of where
+  the first one's source "ends" (`lastLine`) against the second one's
+  own start line — but `lastLine`'s only block-aware cases were
+  statements that are *themselves* a block header
+  (`IfStatement`/`CountedLoop`/`ForEachLoop`/`BakeStatement`); a plain
+  `ExpressionStatement` that merely *contains* a block via a nested
+  `FunctionLiteral` argument fell through to its default case
+  (`s.Pos().Line`, a single source line, no matter how far the
+  statement's own tokens actually extended). The canonical printer
+  always expands a recipe body onto multiple lines regardless of how
+  compact the source was, so on a second formatting pass — now
+  reformatting output where that expansion had already happened — the
+  stale single-line estimate made the next statement look further away
+  than it actually was, i.e. "there must have been a blank line here."
+  Fixed with `lastLineOfExpr`, a recursive walker mirroring `lastLine`'s
+  own shape one level down into `ast.Expression` (which, unlike
+  `ast.Statement`, has no `Pos()` of its own — see ast.go's own doc
+  comment on why — so each case reads the concrete type's `.Token`
+  directly instead): a `FunctionLiteral` resolves through
+  `lastLineOfBlock` exactly like a statement-level block already does,
+  and every other node (`CallExpression`'s arguments, an infix/index
+  operand, a range's `Start`/`End`, a ternary/Elvis's branches, a
+  List/Tuple/Set's elements, a Map's keys and values) recurses and
+  takes the widest span across whatever it holds, so a `FunctionLiteral`
+  buried at any depth — not just as a direct call argument — is found.
+  Regression-tested directly
+  (`TestFormatIdempotentWithInlineFunctionLiteralArgument`,
+  `TestFormatIdempotentWithFunctionLiteralNestedDeeper` covering a
+  recipe literal buried in a List element and an infix operand, not
+  just a call argument) in addition to being caught by the pre-existing
+  glob-based `TestFormatIsIdempotent` the moment the new example file
+  existed.
+
 Both bugs are the specific shape a hand-written unit test suite tends
 to route around without ever tripping: every pre-existing slice test
 happened to parenthesize a compound end bound (see

@@ -1,0 +1,76 @@
+// Phase 8 "day-1 essentials" confirmation: file I/O, arithmetic,
+// strings, loops, lists, and maps all working end to end, in one
+// place, on real (if tiny) data — the language-completeness bar for
+// showing up to AoC 2026 day 1. See TODO.md's Phase 8 entry.
+// unbox(path) (the other half of file I/O, reading a path directly
+// rather than stdin) has its own dedicated unit test —
+// TestUnboxWithPathReadsFile in internal/builtins — so this uses the
+// stdin form instead, the actual AoC day-to-day pattern (`crust run
+// dayNN.crust < input.txt`) every other shipped example already uses.
+//
+//   crust run examples/day1_essentials.crust < examples/day1_essentials_input.txt
+
+// -- file I/O: unbox() reads all of stdin --
+text = trim(unbox())
+deliver(text)
+
+// -- arithmetic: + - * / %, idiv, and / always widening to Float --
+deliver(7 + 3 * 2 - 1)
+deliver(7 % 3)
+deliver(idiv(7, 3))
+deliver(7 / 2)
+
+// -- strings: concatenation, split/join, case, contains --
+name = "cRust"
+deliver(name + " " + str(2026))
+deliver(join(split("a,b,c", ","), "-"))
+deliver(upper("pepperoni") + " " + lower("BASIL"))
+deliver(contains(name, "Rust"))
+
+// -- loops: counted with flip (continue), for-each with burnt (break), while --
+total = 0
+knead (i = 1; i <= 5; i++) {
+    order (i == 3) {
+        flip
+    }
+    total += i
+}
+deliver(total)
+
+product = 1
+knead n in [1, 2, 3, 4] {
+    order (n == 4) {
+        burnt
+    }
+    product *= n
+}
+deliver(product)
+
+count = 0
+bake (count < 3) {
+    count += 1
+}
+deliver(count)
+
+// -- lists: literal, push, slice, map/filter/reduce --
+nums = [1, 2, 3, 4, 5]
+push(nums, 6)
+deliver(nums)
+deliver(nums[1..3])
+deliver(map(nums, recipe(x) {
+    serve x * x
+}))
+deliver(filter(nums, recipe(x) {
+    serve x % 2 == 0
+}))
+deliver(reduce(nums, recipe(acc, x) {
+    serve acc + x
+}, 0))
+// -- maps: literal, index, missing key reads as nobox, keys/pop --
+scores = {"alice": 10, "bob": 20}
+deliver(scores["alice"])
+deliver(scores["nobody"])
+scores["carol"] = 30
+deliver(pizzasort(keys(scores)))
+deliver(pop(scores, "bob"))
+deliver(pizzasort(keys(scores)))

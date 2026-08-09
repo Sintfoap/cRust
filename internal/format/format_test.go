@@ -403,6 +403,56 @@ func TestFormatNoBlankLineAfterNonEmptyBlockWithoutOne(t *testing.T) {
 	}
 }
 
+// TestFormatIdempotentWithInlineFunctionLiteralArgument regression-
+// tests a real bug: `lastLine`'s default case used to be plain
+// s.Pos().Line, with no allowance for a statement that isn't itself
+// block-headed (an if/loop/bake) but still embeds one via a
+// FunctionLiteral argument — a recipe literal passed to map/filter/
+// reduce/etc. Formatting a source where such a call was written
+// compact on one line, immediately followed by another statement with
+// no blank line between them, correctly produced no blank line on the
+// first pass; but the printer always expands a recipe body onto
+// multiple lines regardless of how compact the source was, so
+// formatting *that already-expanded output* a second time made the
+// stale line-based gap estimate think a blank line belonged there —
+// failing TestFormatIsIdempotent, first caught for real by
+// examples/day1_essentials.crust rather than by a synthetic test.
+func TestFormatIdempotentWithInlineFunctionLiteralArgument(t *testing.T) {
+	src := "deliver(map(xs, recipe(x) { serve x * x }))\ndeliver(filter(xs, recipe(x) { serve x % 2 == 0 }))\n"
+	once := fmtSrc(t, src)
+	twice := fmtSrc(t, once)
+	if once != twice {
+		t.Errorf("formatting is not idempotent.\n--- first pass ---\n%s\n--- second pass ---\n%s", once, twice)
+	}
+	if strings.Contains(once, "\n\n") {
+		t.Errorf("Format() = %q, want no blank line inserted between the two deliver(...) calls", once)
+	}
+}
+
+// TestFormatIdempotentWithFunctionLiteralNestedDeeper covers
+// lastLineOfExpr's recursive cases beyond CallExpression's own
+// Arguments — a recipe literal buried inside a ListLiteral element and
+// inside an InfixExpression operand — so the fix above isn't only
+// proven for the one shape it was first found in.
+func TestFormatIdempotentWithFunctionLiteralNestedDeeper(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"inside a list literal", "fns = [recipe(x) { serve x * x }, recipe(x) { serve x + 1 }]\ny = 2\n"},
+		{"inside an infix operand", "total = 1 + reduce(xs, recipe(acc, x) { serve acc + x }, 0)\ny = 2\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			once := fmtSrc(t, tt.src)
+			twice := fmtSrc(t, once)
+			if once != twice {
+				t.Errorf("formatting is not idempotent.\n--- first pass ---\n%s\n--- second pass ---\n%s", once, twice)
+			}
+		})
+	}
+}
+
 func TestFormatCountedLoopWithOmittedClauses(t *testing.T) {
 	got := fmtSrc(t, "knead(;i<10;){deliver(i)}")
 	want := "knead (; i < 10; ) {\n    deliver(i)\n}\n"

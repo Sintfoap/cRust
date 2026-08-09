@@ -242,7 +242,18 @@ func (p *printer) programStatements(stmts []ast.Statement) {
 // statement's "last line" here is approximated by its last inner
 // statement's own last line, recursively — close enough to tell "was
 // there a blank line" apart from "was there not," which is all this
-// needs.
+// needs. Any statement carrying an expression is routed through
+// lastLineOfExpr too, not just s.Pos().Line — a plain-looking
+// ExpressionStatement can still embed a FunctionLiteral arbitrarily
+// deep (`deliver(map(xs, recipe(x) { ... }))`), the one *expression*
+// node with a block body of its own, and printing one always expands
+// it onto multiple lines regardless of how compact the source was.
+// Missing that case isn't just a cosmetic miss the way the package
+// doc comment above allows for: formatting that output a second time
+// would then see a "gap" ahead of the next statement that was never a
+// gap in the original source, inserting a blank line
+// TestFormatIsIdempotent doesn't expect — caught by exactly that
+// scenario in examples/day1_essentials.crust before this existed.
 func lastLine(s ast.Statement) int {
 	switch s := s.(type) {
 	case *ast.IfStatement:
@@ -260,9 +271,102 @@ func lastLine(s ast.Statement) int {
 		return lastLineOfBlock(s.Body, s.Token.Line)
 	case *ast.BakeStatement:
 		return lastLineOfBlock(s.Body, s.Token.Line)
+	case *ast.ExpressionStatement:
+		return max(s.Pos().Line, lastLineOfExpr(s.Expression))
+	case *ast.AssignStatement:
+		return max(s.Pos().Line, lastLineOfExpr(s.Value))
+	case *ast.UnpackAssignStatement:
+		return max(s.Pos().Line, lastLineOfExpr(s.Value))
+	case *ast.IncDecStatement:
+		return max(s.Pos().Line, lastLineOfExpr(s.Target))
+	case *ast.ReturnStatement:
+		if s.ReturnValue == nil {
+			return s.Pos().Line
+		}
+		return max(s.Pos().Line, lastLineOfExpr(s.ReturnValue))
 	default:
 		return s.Pos().Line
 	}
+}
+
+// lastLineOfExpr is lastLine's own counterpart for expressions: an
+// expression's tokens never span multiple *printed* lines on their
+// own, except when it embeds a FunctionLiteral — recursed into since
+// one can sit arbitrarily deep inside a call's arguments, an infix
+// operand, a collection literal's elements, and so on. Every other
+// node either has no sub-expressions (a literal, an identifier — the
+// base cases, each returning its own single token's line) or simply
+// takes the widest span across whichever it has. ast.Expression has no
+// Pos() of its own (unlike ast.Statement — see ast.go's own doc
+// comment on why), so every case here reads .Token directly off the
+// concrete type instead.
+func lastLineOfExpr(e ast.Expression) int {
+	switch e := e.(type) {
+	case *ast.FunctionLiteral:
+		return lastLineOfBlock(e.Body, e.Token.Line)
+	case *ast.CallExpression:
+		m := lastLineOfExpr(e.Function)
+		for _, a := range e.Arguments {
+			m = max(m, lastLineOfExpr(a))
+		}
+		return m
+	case *ast.IndexExpression:
+		return max(lastLineOfExpr(e.Left), lastLineOfExpr(e.Index))
+	case *ast.InfixExpression:
+		return max(lastLineOfExpr(e.Left), lastLineOfExpr(e.Right))
+	case *ast.PrefixExpression:
+		return lastLineOfExpr(e.Right)
+	case *ast.RangeExpression:
+		return max(lastLineOfExpr(e.Start), lastLineOfExpr(e.End))
+	case *ast.TernaryExpression:
+		return max(lastLineOfExpr(e.Cond), lastLineOfExpr(e.Then), lastLineOfExpr(e.Else))
+	case *ast.ElvisExpression:
+		return max(lastLineOfExpr(e.Left), lastLineOfExpr(e.Right))
+	case *ast.ListLiteral:
+		return maxOverExprs(e.Elements, e.Token.Line)
+	case *ast.TupleLiteral:
+		return maxOverExprs(e.Elements, e.Token.Line)
+	case *ast.SetLiteral:
+		return maxOverExprs(e.Elements, e.Token.Line)
+	case *ast.MapLiteral:
+		m := e.Token.Line
+		for _, p := range e.Pairs {
+			m = max(m, lastLineOfExpr(p.Key), lastLineOfExpr(p.Value))
+		}
+		return m
+	case *ast.Identifier:
+		return e.Token.Line
+	case *ast.IntegerLiteral:
+		return e.Token.Line
+	case *ast.FloatLiteral:
+		return e.Token.Line
+	case *ast.StringLiteral:
+		return e.Token.Line
+	case *ast.BooleanLiteral:
+		return e.Token.Line
+	case *ast.NilLiteral:
+		return e.Token.Line
+	default:
+		// Every ast.Expression type is listed above; this only matters
+		// if a new one is ever added without a case here, in which
+		// case 0 (blankLineIfGap's own "nothing emitted yet" sentinel)
+		// is the safe fallback — it never triggers a spurious blank
+		// line, it can only ever miss a legitimate one, the same
+		// "worst outcome is one cosmetic blank line" ceiling every
+		// other estimate in this file already has.
+		return 0
+	}
+}
+
+// maxOverExprs is lastLineOfExpr's shared helper for the three
+// collection literals (List/Tuple/Set) whose only sub-expressions are
+// a flat Elements slice.
+func maxOverExprs(exprs []ast.Expression, base int) int {
+	m := base
+	for _, e := range exprs {
+		m = max(m, lastLineOfExpr(e))
+	}
+	return m
 }
 
 // lastLineOfBlock estimates the line b's own closing brace sits on:

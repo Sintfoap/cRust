@@ -1426,8 +1426,56 @@ confirmed, not before.
       (part1), ~9.0ms/op (part2) at `-benchtime=1s`.
 
 ## Phase 8 — AoC 2026 Ready
-- [ ] Confirm day-1 essentials all work end-to-end: file I/O, arithmetic,
-      strings, loops, lists, maps
+- [x] Confirm day-1 essentials all work end-to-end: file I/O, arithmetic,
+      strings, loops, lists, maps. `examples/day1_essentials.crust`
+      (+ `..._input.txt`) exercises every category in one real,
+      shipped, permanently-tested program rather than a one-off manual
+      check: `unbox()` off real stdin; `+ - * / %`, `idiv`, and `/`
+      always widening to Float; string concatenation, `split`/`join`,
+      `upper`/`lower`, `contains`; a counted `knead` with `flip`
+      (continue), a for-each `knead` with `burnt` (break), and a `bake`
+      while-loop; List literal/`push`/slicing/`map`/`filter`/`reduce`;
+      Map literal/index/a missing key reading as `nobox`/`pop`. Wired
+      into `TestRealExamplesProduceExpectedOutput`
+      (cmd/crust/examples_test.go) with its exact real output pinned,
+      the same "real program, real output, byte-for-byte" bar every
+      other shipped example there already meets — this is a permanent
+      regression check, not a one-time confirmation.
+      Along the way, `TestFormatIsIdempotent` caught a real formatter
+      bug this file happened to trip over on its very first draft: the
+      three `deliver(map/filter/reduce(..., recipe(x) { ... }))` lines,
+      written compact on one line each with no blank line between them
+      (a perfectly ordinary way to pass a short callback), formatted
+      once with no blank lines inserted (correct) but formatted *again*
+      picked up a spurious blank line after each one.
+      `internal/format`'s `lastLine`/`blankLineIfGap` mechanism decides
+      whether to preserve a blank line between two statements by
+      comparing an estimate of where the first one's source "ends"
+      against the second one's own start line — but that estimate
+      (`lastLine`) only accounted for a statement that is *itself* a
+      block header (`order`/`knead`/`bake`), not a plain-looking
+      `ExpressionStatement` that merely *contains* one, arbitrarily
+      deep, via a `recipe(...) { ... }` argument — the one expression
+      node with a block body of its own. The printer always expands a
+      recipe body onto multiple lines regardless of how compact the
+      source was, so on a second pass — now reformatting output where
+      that expansion had already happened — the stale estimate
+      undercounted how many lines the previous statement actually
+      spanned, making the next statement look further away than it
+      source-really was, i.e. "there must have been a blank line here."
+      Fixed with `lastLineOfExpr`, a recursive walker mirroring
+      `lastLine`'s own shape one level down into expressions — the same
+      "how many lines does printing this actually take" question, just
+      answered for `ast.Expression` instead of `ast.Statement`, checked
+      at every place a `FunctionLiteral` could be hiding (a call's
+      arguments, an infix/index operand, a collection literal's
+      elements, a map's keys/values, ...). Regression-tested directly
+      (`TestFormatIdempotentWithInlineFunctionLiteralArgument`,
+      `TestFormatIdempotentWithFunctionLiteralNestedDeeper` covering a
+      recipe literal buried in a List element and an infix operand, not
+      just a call argument) in addition to being caught by the
+      pre-existing glob-based `TestFormatIsIdempotent` the moment the
+      new example file existed.
 - [x] Per-day solution template (`examples/dayNN_template.crust`), on
       direct request, picked as the smaller of two remaining TODO items
       after the develop-tool ideas and the web playground were both
