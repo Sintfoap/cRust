@@ -165,7 +165,8 @@ crust fmt -w day01.crust           # canonical formatting, in place
 
 On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
 forward/backward), `f`/`F` jump straight to the next/previous failed
-step — both auto-expand any collapsed loop fold in the way.
+step — both auto-expand any collapsed loop fold in the way. `v` toggles
+a panel showing every variable visible at the selected step.
 
 On the Bench tab: `e` exports the current batch to `<file>.bench.csv`
 (run, duration_ns, alloc_bytes, failed — one row per run).

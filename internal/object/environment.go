@@ -76,3 +76,37 @@ func (e *Environment) assignExisting(name string, value Object) bool {
 	}
 	return false
 }
+
+// Snapshot returns every name currently visible from e — every scope in
+// the chain, innermost shadowing outer exactly the way Get already
+// resolves a lookup — flattened into one map. Built for the debugger's
+// step-by-step recording (internal/debugger, internal/trace): a
+// Tracer.Step call needs to capture "what were the variables at this
+// exact moment," and e's own store map keeps mutating as the run
+// continues past that point, so a live *Environment reference taken at
+// trace time would silently show *later* values by the time anyone
+// actually looks at it. Snapshot copies each scope's bindings (the map
+// header only — an Object itself is never deep-copied here) so a
+// caller holding the result sees this instant's bindings even after e
+// itself has moved on. That does mean a later in-place mutation of a
+// *shared* mutable value (a List/Map/Set/Grid still reachable through
+// push/setAt/sprinkle/scrape/wrapReplace/index-assignment) is still
+// visible through an old snapshot — Snapshot freezes *which value each
+// name pointed to*, not a deep recursive copy of every value's own
+// contents, the same "shallow enough to be cheap on every single
+// traced statement" tradeoff object.DeepCopy's own callers (copy(),
+// SPEC.md §7) don't have to make, since copy() only ever runs once per
+// call, not once per statement.
+func (e *Environment) Snapshot() map[string]Object {
+	var chain []*Environment
+	for env := e; env != nil; env = env.outer {
+		chain = append(chain, env)
+	}
+	out := make(map[string]Object)
+	for i := len(chain) - 1; i >= 0; i-- {
+		for name, value := range chain[i].store {
+			out[name] = value
+		}
+	}
+	return out
+}

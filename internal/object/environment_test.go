@@ -116,3 +116,71 @@ func TestEnvironmentClosureMutation(t *testing.T) {
 		t.Errorf("tally = %v, want 1", got)
 	}
 }
+
+func TestEnvironmentSnapshotIncludesLocalBindings(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("x", NewInteger(1))
+	env.Set("y", NewInteger(2))
+
+	snap := env.Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("snapshot has %d entries, want 2: %v", len(snap), snap)
+	}
+	if snap["x"].(*Integer).Value != 1 || snap["y"].(*Integer).Value != 2 {
+		t.Errorf("snapshot = %v, want x=1 y=2", snap)
+	}
+}
+
+func TestEnvironmentSnapshotWalksOuterScopes(t *testing.T) {
+	outer := NewEnvironment()
+	outer.Set("global", NewInteger(1))
+	inner := NewEnclosedEnvironment(outer)
+	inner.Declare("local", NewInteger(2))
+
+	snap := inner.Snapshot()
+	if snap["global"].(*Integer).Value != 1 {
+		t.Errorf("snapshot missing outer binding: %v", snap)
+	}
+	if snap["local"].(*Integer).Value != 2 {
+		t.Errorf("snapshot missing local binding: %v", snap)
+	}
+}
+
+func TestEnvironmentSnapshotInnerShadowsOuter(t *testing.T) {
+	outer := NewEnvironment()
+	outer.Set("x", NewInteger(1))
+	inner := NewEnclosedEnvironment(outer)
+	inner.Declare("x", NewInteger(99))
+
+	snap := inner.Snapshot()
+	if snap["x"].(*Integer).Value != 99 {
+		t.Errorf("snapshot[x] = %v, want the inner (shadowing) value 99", snap["x"])
+	}
+}
+
+// TestEnvironmentSnapshotIsPointInTime is Snapshot's whole reason to
+// exist: a caller holding an old snapshot must not see a *rebinding*
+// (Set replacing the map entry, as opposed to in-place mutation of a
+// still-shared value) that happens after the snapshot was taken.
+func TestEnvironmentSnapshotIsPointInTime(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("x", NewInteger(1))
+
+	snap := env.Snapshot()
+	env.Set("x", NewInteger(2))
+
+	if snap["x"].(*Integer).Value != 1 {
+		t.Errorf("snap[x] = %v, want 1 (the value at snapshot time, unaffected by the later rebinding)", snap["x"])
+	}
+	live, _ := env.Get("x")
+	if live.(*Integer).Value != 2 {
+		t.Errorf("env.Get(x) = %v, want 2 (the rebinding did happen, just not through the old snapshot)", live)
+	}
+}
+
+func TestEnvironmentSnapshotEmptyEnvironment(t *testing.T) {
+	snap := NewEnvironment().Snapshot()
+	if len(snap) != 0 {
+		t.Errorf("snapshot of an empty environment = %v, want empty", snap)
+	}
+}

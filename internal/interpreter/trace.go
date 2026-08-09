@@ -12,7 +12,11 @@ import (
 // reporting a trace.StepEvent when i.Trace is set. Timing wraps the
 // call unconditionally when tracing is on — cheap relative to the Eval
 // itself, and simpler than threading a "was this the traced path"
-// bool back out to the caller.
+// bool back out to the caller. env.Snapshot() is taken *after* Eval
+// returns, the same "after the fact" timing Out/Dur already use —
+// this statement's own effect (a new assignment, a loop variable's
+// binding) belongs in the snapshot the debugger's watch panel
+// attaches to this step, not left for the next one to pick up.
 func (i *Interpreter) evalTracedStatement(stmt ast.Statement, env *object.Environment) object.Object {
 	if i.Trace == nil {
 		return i.Eval(stmt, env)
@@ -23,6 +27,7 @@ func (i *Interpreter) evalTracedStatement(stmt ast.Statement, env *object.Enviro
 		Node: stmt,
 		Out:  out,
 		Dur:  time.Since(start),
+		Env:  env.Snapshot(),
 	})
 	return out
 }

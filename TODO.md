@@ -966,6 +966,52 @@ confirmed, not before.
       content against known input, an unwritable-directory error path)
       and a real pty-driven session confirming the exported file's
       numbers matched the chart's own.
+- [x] A variable/environment watch panel on the Stepper tab (`v`) — the
+      last of the six ideas, and the one expected to matter most day to
+      day: a step's own "out" column only ever showed what that one
+      statement itself evaluated to, never the full variable state
+      around it. Required real plumbing, not just a UI change:
+      `object.Environment` gained a `Snapshot()` method flattening the
+      whole scope chain (inner shadows outer, the same rule `Get`
+      already resolves by) into one point-in-time `map[string]Object`;
+      `trace.StepEvent` and `debugger.Step` each gained an `Env` field
+      carrying that snapshot, taken *after* `Eval` returns (the same
+      "after the fact" timing `Out`/`Dur` already use) so a step's own
+      effect — a new assignment, a loop variable's binding — is
+      included in its own snapshot rather than left for the next step
+      to pick up. Deliberately shallow: `Snapshot()` copies which
+      Object each name points to, not a recursive deep copy of every
+      value's own contents (`object.DeepCopy`, `copy()`'s own
+      implementation) — cheap enough to take on literally every traced
+      statement (confirmed via `BenchmarkTraced`: adding it moved the
+      benchmark by only noise, since tracing was already several times
+      slower than untraced from the timing/size-computation overhead
+      already there). The one real tradeoff that comes with going
+      shallow: a later *in-place* mutation of a shared List/Map/Set/
+      Grid (`push`, `setAt`, ...) is still visible through an old
+      snapshot, since only the *binding* was frozen, not the value's
+      own contents — Integer/Float/String/Boolean/Tuple are all
+      immutable in cRust, so this only ever affects those four
+      container types, and only when something still holds a
+      reference to the same one after the snapshot was taken.
+      `viewStepperWatch` (`cmd/crust/debug_tui.go`) renders the
+      selected step's own `Env`, sorted by name, capped at 8 lines with
+      a "+N more" note past that (a deep call stack can have dozens of
+      visible names) — a frame or closing row has no `Step` of its own
+      to read from, so the panel says so instead of showing the wrong
+      row's data or silently nothing. `stepperExtraLines` grows to
+      reserve room for it, the same pattern search/status already
+      established. Verified with Go tests at every layer (`Snapshot`'s
+      point-in-time behavior and shadowing in `internal/object`, the
+      interpreter reporting each step's own effect in `internal/
+      interpreter`, `Step.Env` landing correctly in `internal/
+      debugger`, the panel's rendering/truncation/placeholder and key
+      handling in `cmd/crust`) and a real pty-driven session: watched a
+      top-level call's variables after it returned, then stepped inside
+      the recipe itself and confirmed the panel correctly showed the
+      local `x`/`y`/`total` *and* the enclosing `a`/`b`/`combine`, while
+      correctly *not* showing the caller's own `c` — not yet assigned
+      at that point in the run.
 - [x] A richer Stepper tab, on direct request: "can you do richer
       stepper inside the develop tool?", narrowed via a clarifying
       question to three picks: search/filter the tree (this closes out

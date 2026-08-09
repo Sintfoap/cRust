@@ -3797,6 +3797,94 @@ code was written.
     and diffed the written file's numbers against the chart's own —
     exact matches (`69058` ns in the CSV for the `69.058µs` the runtime
     chart's own max reference line showed).
+  - **A variable/environment watch panel** (`v`, `viewStepperWatch`,
+    `cmd/crust/debug_tui.go`) — the last of the same six ideas, and the
+    one expected to matter most day to day: a step's "out" column only
+    ever shows what that one statement itself evaluated to, never the
+    surrounding variable state a real debugging session usually
+    actually wants ("what was `x` when this went wrong").
+
+    This one needed real plumbing underneath the UI, not just a new key
+    binding. `object.Environment` gained `Snapshot() map[string]Object`
+    (`internal/object/environment.go`): walks the scope chain outermost
+    to innermost, letting each inner scope's assignment overwrite the
+    map entry for a shared name — exactly the shadowing rule `Get`
+    already implements by walking the *other* direction (inner first,
+    falling outward) — flattening the whole chain into one map. This
+    exists specifically because a live `*Environment` reference isn't
+    safe to hold onto across time: its own `store` map keeps mutating
+    as the run continues past the point it was captured at, so a
+    debugger holding one and reading it later would silently show
+    *future* values, not the ones at the moment it actually cared
+    about. `Snapshot()` is deliberately shallow — it copies which
+    `Object` each name currently points to, not a recursive deep copy
+    of every value's own contents the way `object.DeepCopy` (`copy()`,
+    SPEC.md §7) does — since `copy()` only ever runs once per call site
+    while this needed to run on *every single traced statement*; the
+    tradeoff is that a later in-place mutation of a still-shared List/
+    Map/Set/Grid (`push`, `setAt`, `sprinkle`, `wrapReplace`, index
+    assignment, ...) is still visible through an old snapshot, since
+    only the *binding* was frozen, not the value underneath it —
+    Integer/Float/String/Boolean/Tuple are all immutable in cRust
+    (SPEC.md §2), so this caveat only ever touches those four
+    container types, and only when something else still holds a
+    reference to the exact same one.
+
+    `trace.StepEvent` and `debugger.Step` each gained an `Env` field
+    carrying that snapshot straight through the existing pipeline
+    (`internal/interpreter`'s `evalTracedStatement` → `trace.StepEvent`
+    → `internal/debugger`'s `Recorder.Step` → `Step.Env`) — no new
+    plumbing path, just one more field riding along the one that
+    already exists. Taken *after* `Eval` returns, the same "after the
+    fact" timing `Out`/`Dur` already use, so a step's *own* effect (a
+    new assignment, a loop variable's fresh binding) shows up in that
+    same step's snapshot rather than only becoming visible one step
+    later. Performance was the real open question before writing any
+    of this — computing a flattened snapshot on every one of up to
+    `DefaultMaxSteps` (20,000) traced statements sounded like it could
+    regress `crust develop`'s own responsiveness — so it got measured,
+    not assumed: `BenchmarkTraced`/`BenchmarkUntraced`
+    (`internal/interpreter/trace_test.go`) before this change already
+    showed traced running ~6.5x slower than untraced (from the timing
+    and `trace.SizeOf` work already happening on every step); adding
+    `Env: env.Snapshot()` moved that number by only run-to-run noise
+    (12.10ms → 12.35ms on this session's own before/after runs) — the
+    untraced path (`crust run`, the actual perf-critical one) is
+    completely unaffected either way, since a nil `Tracer` still skips
+    this whole branch with one check, same as always.
+
+    `viewStepperWatch` renders the selected row's own `Env`, names
+    sorted alphabetically for scanning, capped at `maxWatchLines` (8) —
+    a deep call stack can have dozens of visible names, and an
+    unbounded panel would fight `stepperBodyHeight`'s own row budget
+    unpredictably — with a "… and N more" note past the cap. A frame or
+    closing row has no `Step` of its own to read `Env` from (only
+    individual statements are traced, not a frame's own entry state),
+    so the panel says so explicitly rather than silently showing stale
+    data from whichever step was last selected or nothing at all.
+    `stepperExtraLines` grows by `maxWatchLines + 2` while the panel is
+    on, the same fixed-worst-case reservation pattern the search field/
+    status message already established for this same tab, and Bench's
+    own inspect mode established before that.
+
+    Verified with Go tests at every layer this touched:
+    `object.Environment.Snapshot`'s shadowing and point-in-time
+    behavior (a snapshot must not see a rebinding that happens after it
+    was taken) in `internal/object`; the interpreter reporting each
+    step's own effect in its own snapshot in `internal/interpreter`;
+    `Step.Env` landing correctly (and a step not yet reached correctly
+    *not* seeing a variable a later statement declares) in `internal/
+    debugger`; the panel's rendering, truncation, frame-row placeholder,
+    and `v` key handling in `cmd/crust`. And a real pty-driven session:
+    ran a program with a top-level call to a `combine` recipe, watched
+    the top-level call's row after it returned (showed `a`, `b`, `c`,
+    and `combine` itself — a recipe value is a variable too), then
+    stepped inside the recipe's own body and confirmed the panel
+    correctly added the local `x`/`y`/`total` while keeping the
+    enclosing `a`/`b`/`combine` visible too, and — the one that would
+    have caught a shadowing or ordering bug — correctly did *not* show
+    the caller's own `c`, since the call hadn't returned yet at that
+    point in the actual recorded run.
   - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
     request: "can you do richer stepper inside the develop tool?"
     followed by a clarifying `AskUserQuestion` that narrowed it to

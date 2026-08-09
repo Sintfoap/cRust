@@ -19,11 +19,13 @@ import (
 type fakeTracer struct {
 	log []string
 	out []object.Object
+	env []map[string]object.Object
 }
 
 func (f *fakeTracer) Step(e trace.StepEvent) {
 	f.log = append(f.log, "step:"+e.Node.String())
 	f.out = append(f.out, e.Out)
+	f.env = append(f.env, e.Env)
 }
 func (f *fakeTracer) PushFrame(label string) { f.log = append(f.log, "push:"+label) }
 func (f *fakeTracer) PopFrame()              { f.log = append(f.log, "pop") }
@@ -66,6 +68,46 @@ func TestTraceStepOutIsTheAssignedValue(t *testing.T) {
 		t.Fatalf("got %d steps, want 1", len(ft.out))
 	}
 	wantInteger(t, ft.out[0], 3)
+}
+
+// TestTraceStepEnvIncludesThisStatementsOwnEffect confirms the
+// snapshot is taken *after* Eval returns (evalTracedStatement's own
+// doc comment): a step's Env should already include whatever that
+// exact statement just bound, not leave it for the next step to pick
+// up.
+func TestTraceStepEnvIncludesThisStatementsOwnEffect(t *testing.T) {
+	ft, _ := tracedEval(t, "x = 42")
+	if len(ft.env) != 1 {
+		t.Fatalf("got %d steps, want 1", len(ft.env))
+	}
+	v, ok := ft.env[0]["x"]
+	if !ok {
+		t.Fatal("step's own Env is missing the variable it just assigned")
+	}
+	wantInteger(t, v, 42)
+}
+
+// TestTraceStepEnvGrowsAcrossStatements confirms each step's Env is
+// its own point-in-time snapshot, not a live view -- the first
+// statement's Env must not retroactively include a variable a *later*
+// statement declares.
+func TestTraceStepEnvGrowsAcrossStatements(t *testing.T) {
+	ft, _ := tracedEval(t, "x = 1\ny = 2\n")
+	if len(ft.env) != 2 {
+		t.Fatalf("got %d steps, want 2", len(ft.env))
+	}
+	if _, ok := ft.env[0]["y"]; ok {
+		t.Error("the first step's Env should not see a variable declared by a later statement")
+	}
+	if _, ok := ft.env[0]["x"]; !ok {
+		t.Error("the first step's Env should see its own x")
+	}
+	if _, ok := ft.env[1]["x"]; !ok {
+		t.Error("the second step's Env should still see x from the first statement (same scope)")
+	}
+	if _, ok := ft.env[1]["y"]; !ok {
+		t.Error("the second step's Env should see its own y")
+	}
 }
 
 func TestTraceRecipeCallOpensAndClosesAFrame(t *testing.T) {

@@ -185,7 +185,12 @@ searches by the visible label/output text with `n`/`N` repeating the
 same search forward/backward, and `f`/`F` jump straight to the next/
 previous failed step — all three auto-expand any folded loop lap
 standing in the way, so a match or failure buried inside a collapsed
-"N iterations" row is never missed), **Editor** (opens `nvim` on the file being
+"N iterations" row is never missed; `v` toggles a watch panel showing
+every variable visible at the selected step — its own scope plus every
+enclosing one, shadowed the same way a real lookup resolves — read from
+a snapshot taken at that exact moment, not live state, so browsing an
+earlier step after the run finished still shows what that variable was
+*then*), **Editor** (opens `nvim` on the file being
 debugged as soon as you switch to it — `nvim` behaves normally in
 there, so `:w` just saves and keeps you editing; quitting after a
 save, e.g. `:wq`, reruns the recording, refreshes the other tabs, and

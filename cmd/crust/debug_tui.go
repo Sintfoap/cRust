@@ -7,9 +7,12 @@
 // chart each, self-time/self-memory per function/loop, plus a few
 // overall numbers), Stepper (the recorded tree, navigable with the
 // arrow keys — each row shows its source line number, '/' searches by
-// label/output text with n/N repeating forward/backward, and f/F jump
-// straight to the next/previous failed step, all three auto-expanding
-// any folded loop lap standing in the way — see jumpToNode), Editor
+// label/output text with n/N repeating forward/backward, f/F jump
+// straight to the next/previous failed step (all three auto-expanding
+// any folded loop lap standing in the way — see jumpToNode), and 'v'
+// toggles a watch panel showing every variable visible at the selected
+// step, read straight from a point-in-time environment snapshot taken
+// when that step was traced — see viewStepperWatch), Editor
 // (hands the terminal to nvim on the file being debugged; see
 // debug_editor.go for the save-triggered reload loop), Run (type a
 // path and press enter to run the file with it as stdin and see the
@@ -24,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -194,6 +198,16 @@ type debugModel struct {
 	stepQuery       string
 	stepSearchInput runInputModel
 	stepStatus      string
+
+	// stepWatch backs the Stepper tab's variable watch panel ('v'), on
+	// direct request — one of six "what could I add to the develop
+	// tool?" ideas, picked to start on and the one expected to matter
+	// most day to day. Whether it's toggled on; the panel itself
+	// (viewStepperWatch) reads every variable straight from the
+	// selected row's own Step.Env, which is already a point-in-time
+	// snapshot (object.Environment.Snapshot), so there's no separate
+	// state here to keep synchronized with the cursor.
+	stepWatch bool
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -352,6 +366,10 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "F":
 		if m.active == tabStepper {
 			m.jumpToFailure(false)
+		}
+	case "v":
+		if m.active == tabStepper {
+			m.stepWatch = !m.stepWatch
 		}
 	}
 	return m, nil
@@ -618,12 +636,21 @@ func (m *debugModel) jumpToNextMatch(forward bool) {
 	m.jumpToNode(target)
 }
 
-// stepperExtraLines is how many lines viewStepper prints above its
-// column header beyond the fixed baseline — the search field or a
-// confirmed query reminder, and/or a status message — computed here
-// rather than duplicated as a second copy of the same conditions
-// inside viewStepper, so stepperBodyHeight's reservation can never
-// drift out of sync with what actually gets rendered.
+// maxWatchLines caps the variable watch panel's own height — enough
+// lines to reserve a fixed budget for it in stepperExtraLines
+// regardless of how many variables happen to be visible at whichever
+// row is selected (a deeply nested recipe call could have dozens),
+// rather than a reservation that changes shape every time the cursor
+// moves and could fight with stepperBodyHeight's own row count.
+const maxWatchLines = 8
+
+// stepperExtraLines is how many lines viewStepper prints beyond the
+// fixed baseline (the tree table itself) — the search field or a
+// confirmed query reminder above the header, a status message, and/or
+// the watch panel below the table — computed here rather than
+// duplicated as a second copy of the same conditions inside
+// viewStepper, so stepperBodyHeight's reservation can never drift out
+// of sync with what actually gets rendered.
 func (m debugModel) stepperExtraLines() int {
 	extra := 0
 	if m.stepSearching || m.stepQuery != "" {
@@ -631,6 +658,9 @@ func (m debugModel) stepperExtraLines() int {
 	}
 	if m.stepStatus != "" {
 		extra += 2
+	}
+	if m.stepWatch {
+		extra += maxWatchLines + 2
 	}
 	return extra
 }
@@ -704,7 +734,7 @@ func (m debugModel) helpText() string {
 		if m.stepSearching {
 			return "enter: search   esc: cancel   ctrl+c: quit"
 		}
-		return "tab/←→: switch tab   ↑↓: move   enter: open/close   /: search   n/N: next/prev match   f/F: next/prev failure   q: quit"
+		return "tab/←→: switch tab   ↑↓: move   enter: open/close   /: search   n/N: next/prev match   f/F: next/prev failure   v: watch variables   q: quit"
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	case tabRun:
@@ -968,6 +998,58 @@ func (m debugModel) viewStepper() string {
 	for i := m.top; i < end; i++ {
 		b.WriteString(m.renderRow(i, t))
 		b.WriteByte('\n')
+	}
+	if m.stepWatch {
+		b.WriteByte('\n')
+		b.WriteString(m.viewStepperWatch())
+	}
+	return b.String()
+}
+
+// viewStepperWatch is the variable watch panel ('v'), on direct
+// request — one of six "what could I add to the develop tool?" ideas.
+// A step's own "out" column only ever shows what that one statement
+// itself evaluated to; watch mode answers the more common debugging
+// question, "what was every variable at this point," straight from
+// Step.Env — a snapshot object.Environment.Snapshot already took at
+// trace time, so this never re-reads live (and by now long-since-
+// mutated) interpreter state.
+//
+// A frame or closing row has no Step of its own to read variables
+// from — a loop lap or recipe call's *entry* state isn't captured
+// anywhere, only each statement inside it — so the panel says so
+// rather than silently showing nothing or the wrong row's data.
+func (m debugModel) viewStepperWatch() string {
+	row := m.rows[m.cursor]
+	if row.closing || row.node.IsFrame() {
+		return styleMuted.Render("(select a step, not a frame, to watch its variables)")
+	}
+	env := row.node.Step.Env
+	if len(env) == 0 {
+		return styleMuted.Render("(no variables visible at this step)")
+	}
+
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	shown := names
+	truncated := 0
+	if len(shown) > maxWatchLines {
+		truncated = len(shown) - maxWatchLines
+		shown = shown[:maxWatchLines]
+	}
+
+	var b strings.Builder
+	b.WriteString(styleTitle.Render(fmt.Sprintf("variables at this step (%d)", len(names))))
+	b.WriteByte('\n')
+	for _, name := range shown {
+		fmt.Fprintf(&b, "%s = %s\n", styleMuted.Render(name), shortInspect(env[name]))
+	}
+	if truncated > 0 {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… and %d more\n", truncated)))
 	}
 	return b.String()
 }

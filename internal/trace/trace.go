@@ -46,6 +46,17 @@ type StepEvent struct {
 	Node ast.Statement
 	Out  object.Object
 	Dur  time.Duration
+
+	// Env is every variable visible at this statement, name to current
+	// value, flattened across the whole enclosing scope chain
+	// (object.Environment.Snapshot's own doc comment on exactly what
+	// "current" means and its one caveat) — the debugger's watch panel
+	// reads straight from this rather than from a live *Environment,
+	// since the same *Environment keeps being mutated by every
+	// statement after this one. nil is a legitimate value (a Tracer
+	// that doesn't care about variable state can leave StepEvent.Env
+	// unset), not an error — check for nil before ranging over it.
+	Env map[string]object.Object
 }
 
 // Tracer observes a run, statement by statement. A nil Tracer costs one

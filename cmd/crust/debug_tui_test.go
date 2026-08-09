@@ -1208,3 +1208,123 @@ func TestViewRendersStepperTabWithSearchAndStatusWithoutPanicking(t *testing.T) 
 	m.stepStatus = "no matches for \"zzz\""
 	_ = m.View()
 }
+
+// --- Stepper: variable watch panel ------------------------------------
+
+func TestHandleKeyVTogglesStepWatch(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	got := next.(debugModel)
+	if !got.stepWatch {
+		t.Fatal("'v' should turn the watch panel on")
+	}
+
+	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	got = next.(debugModel)
+	if got.stepWatch {
+		t.Error("a second 'v' should turn the watch panel back off")
+	}
+}
+
+func TestHandleKeyVDoesNothingOnOtherTabs(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabTime
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	got := next.(debugModel)
+	if got.stepWatch {
+		t.Error("'v' should only toggle the watch panel on the Stepper tab")
+	}
+}
+
+func TestViewStepperWatchShowsVariablesAtSelectedStep(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepWatch = true
+	m.cursor = 1 // "y = 2" -- x is still in scope, y is this step's own effect
+
+	out := m.viewStepperWatch()
+	if !strings.Contains(out, "x = 1") {
+		t.Errorf("viewStepperWatch() = %q, want it to show x = 1 (still in scope)", out)
+	}
+	if !strings.Contains(out, "y = 2") {
+		t.Errorf("viewStepperWatch() = %q, want it to show y = 2 (this step's own effect)", out)
+	}
+}
+
+func TestViewStepperWatchOnAFrameRowShowsPlaceholder(t *testing.T) {
+	m := newDebugModel(viewFor(t, `
+recipe f() {
+    x = 1
+}
+f()
+`))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepWatch = true
+
+	// Find a frame row (not the top-level call step) to select.
+	frameIdx := -1
+	for i, row := range m.rows {
+		if row.node.IsFrame() && !row.closing {
+			frameIdx = i
+			break
+		}
+	}
+	if frameIdx == -1 {
+		t.Fatal("expected at least one frame row in the recording")
+	}
+	m.cursor = frameIdx
+
+	out := m.viewStepperWatch()
+	if !strings.Contains(out, "select a step") {
+		t.Errorf("viewStepperWatch() on a frame row = %q, want a placeholder message", out)
+	}
+}
+
+func TestViewStepperWatchTruncatesPastMaxWatchLines(t *testing.T) {
+	var src strings.Builder
+	for i := 0; i < maxWatchLines+5; i++ {
+		fmt.Fprintf(&src, "v%d = %d\n", i, i)
+	}
+	m := newDebugModel(viewFor(t, src.String()))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepWatch = true
+	m.cursor = len(m.rows) - 1 // the last statement sees every variable declared so far
+
+	out := m.viewStepperWatch()
+	if !strings.Contains(out, "more") {
+		t.Errorf("viewStepperWatch() with more than %d variables = %q, want a truncation note", maxWatchLines, out)
+	}
+}
+
+func TestStepperExtraLinesReservesSpaceForWatchPanel(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.width, m.height = 100, 30
+	base := m.stepperBodyHeight()
+
+	m.stepWatch = true
+	withWatch := m.stepperBodyHeight()
+	if withWatch >= base {
+		t.Errorf("stepperBodyHeight with the watch panel shown = %d, want less than %d", withWatch, base)
+	}
+}
+
+func TestHelpTextStepperMentionsWatch(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	if !strings.Contains(m.helpText(), "watch") {
+		t.Errorf("helpText() = %q, want it to mention the watch panel", m.helpText())
+	}
+}
+
+func TestViewRendersStepperTabWithWatchPanelWithoutPanicking(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active = tabStepper
+	m.width, m.height = 80, 24
+	m.stepWatch = true
+	_ = m.View()
+}

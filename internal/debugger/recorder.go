@@ -33,6 +33,14 @@ type Step struct {
 	Size   int
 	SizeOK bool
 	Dur    time.Duration
+
+	// Env is every variable visible at this step, straight from
+	// trace.StepEvent.Env — already a snapshot taken at trace time
+	// (object.Environment.Snapshot's own doc comment), so it's safe to
+	// hold onto after the run finishes and read at any point later, the
+	// same as every other field on Step. The Stepper tab's watch panel
+	// (cmd/crust) is this field's only reader.
+	Env map[string]object.Object
 }
 
 // Line is the statement's source line, or 0 if unknown (Pos wasn't
@@ -152,6 +160,7 @@ func (r *Recorder) Step(e trace.StepEvent) {
 		Size:   size,
 		SizeOK: sizeOK,
 		Dur:    e.Dur,
+		Env:    e.Env,
 	}
 
 	node := &TraceNode{Step: st}

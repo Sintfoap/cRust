@@ -172,6 +172,23 @@ func TestRecorderStepCarriesOutValueAndSize(t *testing.T) {
 	}
 }
 
+func TestRecorderStepCarriesEnvSnapshot(t *testing.T) {
+	rec := record(t, "x = 1\ny = 2\n", 0)
+	roots := rec.Roots()
+	if len(roots) != 2 {
+		t.Fatalf("got %d roots, want 2", len(roots))
+	}
+	if _, ok := roots[0].Step.Env["x"]; !ok {
+		t.Error("first step's Env should carry x")
+	}
+	if _, ok := roots[0].Step.Env["y"]; ok {
+		t.Error("first step's Env should not yet see y, declared by the second statement")
+	}
+	if _, ok := roots[1].Step.Env["y"]; !ok {
+		t.Error("second step's Env should carry y")
+	}
+}
+
 func TestRecorderStepReportsErrorAsFailed(t *testing.T) {
 	rec := record(t, `x = 1 / 0`, 0)
 	roots := rec.Roots()
