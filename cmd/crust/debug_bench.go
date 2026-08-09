@@ -42,6 +42,20 @@
 // that run's own data on — with a caret row under each chart and a
 // readout line giving that run's exact duration/memory/pass-fail, no
 // resampling involved.
+//
+// Baseline diff ('b', 'e' for CSV export) — 'e' export was on the same
+// direct request as inspect mode's own follow-up, one of six "what
+// could I add to the develop tool?" ideas; 'b' answers a later one
+// from that same batch, "Bench regression baseline diff." 'b' saves
+// the current batch's average duration/memory (persisted per file,
+// the same develState mechanism benchCount already uses) as a named
+// point of comparison; every batch after that shows how its own
+// average has moved, as a signed percentage, until 'b' is pressed
+// again to replace it. Deliberately scoped to average only, not all
+// four reference lines the chart itself already tracks — median/max/
+// min stay visible as absolute numbers on the current batch's own
+// legend, so a diffed copy of those too would answer a question
+// ("did the typical run get faster") the average alone already does.
 package main
 
 import (
@@ -178,6 +192,13 @@ func (m debugModel) handleBenchTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if len(m.benchRuns) > 0 {
 					return m, m.benchExportCmd()
 				}
+			case r == 'b':
+				if len(m.benchRuns) > 0 {
+					baseline := benchBaselineFrom(m.benchRuns)
+					saveBenchBaselineBestEffort(m.view.path, baseline)
+					m.benchBaseline = &baseline
+					m.benchBaselineStatus = "baseline saved"
+				}
 			case m.benchInspect && r == 'h':
 				m.benchCursor = max(0, m.benchCursor-1)
 			case m.benchInspect && r == 'l':
@@ -270,10 +291,14 @@ func (m debugModel) handleBenchResult(msg benchResultMsg) (tea.Model, tea.Cmd) {
 	m.benchErr = ""
 	m.benchRuns = msg.runs
 	m.benchCursor = clampBenchCursor(m.benchCursor, len(msg.runs))
-	// A fresh batch makes any earlier "exported to ..." status stale --
-	// it described the previous batch's data, not this one, and leaving
-	// it up would read as if this new run had already been saved too.
+	// A fresh batch makes any earlier "exported to ..."/"baseline
+	// saved" status stale -- it described the previous batch's data,
+	// not this one, and leaving it up would read as if this new run
+	// had already been saved too. m.benchBaseline itself is left
+	// alone: unlike the status message, the saved baseline is meant to
+	// outlive the run it's being compared against.
 	m.benchExportStatus = ""
+	m.benchBaselineStatus = ""
 	return m, nil
 }
 
@@ -773,6 +798,10 @@ func (m debugModel) viewBench() string {
 		b.WriteByte('\n')
 		b.WriteString(m.viewBenchInspect())
 	}
+	if baseline := m.viewBenchBaseline(refsDur[benchAvg], refsMem[benchAvg]); baseline != "" {
+		b.WriteByte('\n')
+		b.WriteString(baseline)
+	}
 	if failed > 0 {
 		b.WriteString(styleError.Render(fmt.Sprintf("\n%d/%d runs exited non-zero", failed, len(m.benchRuns))))
 	}
@@ -780,7 +809,34 @@ func (m debugModel) viewBench() string {
 		b.WriteByte('\n')
 		b.WriteString(styleMuted.Render(m.benchExportStatus))
 	}
+	if m.benchBaselineStatus != "" {
+		b.WriteByte('\n')
+		b.WriteString(styleMuted.Render(m.benchBaselineStatus))
+	}
 	return b.String()
+}
+
+// viewBenchBaseline is the current batch's average duration/memory
+// compared against m.benchBaseline, on direct request ("Bench
+// regression baseline diff"). Empty until a baseline has actually been
+// saved ('b') — nothing to compare against yet, so nothing to show,
+// the same "no unnecessary UI" choice the inspect readout/export
+// status/failed-run footer all already make.
+func (m debugModel) viewBenchBaseline(curDurAvg, curAllocAvg float64) string {
+	if m.benchBaseline == nil {
+		return ""
+	}
+	var parts []string
+	if pct, ok := benchDiffPct(curDurAvg, float64(m.benchBaseline.DurationAvgNS)); ok {
+		parts = append(parts, fmt.Sprintf("runtime avg %+.1f%% (vs %s)", pct, time.Duration(m.benchBaseline.DurationAvgNS)))
+	}
+	if pct, ok := benchDiffPct(curAllocAvg, float64(m.benchBaseline.AllocAvg)); ok {
+		parts = append(parts, fmt.Sprintf("memory avg %+.1f%% (vs %s)", pct, formatBytes(float64(m.benchBaseline.AllocAvg))))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return styleMuted.Render("vs baseline: " + strings.Join(parts, ", "))
 }
 
 // viewBenchInspect is inspect mode's readout: the selected run's exact
@@ -872,4 +928,80 @@ func saveBenchCountBestEffort(path string, n int) {
 	s := all[abs]
 	s.BenchCount = n
 	_ = saveDevelState(abs, s)
+}
+
+// benchBaseline is a saved batch's headline numbers, on direct request
+// ("Bench regression baseline diff" — one of six "what could I add to
+// the develop tool?" ideas): "did this get faster or slower since I
+// last checked" needs something to compare *against*, and the chart's
+// own reference lines only ever describe the batch currently on
+// screen. Deliberately scoped to just the average of each metric,
+// not all four reference kinds (average/median/max/min) the chart
+// itself tracks — median/max/min stay visible as absolute numbers on
+// the current batch's own legend already, so duplicating them here as
+// a second, diffed copy would be more UI for a question ("did the
+// typical run get faster") the average alone already answers.
+type benchBaseline struct {
+	DurationAvgNS int64  `json:"durationAvgNs"`
+	AllocAvg      uint64 `json:"allocAvg"`
+}
+
+// restoreBenchBaseline returns path's saved baseline, or nil if
+// nothing's been saved yet — a plain absent-value case (unlike
+// restoreBenchCount's "or 10" default), since there's no sane baseline
+// to assume before the user has ever actually saved one.
+func restoreBenchBaseline(path string) *benchBaseline {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil
+	}
+	return loadDevelState()[abs].BenchBaseline
+}
+
+// saveBenchBaselineBestEffort persists b as path's new baseline,
+// preserving whatever else was already remembered for it — the same
+// read-mutate-write shape saveBenchCountBestEffort already uses, and
+// the same best-effort "a write failure shouldn't interrupt anything"
+// reasoning.
+func saveBenchBaselineBestEffort(path string, b benchBaseline) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	all := loadDevelState()
+	s := all[abs]
+	s.BenchBaseline = &b
+	_ = saveDevelState(abs, s)
+}
+
+// benchBaselineFrom computes a benchBaseline from a completed batch —
+// the same average the runtime/memory charts' own [a] reference line
+// already shows, captured as a plain number so it can be compared
+// against on a *later* run once this one has scrolled by.
+func benchBaselineFrom(runs []benchRun) benchBaseline {
+	durations := make([]time.Duration, len(runs))
+	allocs := make([]uint64, len(runs))
+	for i, r := range runs {
+		durations[i] = r.duration
+		allocs[i] = r.allocB
+	}
+	return benchBaseline{
+		DurationAvgNS: int64(benchAvgOf(durations)),
+		AllocAvg:      benchAvgOf(allocs),
+	}
+}
+
+// benchDiffPct is how far v has moved from baseline, as a signed
+// percentage — positive means v is larger (slower for duration, more
+// memory for allocation; there's no metric here where "larger" is
+// inherently good or bad, so the sign is left for the reader to
+// interpret rather than colored green/red). baseline == 0 has no
+// meaningful percentage to report (division by zero, and a real
+// baseline duration/allocation is never actually zero in practice) —
+// ok is false rather than returning a nonsensical +Inf.
+func benchDiffPct(v, baseline float64) (pct float64, ok bool) {
+	if baseline == 0 {
+		return 0, false
+	}
+	return (v - baseline) / baseline * 100, true
 }

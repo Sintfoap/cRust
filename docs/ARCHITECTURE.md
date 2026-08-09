@@ -3914,6 +3914,63 @@ code was written.
     own "out" column exactly as expected, then `o` showed all 150
     characters, correctly wrapped across multiple lines at the panel's
     own width rather than the table's.
+  - **Bench regression baseline diff** (`b`, `benchBaseline`,
+    `cmd/crust/debug_bench.go`) — the last of the same six ideas.
+    "Did this get faster or slower since I last checked" needs
+    something to compare *against*, and the chart's own reference
+    lines only ever describe whichever batch happens to be on screen
+    right now. `b` computes `benchBaselineFrom(m.benchRuns)` — the
+    average duration and average allocation, the same numbers the
+    chart's own `[a]` reference line already shows, via the existing
+    `benchAvgOf` — and persists it through the same `develState`
+    mechanism `BenchCount` already established
+    (`restoreBenchBaseline`/`saveBenchBaselineBestEffort`, mirroring
+    `restoreBenchCount`/`saveBenchCountBestEffort`'s own read-mutate-
+    write shape so saving a baseline can never clobber the file's other
+    remembered settings). Deliberately scoped to average only, not the
+    other three reference kinds (median/max/min) the chart already
+    tracks: those stay visible as absolute numbers on the current
+    batch's own legend regardless, so a diffed copy of them too would
+    be answering a question ("did the *typical* run get faster") the
+    average alone already answers, for a UI cost every additional
+    number adds.
+
+    `benchDiffPct(v, baseline)` is the signed-percentage math
+    (`(v-baseline)/baseline*100`), factored out mainly so the zero-
+    baseline edge case (`ok=false` rather than computing `±Inf`) has
+    exactly one implementation rather than one per call site — not
+    that a real saved baseline is ever actually zero, but a hand-edited
+    or corrupted state file could still produce one, and a stray
+    `+Inf%` in the UI would be a strange way to find out. `viewBench-
+    Baseline` renders the diff for whichever of duration/allocation
+    still has a meaningful percentage, so a corrupted single field
+    degrades to showing one metric's diff rather than hiding the whole
+    line.
+
+    The saved baseline value and the "baseline saved" confirmation
+    message have two different lifetimes, and `handleBenchResult`
+    treats them accordingly: `m.benchBaseline` is left untouched on a
+    fresh batch (the whole point is comparing a *new* batch against an
+    *older* saved one, so the baseline has to survive the exact event
+    that would otherwise blow it away), while `m.benchBaselineStatus`
+    is cleared the same way `benchExportStatus` already is — it
+    specifically means "I just pressed b," not "a baseline currently
+    exists," and leaving it up past the next run would misreport which
+    batch it was actually confirming.
+
+    Verified with Go tests (`benchBaselineFrom`'s average computation,
+    `benchDiffPct`'s sign in both directions and its zero-baseline
+    no-op, the persistence round trip preserving every other
+    remembered setting alongside the new baseline, `'b'` requiring at
+    least one run present, the diff line hidden entirely until a
+    baseline actually exists, and the two-different-lifetimes behavior
+    on a fresh batch) and a real pty-driven session: ran a batch on the
+    Bench tab itself (not the Run tab's own single run, which populates
+    a completely separate recording), pressed `b` and confirmed
+    `+0.0%` (comparing the just-saved baseline against itself), ran a
+    second batch, and confirmed the shown diff (`+22.3%` runtime,
+    `+12.5%` memory) matched hand-computed percentages from the two
+    batches' own displayed averages.
   - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
     request: "can you do richer stepper inside the develop tool?"
     followed by a clarifying `AskUserQuestion` that narrowed it to

@@ -222,8 +222,11 @@ and a caret under both charts plus a readout line show that exact
 run's own duration/memory (and whether it failed), not blended into
 any average; `e` exports the current batch to a CSV file next to the
 debugged file — one row per run, its raw duration in nanoseconds and
-bytes allocated, for spreadsheet analysis or comparing across days),
-and
+bytes allocated, for spreadsheet analysis or comparing across days;
+`b` saves the current batch's average runtime/memory as a named
+baseline, remembered per file — every batch after that shows how far
+its own average has moved from it, as a signed percentage, until `b`
+is pressed again to replace it), and
 **Files** (every other `.crust` file alongside the one currently
 open — the natural "AoC folder full of day01.crust..day25.crust"
 layout — ↑↓ to move, enter to switch straight to one without leaving

@@ -170,4 +170,6 @@ a panel showing every variable visible at the selected step; `o`
 toggles a panel showing that step's full, untruncated result.
 
 On the Bench tab: `e` exports the current batch to `<file>.bench.csv`
-(run, duration_ns, alloc_bytes, failed — one row per run).
+(run, duration_ns, alloc_bytes, failed — one row per run). `b` saves
+the current batch's average as a baseline; later batches show `vs
+baseline: ...` as a signed percentage until `b` is pressed again.

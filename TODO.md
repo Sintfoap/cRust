@@ -1032,6 +1032,34 @@ confirmed, not before.
       genuinely truncated with `…` in the table's own "out" column,
       then `o` showed the full 150-character value wrapped cleanly
       across several lines.
+- [x] Bench regression baseline diff (`b`) — the last of the six
+      ideas. `b` saves the current batch's average duration/memory as
+      a named baseline, persisted per file the same `develState`
+      mechanism `benchCount` already uses (`benchBaseline`,
+      `restoreBenchBaseline`/`saveBenchBaselineBestEffort`); every
+      batch after that (including the one that just saved it, showing
+      +0.0%) prints how far its own average has moved from it as a
+      signed percentage, until `b` is pressed again to replace it.
+      Deliberately scoped to average only, not all four reference
+      lines (average/median/max/min) the chart itself already tracks —
+      median/max/min stay visible as absolute numbers on the current
+      batch's own legend, so a diffed copy of those too would answer a
+      question ("did the typical run get faster") the average alone
+      already does. The saved baseline itself and the "baseline saved"
+      confirmation toast are two different lifetimes: the baseline
+      value has to outlive the run being compared against it, so it's
+      untouched by a fresh batch, while the toast is cleared on one
+      (the same event that already clears the CSV-export status),
+      since it specifically means "just saved," not "a baseline
+      exists." Verified with Go tests (the average computation, the
+      percentage math including the zero-baseline no-op case, the
+      persistence round trip preserving every other remembered
+      setting, the toggle requiring at least one run, the two
+      different clear-on-new-batch behaviors) and a real pty-driven
+      session: ran a batch, saved it as the baseline (showed `+0.0%`,
+      comparing it against itself), ran a second batch, and confirmed
+      the diff (`+22.3%` runtime, `+12.5%` memory) matched the actual
+      before/after averages by hand.
 - [x] A richer Stepper tab, on direct request: "can you do richer
       stepper inside the develop tool?", narrowed via a clarifying
       question to three picks: search/filter the tree (this closes out

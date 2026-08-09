@@ -186,6 +186,21 @@ type debugModel struct {
 	// describes the *previous* batch's data, not whatever just ran.
 	benchExportStatus string
 
+	// benchBaseline/benchBaselineStatus back the Bench tab's regression
+	// baseline ('b'), on direct request ("Bench regression baseline
+	// diff"): benchBaseline is the currently loaded baseline (nil if
+	// none has ever been saved for this file — runDebugTUI restores it
+	// the same way m.benchCount is restored), read by viewBench to show
+	// how the current batch's average compares; benchBaselineStatus is
+	// one-line feedback for the last 'b' (save as new baseline) press,
+	// the same shape benchExportStatus already established for 'e'.
+	// Unlike benchExportStatus, NOT cleared on a fresh batch — the
+	// whole point is comparing a new batch against an *older* saved
+	// one, so the baseline itself has to outlive the run that's being
+	// compared against it.
+	benchBaseline       *benchBaseline
+	benchBaselineStatus string
+
 	// stepSearching/stepQuery/stepSearchInput/stepStatus back the
 	// Stepper tab's search ('/') and jump-to-failure (f/F), on direct
 	// request: "search/filter the tree" and "jump to next/prev
@@ -770,9 +785,9 @@ func (m debugModel) helpText() string {
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabBench:
 		if m.benchInspect {
-			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   b: save baseline   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
-		return "enter: run N times   i: inspect a run   e: export CSV   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		return "enter: run N times   i: inspect a run   e: export CSV   b: save baseline   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
 		if m.navCreating {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"
@@ -1273,6 +1288,7 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.runInput = restoreRunInput(view.path)
 	m.runAllStores = restoreRunAll(view.path)
 	m.benchCount = benchCountInput(restoreBenchCount(view.path))
+	m.benchBaseline = restoreBenchBaseline(view.path)
 	m.refreshNavFiles()
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {

@@ -710,6 +710,160 @@ func TestViewBenchShowsExportStatus(t *testing.T) {
 	}
 }
 
+// --- baseline diff -------------------------------------------------------
+
+func TestBenchBaselineFromComputesAverages(t *testing.T) {
+	runs := []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+	got := benchBaselineFrom(runs)
+	if got.DurationAvgNS != int64(2*time.Millisecond) {
+		t.Errorf("DurationAvgNS = %d, want %d", got.DurationAvgNS, int64(2*time.Millisecond))
+	}
+	if got.AllocAvg != 200 {
+		t.Errorf("AllocAvg = %d, want 200", got.AllocAvg)
+	}
+}
+
+func TestBenchDiffPct(t *testing.T) {
+	pct, ok := benchDiffPct(120, 100)
+	if !ok {
+		t.Fatal("expected ok=true for a nonzero baseline")
+	}
+	if pct != 20 {
+		t.Errorf("benchDiffPct(120, 100) = %v, want 20", pct)
+	}
+
+	pct, ok = benchDiffPct(80, 100)
+	if !ok || pct != -20 {
+		t.Errorf("benchDiffPct(80, 100) = %v, %v, want -20, true", pct, ok)
+	}
+}
+
+func TestBenchDiffPctZeroBaselineIsNotOK(t *testing.T) {
+	_, ok := benchDiffPct(100, 0)
+	if ok {
+		t.Error("benchDiffPct with a zero baseline should report ok=false, not divide by zero")
+	}
+}
+
+func TestRestoreBenchBaselineDefaultsToNil(t *testing.T) {
+	withTempDevelStateDir(t)
+	if got := restoreBenchBaseline("/some/path.crust"); got != nil {
+		t.Errorf("restoreBenchBaseline (nothing saved) = %v, want nil", got)
+	}
+}
+
+func TestSaveAndRestoreBenchBaselineRoundTrips(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, "x = 1")
+	saveBenchBaselineBestEffort(path, benchBaseline{DurationAvgNS: 500, AllocAvg: 1024})
+
+	got := restoreBenchBaseline(path)
+	if got == nil {
+		t.Fatal("expected a saved baseline")
+	}
+	if got.DurationAvgNS != 500 || got.AllocAvg != 1024 {
+		t.Errorf("restoreBenchBaseline() = %+v, want {500 1024}", got)
+	}
+}
+
+func TestSaveBenchBaselinePreservesOtherSettings(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, "x = 1")
+	saveDevelStateBestEffort(path, "part1", "input.txt", true)
+	saveBenchCountBestEffort(path, 25)
+	saveBenchBaselineBestEffort(path, benchBaseline{DurationAvgNS: 500, AllocAvg: 1024})
+
+	abs, _ := filepath.Abs(path)
+	saved := loadDevelState()[abs]
+	if saved.Store != "part1" || saved.Input != "input.txt" || !saved.RunAll || saved.BenchCount != 25 {
+		t.Errorf("saved = %+v, want store/input/runAll/benchCount preserved alongside the new baseline", saved)
+	}
+	if saved.BenchBaseline == nil || saved.BenchBaseline.DurationAvgNS != 500 {
+		t.Errorf("BenchBaseline = %+v, want {500 1024}", saved.BenchBaseline)
+	}
+}
+
+func TestHandleBenchTabKeyBSavesBaseline(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, "x = 1")
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.benchRuns = []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	got := next.(debugModel)
+	if got.benchBaseline == nil {
+		t.Fatal("'b' should set benchBaseline")
+	}
+	if got.benchBaseline.DurationAvgNS != int64(2*time.Millisecond) {
+		t.Errorf("DurationAvgNS = %d, want %d", got.benchBaseline.DurationAvgNS, int64(2*time.Millisecond))
+	}
+	if got.benchBaselineStatus == "" {
+		t.Error("expected a non-empty benchBaselineStatus after saving")
+	}
+
+	// It should also actually be persisted, not just held in memory.
+	if saved := restoreBenchBaseline(path); saved == nil || saved.DurationAvgNS != int64(2*time.Millisecond) {
+		t.Errorf("restoreBenchBaseline() = %+v, want the saved baseline to persist", saved)
+	}
+}
+
+func TestHandleBenchTabKeyBRequiresRuns(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	got := next.(debugModel)
+	if got.benchBaseline != nil {
+		t.Error("'b' with no runs yet should be a no-op")
+	}
+}
+
+func TestViewBenchBaselineShowsDiff(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{
+		{duration: 240 * time.Millisecond, allocB: 60},
+	}
+	m.benchBaseline = &benchBaseline{DurationAvgNS: int64(200 * time.Millisecond), AllocAvg: 50}
+
+	out := m.viewBench()
+	if !strings.Contains(out, "vs baseline") {
+		t.Errorf("viewBench() missing the baseline diff: %q", out)
+	}
+	if !strings.Contains(out, "+20.0%") {
+		t.Errorf("viewBench() = %q, want it to show +20.0%% (240ms vs a 200ms baseline)", out)
+	}
+}
+
+func TestViewBenchBaselineHiddenWithoutASavedBaseline(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 10}}
+	out := m.viewBench()
+	if strings.Contains(out, "vs baseline") {
+		t.Errorf("viewBench() = %q, should not show a baseline diff when none has been saved", out)
+	}
+}
+
+func TestHandleBenchResultClearsBaselineStatusButKeepsBaseline(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchBaseline = &benchBaseline{DurationAvgNS: 500, AllocAvg: 1024}
+	m.benchBaselineStatus = "baseline saved"
+
+	next, _ := m.handleBenchResult(benchResultMsg{runs: []benchRun{{duration: time.Millisecond}}})
+	got := next.(debugModel)
+	if got.benchBaselineStatus != "" {
+		t.Errorf("benchBaselineStatus = %q, want cleared after a fresh batch", got.benchBaselineStatus)
+	}
+	if got.benchBaseline == nil || got.benchBaseline.DurationAvgNS != 500 {
+		t.Errorf("benchBaseline = %+v, want it to survive a fresh batch of runs", got.benchBaseline)
+	}
+}
+
 // --- persistence -------------------------------------------------------
 
 func TestRestoreBenchCountDefaultsToTen(t *testing.T) {
