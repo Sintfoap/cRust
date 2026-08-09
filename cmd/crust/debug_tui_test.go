@@ -244,6 +244,65 @@ y = makeList(21)
 	}
 }
 
+func TestPieRadiusDefaultsToSevenOnARoomyTerminal(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 120, 50
+	if got := m.pieRadius(3); got != 7 {
+		t.Errorf("pieRadius on a roomy terminal = %d, want 7 (the old fixed value)", got)
+	}
+}
+
+func TestPieRadiusShrinksOnAShortTerminal(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 120, 15
+	got := m.pieRadius(3)
+	if got >= 7 {
+		t.Errorf("pieRadius on a short terminal = %d, want less than 7", got)
+	}
+	if got < 3 {
+		t.Errorf("pieRadius = %d, want never below the 3 floor", got)
+	}
+}
+
+func TestPieRadiusShrinksAsKPICountGrows(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 120, 25
+	few := m.pieRadius(2)
+	many := m.pieRadius(15)
+	if many > few {
+		t.Errorf("pieRadius(15 kpis) = %d, want <= pieRadius(2 kpis) = %d", many, few)
+	}
+}
+
+func TestPieRadiusNeverBelowFloorOnATinyTerminal(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 10, 5
+	if got := m.pieRadius(20); got != 3 {
+		t.Errorf("pieRadius on a tiny terminal = %d, want the 3 floor", got)
+	}
+}
+
+func TestPieRadiusBoundedByWidth(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 16, 100
+	got := m.pieRadius(1)
+	if got >= 7 {
+		t.Errorf("pieRadius on a narrow terminal = %d, want less than 7", got)
+	}
+}
+
+func TestViewTimeRendersAtASmallWindowSizeWithoutPanicking(t *testing.T) {
+	m := newDebugModel(viewFor(t, `
+recipe double(x) {
+    serve x * 2
+}
+y = double(21)
+`))
+	m.width, m.height = 40, 12
+	_ = m.viewTime()
+	_ = m.viewMemory()
+}
+
 func TestDebugModelViewOnEmptyRecording(t *testing.T) {
 	rec := debugger.NewRecorder(0)
 	m := newDebugModel(&debugView{path: "empty.crust", rec: rec})

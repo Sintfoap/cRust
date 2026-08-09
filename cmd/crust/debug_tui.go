@@ -772,10 +772,40 @@ func (m debugModel) viewEditor() string {
 // squeezing two into one, per direct user feedback.
 func (m debugModel) viewTime() string {
 	kpis := m.view.timing().KPIs()
-	chart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfTime) },
+	chart := pieChart(kpis, m.pieRadius(len(kpis)), func(k debugger.KPI) float64 { return float64(k.SelfTime) },
 		func(k debugger.KPI) string { return k.SelfTime.String() })
 	col := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("time by function"), chart)
 	return col + "\n\n" + m.viewTimeStats()
+}
+
+// pieRadius picks the Time/Memory tabs' pie chart radius from the
+// window's actual size, on direct request ("adaptive pie chart radius
+// that adapts to the terminal's actual size," a stretch item this
+// closes out): fixed at 7 before this, the chart's own height (2r+1
+// rows) plus a growing legend (one line per KPI family) could run past
+// the bottom of a short terminal, and clampHeight — built for exactly
+// this failure mode elsewhere — can only trim the *result*, not shrink
+// the chart itself back into the space available. reserved bundles
+// every other line View()'s frame is already committed to printing
+// around the chart (tab bar, header, chart title, the blank line
+// pieChart itself leaves between the circle and its legend, the blank
+// line before the stats block, up to three stats lines — viewTimeStats
+// is the longer of the two callers' stats blocks, so both tabs share
+// one conservative reservation rather than computing two slightly
+// different ones — and the help footer): the same "how much is already
+// spoken for" bookkeeping stepperBodyHeight/benchChartHeight already
+// do for their own tabs. Never grows past 7 — nothing asked for a
+// *bigger* chart on a roomy terminal, only for a small one to stop
+// losing its bottom rows — and never shrinks below 3, since a smaller
+// circle stops reading as one at all. Also bounded by width (each unit
+// of radius costs 4 more character columns), for the rare narrow-but-
+// tall terminal.
+func (m debugModel) pieRadius(kpiCount int) int {
+	const reserved = 10
+	byHeight := (m.height - reserved - kpiCount - 1) / 2
+	byWidth := (m.width - 2) / 4
+	radius := min(byHeight, byWidth, 7)
+	return max(radius, 3)
 }
 
 // viewMemory is viewTime's counterpart for self-size — same chart
@@ -785,7 +815,7 @@ func (m debugModel) viewTime() string {
 // duration doesn't apply to a memory reading).
 func (m debugModel) viewMemory() string {
 	kpis := m.view.timing().KPIs()
-	chart := pieChart(kpis, 7, func(k debugger.KPI) float64 { return float64(k.SelfSize) },
+	chart := pieChart(kpis, m.pieRadius(len(kpis)), func(k debugger.KPI) float64 { return float64(k.SelfSize) },
 		func(k debugger.KPI) string { return fmt.Sprintf("%d", k.SelfSize) })
 	col := lipgloss.JoinVertical(lipgloss.Left, styleTitle.Render("memory by function"), chart)
 	return col + "\n\n" + m.viewMemoryStats()

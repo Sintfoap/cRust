@@ -933,10 +933,21 @@ confirmed, not before.
       handleNvimExit directly with saved: false, confirming both the
       option list and the selected index update anyway, and that a
       clean saveless exit still doesn't trigger reloadCmd itself.
-- [ ] (Stretch) debugger follow-ons: pie chart radius that adapts to
-      the terminal's actual size (fixed at 7 today — clampHeight now
-      keeps a small terminal from losing the tab bar over it, but the
-      chart itself can still get cut off rather than shrinking to fit)
+- [x] Adaptive pie chart radius on the Time/Memory tabs — one of six
+      "what could I add to the develop tool" ideas offered on direct
+      request, picked to start on along with a web playground. Fixed at
+      7 before this; `pieRadius` now derives it from the window's own
+      height/width and the current KPI count (one legend line each),
+      the same "how much is already spoken for" reservation
+      `stepperBodyHeight`/`benchChartHeight` already do for their own
+      tabs — shrinks down to a floor of 3 on a short terminal instead
+      of `clampHeight` clipping the chart's bottom rows off, never
+      grows past the original 7 (nothing asked for a *bigger* chart on
+      a roomy terminal). Verified with table-driven Go tests and a real
+      pty-driven session comparing a 50-row and a 15-row terminal: the
+      short one's circle visibly shrank and the legend/stats stayed
+      fully on screen, where before this the tab's own content would
+      have run past the bottom.
 - [x] A richer Stepper tab, on direct request: "can you do richer
       stepper inside the develop tool?", narrowed via a clarifying
       question to three picks: search/filter the tree (this closes out

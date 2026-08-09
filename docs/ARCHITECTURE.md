@@ -3740,6 +3740,35 @@ code was written.
     consecutive runs, `G` jumped straight to the last run (caret at the
     chart's right edge), and `g` back to the first (caret at the left
     edge) — all against real per-run data, not a mock.
+  - **Adaptive pie chart radius** (`pieRadius`, `cmd/crust/debug_tui.go`),
+    one of six "what could I add to the develop tool?" ideas offered on
+    direct request and picked to start on (along with a web
+    playground) — closes out the pie-chart half of the debugger
+    follow-ons stretch item TODO.md already flagged (the other half,
+    Stepper search, is its own bullet below). The radius was a fixed
+    `7` since the KPI tab first split into Time/Memory: fine on a
+    normal terminal, but on a short one the chart's own height (`2r+1`
+    circle rows, plus a growing legend line per KPI family) could run
+    past the bottom, and `clampHeight` — built for exactly this class
+    of overflow elsewhere — can only trim the rendered *result*, not
+    shrink the chart back into the room actually available. `pieRadius`
+    computes the radius from `m.height`/`m.width` and the caller's own
+    KPI count, reserving the same "everything else this tab is already
+    committed to printing" budget `stepperBodyHeight`/
+    `benchChartHeight` already reserve for their own tabs (tab bar,
+    header, chart title, the blank line `pieChart` itself leaves before
+    its legend, one line per KPI, the stats block below, the help
+    footer) — floored at 3 (smaller stops reading as a circle at all),
+    capped at the original 7 (nothing asked for a *bigger* chart on a
+    roomy terminal, only for a small one to stop losing its bottom
+    rows), and separately bounded by width too, for the rare narrow-
+    but-tall terminal. Verified with table-driven Go tests (roomy vs.
+    short terminal, radius shrinking as KPI count grows, the width
+    bound, the floor) and a real pty-driven session comparing a 50-row
+    and a 15-row terminal side by side: the short one's circle visibly
+    shrank and the legend plus the stats block beneath it stayed fully
+    on screen, where before this change they'd have been the next thing
+    `clampHeight` cut off.
   - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
     request: "can you do richer stepper inside the develop tool?"
     followed by a clarifying `AskUserQuestion` that narrowed it to
