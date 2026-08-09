@@ -25,7 +25,10 @@ step-by-step debugger with time/memory-per-function KPIs
 [Debugging](#debugging-time-and-memory-per-function) above. `crust bake
 documentation` serves a browsable, pizza-themed reference site on
 `localhost` — see [Documentation site](#documentation-site) below.
-`crust repl` starts an interactive session — see
+`crust bake playground` serves an in-browser sandbox that runs cRust
+client-side via WebAssembly, nothing sent anywhere — see
+[Web playground](#web-playground) below. `crust repl` starts an
+interactive session — see
 [Building](#building) below. `crust fmt` canonically reformats source
 (`internal/format`), reachable both as a standalone CLI and as
 `crust lsp`'s `textDocument/formatting` — see
@@ -299,6 +302,28 @@ honest against `internal/builtins`' real registrations by that
 package's own tests), so they can't quietly drift out of date with
 what a given build of `crust` actually understands. Ctrl+C stops the
 server.
+
+### Web playground
+
+```
+crust bake playground            # serve on http://localhost:4748, open a browser
+crust bake playground -p 8080    # pick a different port
+```
+
+An in-browser cRust sandbox — an editor pane, a stdin box, a `--store`
+field, and a Run button (or Ctrl/Cmd+Enter). The language itself runs
+entirely client-side via WebAssembly (`cmd/wasm`, built to
+`crust.wasm` by `scripts/build-wasm.sh` and embedded into the binary
+alongside `index.html`/`wasm_exec.js`), so nothing typed into it is
+ever sent anywhere, and — like the documentation site — this works
+from any built `crust` with no source tree or Go toolchain present.
+Both the CLI's `run` subcommand and the playground call the exact same
+`internal/runner.Run` — lex, parse, Eval, resolve-and-call a
+`store`/`store_<name>` entry point — so the playground can't drift
+from what `crust run` actually does. One caveat inherent to running
+synchronously in the browser's main thread: a program with an infinite
+loop hangs the tab until reloaded, same as pasting one into any other
+in-browser code sandbox. Ctrl+C stops the server.
 
 ### With Nix
 

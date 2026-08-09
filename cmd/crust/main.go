@@ -23,6 +23,7 @@ const usageBody = `Usage:
   crust develop <file.crust> [--store=<name>] step through a run: time/memory per function
   crust fmt <file.crust> [-w]                 print (or write, with -w) canonically formatted source
   crust bake documentation [-p <port>]        serve the docs site, open a browser
+  crust bake playground [-p <port>]           serve an in-browser cRust sandbox (WASM)
   crust lsp                                   start a language server on stdin/stdout
   crust --version                             print the version
   crust --help | -h                           show this help
@@ -45,6 +46,7 @@ Examples:
   crust fmt day01.crust             preview canonically formatted source
   crust fmt -w day01.crust          reformat the file in place
   crust bake documentation          open the docs site in a browser
+  crust bake playground             open the in-browser sandbox (nothing sent anywhere)
   crust lsp                         debug: run the language server by hand
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
@@ -155,16 +157,29 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 		}
 		return runFmt(path, write, stdout, stderr)
 	case "bake":
-		if len(rest) < 2 || rest[1] != "documentation" {
-			fmt.Fprintln(stderr, `crust bake: expected "documentation" (crust bake documentation [-p <port>])`)
+		if len(rest) < 2 {
+			fmt.Fprintln(stderr, `crust bake: expected "documentation" or "playground" (crust bake documentation|playground [-p <port>])`)
 			return 2
 		}
-		port, err := parseBakeArgs(rest[2:])
-		if err != nil {
-			fmt.Fprintf(stderr, "crust bake documentation: %s\n", err)
+		switch rest[1] {
+		case "documentation":
+			port, err := parseBakeArgs(rest[2:])
+			if err != nil {
+				fmt.Fprintf(stderr, "crust bake documentation: %s\n", err)
+				return 2
+			}
+			return runBakeDocumentation(port, stdout, stderr)
+		case "playground":
+			port, err := parsePlaygroundArgs(rest[2:])
+			if err != nil {
+				fmt.Fprintf(stderr, "crust bake playground: %s\n", err)
+				return 2
+			}
+			return runBakePlayground(port, stdout, stderr)
+		default:
+			fmt.Fprintln(stderr, `crust bake: expected "documentation" or "playground" (crust bake documentation|playground [-p <port>])`)
 			return 2
 		}
-		return runBakeDocumentation(port, stdout, stderr)
 	case "lsp":
 		return runLSP(stdin, stdout, stderr)
 	default:

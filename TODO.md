@@ -1476,8 +1476,56 @@ confirmed, not before.
       with dedicated regression tests at the parser and interpreter
       level, not just a fixed example.
 
+- [x] Web playground (`crust bake playground`), on direct request
+      ("start on those and the web playground") after a develop-tool
+      brainstorm. Runs cRust entirely client-side via WebAssembly —
+      `cmd/wasm` (a `js && wasm`-build-tagged `package main`) exposes a
+      `crustRun(source, storeFlag, stdin)` global through `syscall/js`,
+      built to `crust.wasm` by `scripts/build-wasm.sh` (which also
+      copies the matching `wasm_exec.js` straight off the Go toolchain,
+      so the runtime glue can never drift out of version with the
+      compiled artifact) and checked into
+      `cmd/crust/playground_assets/` alongside a static `index.html` UI
+      so `go build ./...` keeps working out of the box for a fresh
+      clone with no separate pre-build step. `cmd/crust/playground.go`
+      embeds all three via `go:embed` and serves them at the site root
+      through `http.FileServer(http.FS(...))`, mirroring
+      `bake.go`/`internal/docsite`'s embedded-FS + local-HTTP-server +
+      best-effort-browser-launch shape (including the same
+      `runBakePlayground`/`servePlayground` split for ephemeral-port
+      testability). The real design work was on the Go side, not the
+      browser side: both `crust run` and the playground now share one
+      `internal/runner.Run` pipeline (extracted verbatim from
+      `run.go`'s `runFile`/`runEntryPoint`/`collectEntryPoints`/
+      `storeFlags`/`reportRuntimeError`, which `debug.go` and
+      `debug_view.go` also called directly and were repointed at the
+      new package's exports) so the playground can't silently drift
+      from actual CLI behavior on an edge case like "no default entry
+      point, multiple named ones exist." `Run` takes a `msgPrefix`
+      parameter instead of hardcoding `"crust run: "`, so `run.go`
+      keeps its exact existing wording while the WASM side passes ""
+      and reports bare `line:col: message` instead — the one
+      intentional behavior difference, and it's cosmetic. One caveat
+      that's inherent to the platform rather than a bug: `crustRun`
+      runs synchronously on the browser's main thread (the standard
+      `syscall/js` shape), so a program with an infinite loop hangs the
+      tab until reloaded — same tradeoff as any other in-browser code
+      sandbox that isn't running the interpreter in a Worker. Verified
+      with Go tests (`internal/runner`'s own suite covering every
+      error/success path byte-for-byte against the old inline
+      behavior, plus `playground_test.go` mirroring `bake_test.go`'s
+      port-parsing and real-HTTP-serving conventions) and, since this
+      is the first genuinely browser-side feature in the project, real
+      Playwright-driven verification against the pre-installed
+      Chromium: loaded the served page, confirmed the WASM finished
+      loading (`#status` flips to "ready"), ran the default program
+      (`hello, pizza`), ran a `--store=part1` program reading real
+      stdin, and ran a `1 / 0` program to confirm the runtime-error
+      path reports `1:7: division by zero` with no path prefix — all
+      three matched what the same source produces through `crust run`
+      itself.
+
 ## Stretch Goals
 - [ ] Module/import system
 - [ ] Bytecode VM instead of tree-walking (perf)
-- [ ] Web playground
 - [ ] Richer stack traces

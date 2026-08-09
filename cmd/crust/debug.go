@@ -20,6 +20,7 @@ import (
 	"github.com/Sintfoap/cRust/internal/lexer"
 	"github.com/Sintfoap/cRust/internal/object"
 	"github.com/Sintfoap/cRust/internal/parser"
+	"github.com/Sintfoap/cRust/internal/runner"
 )
 
 // debugOptions are the parsed `develop` arguments.
@@ -266,8 +267,8 @@ func isColorTerminal(w io.Writer) bool {
 // store_part2 but no bare `store`, invoked with no --store, recorded
 // nothing but the top-level recipe declarations and looked exactly
 // like `develop` itself was broken rather than like "you forgot
-// --store". Returning the same message run.go's runEntryPoint already
-// builds (via the same collectEntryPoints/storeFlags helpers) fixes
+// --store". Returning the same message internal/runner.Run already
+// builds (via the same CollectEntryPoints/StoreFlags helpers) fixes
 // that without duplicating the wording.
 func runDebugEntryPoint(interp *interpreter.Interpreter, env *object.Environment, program *ast.Program, storeFlag string) error {
 	target := "store"
@@ -279,8 +280,8 @@ func runDebugEntryPoint(interp *interpreter.Interpreter, env *object.Environment
 		if storeFlag != "" {
 			return fmt.Errorf("no entry point named %q (looked for recipe %s)", storeFlag, target)
 		}
-		if names := collectEntryPoints(program); len(names) > 0 {
-			return fmt.Errorf("no default entry point; pick one: %s", strings.Join(storeFlags(names), ", "))
+		if names := runner.CollectEntryPoints(program); len(names) > 0 {
+			return fmt.Errorf("no default entry point; pick one: %s", strings.Join(runner.StoreFlags(names), ", "))
 		}
 		return nil
 	}

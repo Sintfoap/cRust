@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cRust Playground</title>
+<style>
+  :root {
+    --bg: #fdf6e3;
+    --bg-alt: #f7ecd0;
+    --bg-card: #fffaf0;
+    --text: #3b2a1a;
+    --text-muted: #7a6a55;
+    --border: #e8d9b5;
+    --accent: #c0392b;
+    --accent-soft: #fbe0da;
+    --accent-text: #9c2c1f;
+    --basil: #2f7a4f;
+    --shadow: 0 8px 30px rgba(120, 72, 24, 0.15);
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1410;
+      --bg-alt: #241a14;
+      --bg-card: #241a14;
+      --text: #f1e4d0;
+      --text-muted: #b8a48a;
+      --border: #3a2c22;
+      --accent: #e2624c;
+      --accent-soft: #3a201a;
+      --accent-text: #ff8a70;
+      --basil: #6fbf7d;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-alt);
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 1.15rem;
+    margin: 0;
+  }
+  header h1 .pizza { margin-right: 0.35rem; }
+  header .sub {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  #status {
+    margin-left: auto;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  #status.ready { color: var(--basil); }
+  #status.error { color: var(--accent-text); }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .pane {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .pane-header {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  textarea, #output {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    padding: 0.85rem;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    background: var(--bg-card);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  #right { display: flex; flex-direction: column; }
+  #stdin-row { flex: 0 0 auto; display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
+  #stdin { min-height: 4.5rem; flex: 0 0 auto; }
+  #output-row { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #output {
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #output .stderr { color: var(--accent-text); }
+  #output .exit { color: var(--text-muted); border-top: 1px dashed var(--border); margin-top: 0.5rem; padding-top: 0.5rem; display: block; }
+  label { font-size: 0.8rem; color: var(--text-muted); }
+  input[type="text"] {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text);
+    width: 9rem;
+  }
+  button {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.3rem 0.9rem;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff8ee;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:not(:disabled):hover { filter: brightness(1.08); }
+  .hint { color: var(--text-muted); font-size: 0.78rem; }
+  kbd {
+    font-family: var(--mono);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.78rem;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="pizza">🍕</span>cRust Playground</h1>
+  <span class="sub">runs entirely in your browser via WebAssembly — nothing is sent anywhere</span>
+  <span id="status">loading crust.wasm…</span>
+</header>
+<main>
+  <div class="pane" id="left">
+    <div class="pane-header">
+      <span>source.crust</span>
+      <span style="margin-left:auto" class="hint">store flag</span>
+      <input type="text" id="store" placeholder="(default)">
+      <button id="run" disabled>Run <kbd>⌘/Ctrl+Enter</kbd></button>
+    </div>
+    <textarea id="source" spellcheck="false"
+      placeholder="recipe store() {&#10;    deliver(&quot;hello, pizza&quot;)&#10;}"></textarea>
+  </div>
+  <div class="pane" id="right">
+    <div id="stdin-row">
+      <div class="pane-header">stdin — what unbox()/lines(unbox()) reads</div>
+      <textarea id="stdin" spellcheck="false" placeholder="(optional program input)"></textarea>
+    </div>
+    <div id="output-row">
+      <div class="pane-header">output</div>
+      <div id="output"></div>
+    </div>
+  </div>
+</main>
+<script src="wasm_exec.js"></script>
+<script>
+(function () {
+  var statusEl = document.getElementById("status");
+  var runBtn = document.getElementById("run");
+  var sourceEl = document.getElementById("source");
+  var stdinEl = document.getElementById("stdin");
+  var storeEl = document.getElementById("store");
+  var outputEl = document.getElementById("output");
+
+  var DEFAULT_SOURCE = 'recipe store() {\n    deliver("hello, pizza")\n}\n';
+  sourceEl.value = DEFAULT_SOURCE;
+
+  var go = new Go();
+  WebAssembly.instantiateStreaming(fetch("crust.wasm"), go.importObject)
+    .then(function (result) {
+      go.run(result.instance);
+      statusEl.textContent = "ready";
+      statusEl.className = "ready";
+      runBtn.disabled = false;
+    })
+    .catch(function (err) {
+      statusEl.textContent = "failed to load crust.wasm: " + err;
+      statusEl.className = "error";
+    });
+
+  function run() {
+    if (typeof crustRun !== "function") return;
+    outputEl.textContent = "";
+    var res = crustRun(sourceEl.value, storeEl.value, stdinEl.value);
+    var frag = document.createDocumentFragment();
+    if (res.stdout) {
+      frag.appendChild(document.createTextNode(res.stdout));
+    }
+    if (res.stderr) {
+      var span = document.createElement("span");
+      span.className = "stderr";
+      span.textContent = res.stderr;
+      frag.appendChild(span);
+    }
+    var exit = document.createElement("span");
+    exit.className = "exit";
+    exit.textContent = "exit code " + res.code;
+    frag.appendChild(exit);
+    outputEl.appendChild(frag);
+  }
+
+  runBtn.addEventListener("click", run);
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  });
+})();
+</script>
+</body>
+</html>

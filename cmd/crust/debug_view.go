@@ -11,6 +11,7 @@ import (
 	"github.com/Sintfoap/cRust/internal/lexer"
 	"github.com/Sintfoap/cRust/internal/object"
 	"github.com/Sintfoap/cRust/internal/parser"
+	"github.com/Sintfoap/cRust/internal/runner"
 )
 
 // debugView is everything the TUI (debug_tui.go) or the plain printer
@@ -44,7 +45,8 @@ func (v *debugView) timing() *debugger.Timing {
 }
 
 // entryPoints returns the store/store_<name> entry points v.path
-// declares (run.go's collectEntryPoints, "" for the bare `store`), for
+// declares (internal/runner.CollectEntryPoints, "" for the bare
+// `store`), for
 // the Run tab's selector — computed once by re-reading and re-parsing
 // the file independently of the current recording, since nothing else
 // needs to keep an *ast.Program around. A parse failure returns no
@@ -84,7 +86,7 @@ func scanEntryPoints(path string) []string {
 	if len(p.Errors()) > 0 {
 		return nil
 	}
-	return collectEntryPoints(program)
+	return runner.CollectEntryPoints(program)
 }
 
 // header is the one-line description of the recording.

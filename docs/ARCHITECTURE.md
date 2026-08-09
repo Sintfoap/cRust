@@ -4078,6 +4078,130 @@ code was written.
       wrapping `order` statement, since its own propagated error text
       also contains "idiv"); and `F` stepped back to `y = idiv(1, 0)`
       again.
+- **Web playground** (`crust bake playground`), on direct request:
+  "go ahead and start on those and the web playground" — a new,
+  separate idea added to the same brainstorm that produced the six
+  Bench/Stepper features above, not one of the six itself.
+  - **`internal/runner` extraction**: the actual design problem wasn't
+    the browser side, it was that `run.go`'s `runFile` — lex, parse,
+    Eval, then resolve and call a `store`/`store_<name>` entry point —
+    needed to run inside a `js && wasm`-build-tagged `cmd/wasm`
+    binary, a separate `package main` that can't import `cmd/crust`'s
+    unexported functions. Rather than reimplement that logic a second
+    time (the exact kind of drift this project has been careful to
+    avoid — see `debug.go`'s `runDebugEntryPoint` comment, which
+    already called out mirroring `run.go`'s `runEntryPoint` by hand as
+    a wording-duplication risk), `runEntryPoint`/`collectEntryPoints`/
+    `storeFlags`/`reportRuntimeError` and a new top-level `Run`
+    function moved verbatim into `internal/runner`, exported as
+    `runner.Run`/`runner.CollectEntryPoints`/`runner.StoreFlags`.
+    `debug.go` and `debug_view.go` — which already called
+    `collectEntryPoints`/`storeFlags` directly, being in the same
+    package as the old unexported versions — were repointed at the
+    new package's exports instead of getting their own copies.
+    `run.go`'s own `runFile` shrank to "read the file, hand `src` to
+    `runner.Run`."
+  - **`msgPrefix` instead of a hardcoded `"crust run: "`**: every
+    message `Run` writes to stderr is prefixed with a caller-supplied
+    string rather than the literal `crust run: ` the original inline
+    code used. `run.go` passes `"crust run: "` (byte-for-byte
+    identical existing output — verified by leaving every one of
+    `main_test.go`'s/`examples_test.go`'s/`benchmark_test.go`'s
+    existing `runFile`-based tests unchanged and green), while
+    `cmd/wasm/main.go` passes `""` and lets the browser side show a
+    bare `line:col: message`. The one deliberate, cosmetic behavior
+    difference between the CLI and the playground; everything else
+    (which entry point runs, what counts as an error, exit-code-shaped
+    return values) is identical by construction, not by convention.
+  - **`cmd/wasm/main.go`** (`//go:build js && wasm`) exposes a single
+    `crustRun(source, storeFlag, stdin) -> {stdout, stderr, code}`
+    global via `syscall/js`, backed by `runner.Run` writing into a
+    `bytes.Buffer` rather than streaming — the playground runs a whole
+    program synchronously per click, so there's no terminal on the
+    other end for `deliver`'s real-time output to matter the way it
+    does for `crust run`/`develop`'s Run tab. Because `syscall/js` only
+    builds for `GOOS=js GOARCH=wasm`, the build tag keeps this package
+    invisible to a normal host build — confirmed `go build ./...`
+    silently skips it on linux/amd64 rather than failing, the same way
+    Go treats any package whose build constraints exclude every file
+    for the current target.
+  - **Checked-in build artifacts, not a required pre-build step**:
+    `cmd/crust/playground.go` embeds `playground_assets/{index.html,
+    wasm_exec.js, crust.wasm}` via `go:embed`, and `go:embed` needs the
+    embedded files to exist at compile time — so `crust.wasm` is built
+    now and committed, rather than left for whoever builds `crust` next
+    to generate first (which would break `go build ./...` working out
+    of the box for a fresh clone, the same bar every other embedded-FS
+    feature in this codebase — `internal/docsite`, the tree-sitter
+    grammar — already clears). `scripts/build-wasm.sh` regenerates both
+    files after any language change: `GOOS=js GOARCH=wasm go build -o
+    playground_assets/crust.wasm ./cmd/wasm/`, then copies
+    `wasm_exec.js` from `$(go env GOROOT)/lib/wasm/` (Go 1.24's location
+    for it; falls back to the pre-1.24 `misc/wasm/` path) — copied
+    rather than hand-written, since it has to match the exact Go
+    version that compiled the `.wasm` down to the byte, and the
+    toolchain already ships the correct one.
+  - **`playgroundHandler`** re-roots the embedded FS with `fs.Sub`
+    before handing it to `http.FileServer`, so `index.html`/
+    `wasm_exec.js`/`crust.wasm` serve at `/`, `/wasm_exec.js`,
+    `/crust.wasm` rather than nested under `/playground_assets/` —
+    the embed directory name is an implementation detail of where the
+    files happen to live in the repo, not part of the served URL
+    shape.
+  - **`runBakePlayground`/`servePlayground`** split the same way
+    `bake.go`'s `runBakeDocumentation`/`serveDocumentation` already do
+    — specifically so a test can bind `127.0.0.1:0` for a real,
+    OS-assigned ephemeral port and exercise actual serving (banner
+    text, real HTTP responses for all three assets, shutdown behavior
+    on `Close()`) without needing to know or guess which port a fixed
+    default resolves to. `defaultPlaygroundPort` (4748) sits one above
+    `defaultDocsPort` (4747) so `bake documentation` and `bake
+    playground` can both run at their defaults simultaneously — the
+    two embedded-site features were never going to collide on purpose,
+    but there's no reason to make them fight over one port by
+    accident.
+  - **`index.html`** reuses `internal/docsite`'s exact pizza-crust
+    color palette (light/dark via `prefers-color-scheme`) for visual
+    consistency between the two `bake` subcommands, but is otherwise a
+    small, dependency-free static page: a source editor pane, a stdin
+    box, a `--store` field, and a Run button (also bound to
+    Ctrl/Cmd+Enter) wired to the `crustRun` global `wasm_exec.js`'s
+    `Go` class exposes once `WebAssembly.instantiateStreaming` resolves
+    against `crust.wasm`. No client-side framework, no build step for
+    the HTML/JS itself — matching `internal/docsite`'s own "no JS
+    beyond what one page genuinely needs" restraint.
+  - **The infinite-loop caveat**: `crustRun` runs on the browser's main
+    thread (the standard `syscall/js` shape — no Worker, no timeout),
+    so a pasted-in program with an infinite loop hangs the tab until
+    reloaded. Documented rather than engineered around: running the
+    interpreter inside a Web Worker would need its own message-passing
+    protocol and a duplicate WASM instantiation path, a real jump in
+    complexity for a project-status feature whose main goal is "try
+    cRust without installing anything," not "safely sandbox untrusted
+    third-party code" — the same scoping judgment call as skipping a
+    resizable pie-chart radius until a real terminal-size complaint
+    shows up.
+  - Verified with Go tests (`internal/runner`'s own suite reproducing
+    every case `main_test.go`'s old inline `runFile` tests already
+    covered — bare `store`, `--store` selection, unknown `--store`,
+    no-default-lists-options, parse errors, runtime errors both at
+    top-level and inside an entry point, the empty-`msgPrefix` case —
+    plus `playground_test.go` mirroring `bake_test.go`'s own
+    port-parsing-table and real-HTTP-serving conventions, including
+    fetching all three embedded assets over an actual ephemeral-port
+    listener) and, since this is the project's first genuinely
+    browser-side feature, real Playwright-driven verification against
+    the pre-installed Chromium rather than only a `curl` health check:
+    launched `crust bake playground`, loaded the page, waited for
+    `#status` to flip to `ready` (confirming
+    `WebAssembly.instantiateStreaming` actually resolved), ran the
+    default program and got `hello, pizza`, switched to a
+    `store_part1`/`store_part2` program with `--store=part1` and real
+    stdin text and confirmed only `store_part1`'s output came back, and
+    ran `x = 1 / 0` and confirmed the runtime-error path reported
+    `1:7: division by zero` with no path prefix (the `msgPrefix=""`,
+    `path=""` case) — all three outcomes matching what the identical
+    source produces through `crust run` itself.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

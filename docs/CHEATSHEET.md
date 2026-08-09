@@ -161,6 +161,7 @@ crust develop day01.crust          # interactive: Time/Memory/Stepper/Editor/Run
 crust develop day01.crust --plain  # same recording, printed as text (pipeable)
 crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place
+crust bake playground              # in-browser sandbox, runs client-side via WASM
 ```
 
 On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
