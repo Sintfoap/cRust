@@ -1428,7 +1428,31 @@ confirmed, not before.
 ## Phase 8 — AoC 2026 Ready
 - [ ] Confirm day-1 essentials all work end-to-end: file I/O, arithmetic,
       strings, loops, lists, maps
-- [ ] Per-day solution template (`examples/day01/`, etc.)
+- [x] Per-day solution template (`examples/dayNN_template.crust`), on
+      direct request, picked as the smaller of two remaining TODO items
+      after the develop-tool ideas and the web playground were both
+      done. A `store_part1`/`store_part2` skeleton, each already
+      reading its input via `lines(unbox())` — the day-to-day AoC
+      workflow (copy the template to `dayNN.crust`, save the puzzle's
+      input alongside it, `crust develop`/`crust run`) lives in its own
+      header comment rather than a separate doc page, so it's right
+      there the moment the file is opened. Named `dayNN` (not a real
+      day number, and not a `dayNN/` subdirectory some earlier phrasing
+      of this item suggested) since it's one reusable starting point
+      copied fresh for whichever day, not a real day's own solution —
+      the existing `examples/aoc2020/dayNN.crust` files already cover
+      what an actual solved day looks like. Deliberately not wired into
+      `ensureFileExists`/`createNavFile` (`crust develop`'s auto-create
+      and the Files tab's "new file"), which both stay tested and
+      documented as creating an empty file — auto-injecting template
+      boilerplate into every new file would be a real, surprising
+      behavior change for anyone not expecting it, not just an
+      additive one, so this stays an explicit `cp` a reader chooses to
+      run. Referenced from README.md (the `crust day01.crust
+      --store=part2` example) and docs/CHEATSHEET.md's opening
+      paragraph. Verified for real: both entry points run cleanly
+      against sample stdin through `crust run`, `crust parse` accepts
+      it, and `crust fmt` reports it already canonically formatted.
 - [x] Keyword cheat-sheet doc for quick reference during the event —
       `docs/CHEATSHEET.md`, one page: the keyword/operator tables,
       types/literals, assignment/unpacking (including the List-vs-Tuple

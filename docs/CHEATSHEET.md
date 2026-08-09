@@ -3,7 +3,9 @@
 One page, for glancing at mid-puzzle. Full explanations live in
 [SPEC.md](./SPEC.md); this is just the lookup table. `crust bake
 documentation` serves a browsable version of the same material if you'd
-rather have it in a tab.
+rather have it in a tab. Starting a new day? Copy
+[`examples/dayNN_template.crust`](../examples/dayNN_template.crust)
+instead of a blank file.
 
 ## Keywords
 

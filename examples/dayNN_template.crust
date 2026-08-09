@@ -1,0 +1,24 @@
+// AoC 2026 Day NN starter. Copy this file to dayNN.crust (e.g. day06.crust),
+// save the puzzle's input as dayNN_input.txt alongside it, and fill in
+// the two recipes below.
+//
+//   cp examples/dayNN_template.crust day06.crust
+//   crust develop day06.crust           # step through it as you write it
+//   crust run day06.crust --store=part1 < day06_input.txt
+//   crust run day06.crust --store=part2 < day06_input.txt
+//
+// unbox() reads whichever input `crust run`/`crust develop` was given
+// (stdin, or the Run tab's input-file field) — lines(unbox()) splits it
+// into a List of lines, ints(...) turns numeric strings into Integers.
+// See docs/CHEATSHEET.md for the full builtin list and a few common
+// parsing idioms (grid puzzles, "key: value" lines, memoization, ...).
+
+recipe store_part1() {
+    input = lines(unbox())
+    deliver(slices(input))
+}
+
+recipe store_part2() {
+    input = lines(unbox())
+    deliver(slices(input))
+}

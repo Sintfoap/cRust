@@ -49,15 +49,20 @@ func run(t *testing.T, src string) string {
 
 // TestFormatPreservesSemanticsAcrossExamples is the strongest
 // correctness check this package has: for every real, hand-written
-// example program in examples/*.crust (none of which reads stdin or a
-// file — all plain top-to-bottom scripts, confirmed by grepping for
-// unbox/store before writing this test), running the original source
-// and running Format's output (re-parsed fresh) must produce
-// byte-identical deliver() output. A formatter that changed what a
-// program *does* — even subtly, even just for one operator's
-// precedence in one corner of one file — would fail this immediately,
-// which is exactly the property that matters most for a tool meant to
-// run on real code unattended (crust lsp's format-on-save).
+// example program in examples/*.crust, running the original source and
+// running Format's output (re-parsed fresh) must produce
+// byte-identical deliver() output. run() never resolves a
+// store/store_<name> entry point (only top-level code runs), so this
+// holds even for dayNN_template.crust, whose recipes read unbox() —
+// that read only happens if the recipe is actually called, which
+// nothing here does; every other example is a plain top-to-bottom
+// script with no entry point at all, confirmed by grepping for
+// unbox/store before this test was first written. A formatter that
+// changed what a program *does* — even subtly, even just for one
+// operator's precedence in one corner of one file — would fail this
+// immediately, which is exactly the property that matters most for a
+// tool meant to run on real code unattended (crust lsp's
+// format-on-save).
 func TestFormatPreservesSemanticsAcrossExamples(t *testing.T) {
 	files, err := filepath.Glob("../../examples/*.crust")
 	if err != nil {

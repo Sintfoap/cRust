@@ -102,6 +102,18 @@ crust day01.crust                  # runs store, if the file has one
 crust day01.crust --store=part2    # runs store_part2 instead
 ```
 
+Starting a new day: copy
+[`examples/dayNN_template.crust`](./examples/dayNN_template.crust) —
+a `store_part1`/`store_part2` skeleton already reading its input via
+`unbox()`, with the day-to-day workflow (copy, save input, `crust
+develop`/`crust run`) in its own header comment — rather than starting
+from a blank file every time:
+
+```
+cp examples/dayNN_template.crust day06.crust
+crust develop day06.crust
+```
+
 `crust repl` starts an interactive session — one persistent
 environment for as long as it's open, so a variable or recipe defined
 on one line is still there on the next:
