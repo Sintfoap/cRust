@@ -4655,7 +4655,18 @@ proven necessary is how simple interpreters grow accidental complexity.
   proven necessary.
 - **A bytecode VM.** Already a stretch goal in `TODO.md`, already
   reasoned about in §4's trade-off table (execution model row) — not
-  reopening that here.
+  reopening that here. [`docs/BYTECODE_VM_SCOPING.md`](./BYTECODE_VM_SCOPING.md)
+  is a feasibility study (on direct request, "scope out exactly what
+  that would entail... without breaking things") of what building one
+  would actually cost, written before any decision to build it —
+  including the same slot-resolution tension the bullet above
+  describes, plus two more cRust-specific hard parts (reproducing
+  `crust develop`'s per-statement tracing against compiled bytecode,
+  and `crust repl`'s persistent-session state) and a concrete,
+  strictly-additive path for building one without touching anything
+  that exists today. Still gated on the same "profile first" call —
+  the study doesn't change that, it just prices out what "go" would
+  cost once real AoC 2026 input exists to profile against.
 
 ### When to revisit this list
 

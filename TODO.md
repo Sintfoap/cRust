@@ -1705,4 +1705,19 @@ confirmed, not before.
 
 ## Stretch Goals
 - [ ] Module/import system
-- [ ] Bytecode VM instead of tree-walking (perf)
+- [ ] Bytecode VM instead of tree-walking (perf) — scoped, not started:
+      [docs/BYTECODE_VM_SCOPING.md](./docs/BYTECODE_VM_SCOPING.md) is a
+      feasibility study on direct request ("scope out exactly what
+      that would entail... how feasible it is without breaking
+      things"), covering what it'd actually take (two new packages,
+      `internal/object` almost entirely reusable), the three places
+      cRust's own design makes it harder than a tutorial VM (no
+      `let`-style declare keyword, `crust develop`'s tracing being
+      built on a tree-walker's own statement boundaries, `crust
+      repl`'s persistent session needing persistent compiler state
+      too), and a strictly-additive path (new packages only, an opt-in
+      flag, the existing test/example suite as a shared correctness
+      oracle between both backends) that never touches anything that
+      exists unless/until it's proven both correct and actually
+      faster. Still gated on profiling real AoC 2026 input first —
+      no puzzle exists yet to profile against.
