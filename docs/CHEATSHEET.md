@@ -157,7 +157,7 @@ knead n in neighbors4((row, col)) {
 ## Debugging while you work
 
 ```
-crust develop day01.crust          # interactive: Time/Memory/Stepper/Editor/Run/Bench/Files tabs
+crust develop day01.crust          # interactive: Time/Memory/Stepper/Editor/Run/Bench/Files/Live tabs
 crust develop day01.crust --plain  # same recording, printed as text (pipeable)
 crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place
@@ -174,3 +174,11 @@ On the Bench tab: `e` exports the current batch to `<file>.bench.csv`
 (run, duration_ns, alloc_bytes, failed — one row per run). `b` saves
 the current batch's average as a baseline; later batches show `vs
 baseline: ...` as a signed percentage until `b` is pressed again.
+
+On the Live tab: a genuinely live, real interpreter you step through
+one statement at a time — not the Stepper's after-the-fact recording.
+`b` toggles a breakpoint on the source line under the cursor
+(persisted per file); `r` runs (or restarts) with the Run tab's
+current entry point and input file; once paused, `s` steps one
+statement, `c` continues to the next breakpoint (or the end), and `x`
+stops the run early.

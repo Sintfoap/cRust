@@ -157,6 +157,30 @@ func (m debugModel) switchToFile(path string) debugModel {
 	m.runOutput = ""
 	m.runFailed = false
 
+	// liveGen bumps regardless of whether a live run is actually
+	// active for the file being left — cheap, and it's what keeps a
+	// pause/done message that run's background goroutine is still
+	// mid-flight toward from landing on the new file's Live tab once it
+	// eventually arrives (liveGen's own doc comment). The goroutine
+	// itself is simply abandoned, not stopped: it can't be reached
+	// synchronously here (RequestStop only helps a run already paused,
+	// and this one might not be), and letting it run to completion
+	// unheard is harmless — it holds no real resources, just an
+	// in-memory buffer and reader.
+	m.liveGen++
+	m.liveTracer = nil
+	m.liveOutput = nil
+	m.liveDone = nil
+	m.liveRunning = false
+	m.livePaused = false
+	m.livePausedAt = 0
+	m.liveLabel = ""
+	m.liveEnv = nil
+	m.liveStatus = ""
+	m.liveCursor, m.liveTop = 0, 0
+	m.liveBreakpoints = restoreLiveBreakpoints(path)
+	m.liveSource = readLiveSource(path)
+
 	m.active = tabTime
 	return m
 }

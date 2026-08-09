@@ -1524,6 +1524,51 @@ confirmed, not before.
       path reports `1:7: division by zero` with no path prefix — all
       three matched what the same source produces through `crust run`
       itself.
+- [x] Live breakpoint / step-through debugging (`crust develop`'s new
+      Live tab), on direct request: "go ahead" to the last of the
+      original six develop-tool ideas, once the web playground was
+      done. Genuinely *live*, unlike the Stepper tab's after-the-fact
+      recording: `internal/debugger.LiveTracer` (`live.go`) is a
+      `trace.Tracer` whose `Step` call *blocks* — on the interpreter's
+      own goroutine, not the TUI's — at a breakpoint or in single-step
+      mode, until the UI sends what to do next on its own `Resume`
+      channel. "Paused" is not a UI flag tracked independently of
+      reality; it *is* that goroutine sitting blocked inside `Step`.
+      `LiveTracer` starts in single-step mode, so the very first
+      traced statement always pauses — a live session should show you
+      the first thing about to run, not silently execute an unknown
+      amount of the program before you get a say. `RequestStop` (an
+      `atomic.Bool` `Step` checks on *every* call, not only while
+      paused) covers stopping a run mid-flight between breakpoints,
+      which `LiveStop` sent on `Resume` alone can't reach — that only
+      unblocks a `Step` call already waiting for it.
+      `cmd/crust/debug_live.go` wires this into a new Live tab (`b`
+      toggles a breakpoint on the source line under the cursor,
+      persisted per file the same `develState` mechanism
+      `benchBaseline` already uses; `r` runs/restarts with the Run
+      tab's own currently-selected entry point and input file, the
+      same settings-reuse the Bench tab already established; `s`/`c`/
+      `x` step/continue/stop once paused) via `startLiveRun` (mirrors
+      `buildDebugView`'s "parse, build an Interpreter, run it" shape,
+      just with a pausable Tracer instead of a Recorder, on its own
+      goroutine) and a `liveGen` counter stamped onto every message a
+      run produces, so a stale pause/done from a run abandoned by
+      switching files (debug_nav.go's `switchToFile`) can never land on
+      whatever's current. Verified with table-driven Go tests under
+      `-race` (breakpoint pausing and single-stepping, `Env` snapshot
+      timing — a pause reports *after* that statement's own effect,
+      the same "after the fact" semantics `trace.StepEvent.Env` already
+      documents — `RequestStop` both mid-flight and while paused,
+      `SetBreakpoints` copying its input rather than aliasing it) and a
+      real pty-driven session: ran a small program under `crust
+      develop`, single-stepped through three statements watching `x`/
+      `y` populate in the variables panel, set a breakpoint further
+      down, continued straight to it, confirmed the breakpoint set on
+      an already-passed line has no further effect (breakpoints only
+      apply going forward), and confirmed via `develop_state.json` that
+      the breakpoint set on the first run was still there — and still
+      took effect — on a completely separate `crust develop` launch
+      afterward.
 
 ## Stretch Goals
 - [ ] Module/import system

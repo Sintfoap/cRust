@@ -3,7 +3,7 @@
 // all — that's where the real logic and its test coverage live); this
 // file is layout and key handling.
 //
-// Seven tabs, switched with tab/left/right: Time and Memory (one pie
+// Eight tabs, switched with tab/left/right: Time and Memory (one pie
 // chart each, self-time/self-memory per function/loop, plus a few
 // overall numbers), Stepper (the recorded tree, navigable with the
 // arrow keys — each row shows its source line number, '/' searches by
@@ -21,9 +21,11 @@
 // path and press enter to run the file with it as stdin and see the
 // raw output, command-line style; see debug_run.go), Bench (run the
 // file N times with the Run tab's current settings and chart runtime/
-// memory across those runs; see debug_bench.go), and Files (browse and
+// memory across those runs; see debug_bench.go), Files (browse and
 // switch to another .crust file alongside the one currently open; see
-// debug_nav.go).
+// debug_nav.go), and Live (set breakpoints on the source and step or
+// run a *live*, real interpreter through them one statement at a time,
+// not an after-the-fact recording; see debug_live.go).
 package main
 
 import (
@@ -38,6 +40,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Sintfoap/cRust/internal/debugger"
+	"github.com/Sintfoap/cRust/internal/object"
 )
 
 // tab is which of the six panes is showing.
@@ -50,16 +53,18 @@ const (
 	tabEditor
 	tabRun
 	tabBench
-	// tabNav is appended last, after every pre-existing tab, so none of
-	// their const values (or anything that stores one, like a saved
-	// m.active) shift out from under it.
+	// tabNav and tabLive are appended last, after every pre-existing
+	// tab at the time each was added, so none of the earlier ones'
+	// const values (or anything that stores one, like a saved
+	// m.active) shift out from under them.
 	tabNav
+	tabLive
 )
 
 // tabCount is how many tabs there are, for wrapping cursor arithmetic —
 // named rather than inlined as a literal so handleKey's wraparound math
 // stays correct if another tab ever shows up.
-const tabCount = 7
+const tabCount = 8
 
 // visRow is one visible line of the stepper's tree: a node plus its
 // indentation depth. closing marks a synthetic row generated after a
@@ -236,6 +241,62 @@ type debugModel struct {
 	// step's untruncated Inspect() text instead, wrapped across the
 	// panel's own width rather than the table's fixed column.
 	stepDetail bool
+
+	// liveSource/liveCursor/liveTop back the Live tab's source view
+	// (debug_live.go): the file's lines, which one liveCursor currently
+	// highlights ('b' toggles a breakpoint there), and the first
+	// visible line for scrolling — the same shape navFiles/navCursor
+	// already establishes for the Files tab, just over source lines
+	// instead of filenames. liveBreakpoints is the set of line numbers
+	// with a breakpoint set, persisted per file (debug_state.go) the
+	// same way benchBaseline already is.
+	liveSource      []string
+	liveCursor      int
+	liveTop         int
+	liveBreakpoints map[int]bool
+
+	// liveTracer/liveOutput/liveDone are the current live run's own
+	// handles, set by handleLiveStart the moment 'r' actually gets one
+	// going: liveTracer is what 'c'/'s'/'x' send Resume/RequestStop
+	// through, liveOutput is its accumulating stdout (read fresh on
+	// every redraw), and liveDone is where its final outcome arrives.
+	// All three are nil until the first run of the session.
+	liveTracer *debugger.LiveTracer
+	liveOutput *liveOutputBuffer
+	liveDone   <-chan liveDoneMsg
+
+	// liveRunning/livePaused/livePausedAt/liveLabel/liveEnv/liveStatus
+	// are the Live tab's own idea of what the current run is doing
+	// right now: liveRunning is whether one is active at all (from the
+	// moment 'r' launches it to the moment it stops or finishes),
+	// livePaused is whether it's specifically blocked at a pause right
+	// now (false while racing toward the next breakpoint after 'c'),
+	// livePausedAt/liveLabel/liveEnv describe that pause (line number,
+	// the statement's own text, and every variable in scope, straight
+	// from LivePause), and liveStatus is a one-line summary for when
+	// nothing's currently paused ("not started", "finished", "stopped",
+	// or a runtime-error message) — mirroring runOutput/runFailed's own
+	// "text plus what it means" shape on the Run tab.
+	liveRunning  bool
+	livePaused   bool
+	livePausedAt int
+	liveLabel    string
+	liveEnv      map[string]object.Object
+	liveStatus   string
+
+	// liveGen is bumped every time a fresh live run starts (or the file
+	// being debugged changes out from under an existing one) and
+	// stamped onto every message that run produces (livePauseMsg/
+	// liveDoneMsg/liveStartMsg). A run's own background goroutine keeps
+	// going even after the model stops caring about it — switching to a
+	// different file via the Files tab, say — since there's no way to
+	// reach into a goroutine mid-flight between pauses and cancel it
+	// outright (RequestStop asks it to stop, but that message can still
+	// arrive *after* liveGen has already moved on). Comparing a
+	// message's own gen against the model's current one before applying
+	// it is what keeps a stale message from an abandoned run out of
+	// whatever's current.
+	liveGen int
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -305,6 +366,12 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBenchResult(msg)
 	case benchExportMsg:
 		return m.handleBenchExportResult(msg)
+	case liveStartMsg:
+		return m.handleLiveStart(msg)
+	case livePauseMsg:
+		return m.handleLivePause(msg)
+	case liveDoneMsg:
+		return m.handleLiveDone(msg)
 	}
 	return m, nil
 }
@@ -343,22 +410,28 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab", "right", "l":
 		m.active = (m.active + 1) % tabCount
 		m.maybeRefreshNav()
+		m.maybeRefreshLive()
 		return m, m.maybeOpenEditor()
 	case "shift+tab", "left", "h":
 		m.active = (m.active + tabCount - 1) % tabCount
 		m.maybeRefreshNav()
+		m.maybeRefreshLive()
 		return m, m.maybeOpenEditor()
 	case "down", "j":
 		if m.active == tabStepper {
 			m.moveCursor(1)
 		} else if m.active == tabNav {
 			m.moveNavCursor(1)
+		} else if m.active == tabLive {
+			m.moveLiveCursor(1)
 		}
 	case "up", "k":
 		if m.active == tabStepper {
 			m.moveCursor(-1)
 		} else if m.active == tabNav {
 			m.moveNavCursor(-1)
+		} else if m.active == tabLive {
+			m.moveLiveCursor(-1)
 		}
 	case "enter", " ":
 		switch m.active {
@@ -402,6 +475,39 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		if m.active == tabStepper {
 			m.stepDetail = !m.stepDetail
+		}
+	case "b":
+		if m.active == tabLive {
+			m.toggleLiveBreakpoint()
+		}
+	case "r":
+		if m.active == tabLive && !m.liveRunning {
+			m.liveGen++
+			m.liveOutput = nil
+			m.liveEnv = nil
+			m.liveLabel = ""
+			m.livePausedAt = 0
+			m.livePaused = false
+			m.liveStatus = "starting…"
+			return m, m.startLiveCmd(m.liveGen)
+		}
+	case "c":
+		if m.active == tabLive && m.liveRunning && m.livePaused {
+			m.livePaused = false
+			return m, m.liveResumeCmd(debugger.LiveContinue)
+		}
+	case "s":
+		if m.active == tabLive && m.liveRunning && m.livePaused {
+			m.livePaused = false
+			return m, m.liveResumeCmd(debugger.LiveStep)
+		}
+	case "x":
+		if m.active == tabLive && m.liveRunning {
+			if m.livePaused {
+				m.livePaused = false
+				return m, m.liveResumeCmd(debugger.LiveStop)
+			}
+			m.liveTracer.RequestStop()
 		}
 	}
 	return m, nil
@@ -730,6 +836,8 @@ func (m debugModel) View() string {
 		body = m.viewEditor()
 	case tabRun:
 		body = m.viewRun()
+	case tabLive:
+		body = m.viewLive()
 	case tabBench:
 		body = m.viewBench()
 	case tabNav:
@@ -783,6 +891,14 @@ func (m debugModel) helpText() string {
 			return "↑↓: field/entry point   ←→: move/change   enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+	case tabLive:
+		if m.liveRunning && m.livePaused {
+			return "c: continue   s: step   x: stop   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
+		if m.liveRunning {
+			return "x: stop   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
+		return "r: run   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabBench:
 		if m.benchInspect {
 			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   b: save baseline   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
@@ -799,7 +915,7 @@ func (m debugModel) helpText() string {
 }
 
 func (m debugModel) viewTabs() string {
-	timeS, memS, stepper, editor, run, bench, nav := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
+	timeS, memS, stepper, editor, run, live, bench, nav := styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle, styleTabIdle
 	switch m.active {
 	case tabTime:
 		timeS = styleTabActive
@@ -811,6 +927,8 @@ func (m debugModel) viewTabs() string {
 		editor = styleTabActive
 	case tabRun:
 		run = styleTabActive
+	case tabLive:
+		live = styleTabActive
 	case tabBench:
 		bench = styleTabActive
 	case tabNav:
@@ -818,7 +936,7 @@ func (m debugModel) viewTabs() string {
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		timeS.Render("Time"), memS.Render("Memory"), stepper.Render("Stepper"),
-		editor.Render("Editor"), run.Render("Run"), bench.Render("Bench"), nav.Render("Files"))
+		editor.Render("Editor"), run.Render("Run"), bench.Render("Bench"), nav.Render("Files"), live.Render("Live"))
 }
 
 // viewEditor is the Editor tab's placeholder. It hands off to a real
@@ -1289,6 +1407,8 @@ func runDebugTUI(view *debugView, opts debugOptions, stdin io.Reader, stdout, st
 	m.runAllStores = restoreRunAll(view.path)
 	m.benchCount = benchCountInput(restoreBenchCount(view.path))
 	m.benchBaseline = restoreBenchBaseline(view.path)
+	m.liveBreakpoints = restoreLiveBreakpoints(view.path)
+	m.liveSource = readLiveSource(view.path)
 	m.refreshNavFiles()
 	progOpts := []tea.ProgramOption{tea.WithOutput(stdout), tea.WithAltScreen()}
 	if f, ok := stdin.(*os.File); ok {

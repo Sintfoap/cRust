@@ -4202,6 +4202,130 @@ code was written.
     `1:7: division by zero` with no path prefix (the `msgPrefix=""`,
     `path=""` case) — all three outcomes matching what the identical
     source produces through `crust run` itself.
+- **Live breakpoint / step-through debugging** (`crust develop`'s new
+  Live tab, `internal/debugger/live.go` + `cmd/crust/debug_live.go`),
+  on direct request — "go ahead" to the last of the original six
+  develop-tool ideas, once the web playground was done.
+  - **The core mechanism is a blocking `Step`, not a UI flag.** Every
+    other tracer in this codebase (`Recorder`) is a passive observer:
+    `Step`/`PushFrame`/`PopFrame` record something and return
+    immediately, the run never waits on them. `LiveTracer.Step` is
+    different on purpose: when the current statement's line is a
+    breakpoint (or single-step mode is on), it sends a `LivePause` on
+    its own `Paused` channel and then *blocks* reading `Resume` until
+    the caller says what to do next. That blocked state — on the
+    interpreter's own goroutine, not the TUI's — genuinely *is* "the
+    program is paused," not a separate boolean this file has to keep
+    in sync with reality. `LiveTracer` starts in single-step mode
+    (`NewLiveTracer`), so the very first traced statement always
+    pauses: a live session should show you the first thing about to
+    run, not silently execute an unknown amount of the program before
+    you get a say — the same "don't run ahead of the user" reasoning
+    `emptyDebugView`'s own doc comment already gives for why the whole
+    TUI starts with nothing recorded rather than an eager first run.
+  - **`RequestStop` vs `LiveStop`.** `LiveStop` sent on `Resume` only
+    reaches a `Step` call already blocked waiting for it — it stops a
+    *paused* run cleanly. It does nothing for a run currently racing
+    toward a breakpoint (or one with no breakpoints ahead of it at
+    all) after `c` (continue): nobody is blocked in `Step` to receive
+    it. `RequestStop` covers that case with a lock-free `atomic.Bool`
+    every `Step` call checks first, breakpoint or not — set it from
+    outside at any time, and the run unwinds at the very next
+    statement. The Live tab's `x` key uses whichever actually applies:
+    `LiveStop` via `Resume` while paused, `RequestStop` otherwise.
+  - **Unwinding via `panic(LiveStopSignal{})`.** There's no cooperative
+    return-value path back out of a Go call stack that's potentially
+    many `evalFramed` frames deep (nested recipe calls, loop bodies) —
+    a panic is the only way to abort a goroutine blocked or executing
+    partway through someone else's call stack from the outside.
+    `LiveStopSignal` is exported specifically so the caller running the
+    interpreter (`startLiveRun`'s own goroutine) can `recover()` and
+    type-assert against it, converting a deliberate stop into an
+    ordinary `liveDoneMsg{Stopped: true}` rather than a crash — the
+    same "not the primary error path, just an escape hatch" reasoning
+    `run.go`'s own top-level `recover()` already documents for a Go
+    panic that isn't a cRust runtime `Error`. Any *other* panic is
+    reported as `Failed` instead of silently swallowed, since that
+    would be a real interpreter bug worth seeing, not a deliberate stop.
+  - **`Env` timing matches the Stepper's own "after the fact"
+    semantics.** `trace.StepEvent.Env` is captured after `Eval` returns
+    for that statement (already true before this feature — see its own
+    doc comment), so a pause at line N shows that line's *own* effect
+    already applied, not just everything before it. This tripped up the
+    first draft of `TestLiveTracerStepAdvancesOneStatementAtATime`,
+    which assumed `x` wouldn't be bound yet at the pause for `x = 1` —
+    fixed by asserting what the design actually promises instead of
+    what felt intuitive at a glance.
+  - **`startLiveRun`** (`debug_live.go`) mirrors `buildDebugView`'s own
+    "parse the file, build a fresh `Interpreter`, run it" shape — the
+    same one the Editor tab's save-triggered reload already reuses —
+    just with `interp.Trace` set to a `LiveTracer` instead of a
+    `Recorder`, and run on its own goroutine rather than synchronously,
+    since a paused `Step` call has to be able to block without freezing
+    the whole `develop` process. `liveOutputBuffer` (a mutex-guarded
+    `bytes.Buffer`) is the program's stdout target, safe across the two
+    goroutines that touch it: the interpreter's (writing, as `deliver`
+    calls happen) and the TUI's (reading it fresh on every redraw, the
+    same content the Run tab's own `runOutput` shows, just updated
+    incrementally instead of all at once at the end).
+  - **`liveGen` — the "stale message from an abandoned run" problem.**
+    Once `c` is pressed, the interpreter goroutine keeps running toward
+    the next breakpoint independently of whatever tab is currently
+    showing, and its eventual `livePauseMsg`/`liveDoneMsg` will still
+    be delivered to `Update` regardless (the same "messages arrive
+    whichever tab you're on" behavior `runResultMsg`/`benchResultMsg`
+    already rely on). That's fine as long as it's still the *same*
+    run — but switching to a different file via the Files tab
+    (`debug_nav.go`'s `switchToFile`) leaves that goroutine dangling
+    with no way to reach it synchronously (`RequestStop` helps a
+    *future* `Step` call, but the message already in flight was built
+    before that). `liveGen` is bumped on every fresh run and on every
+    file switch, stamped onto every message a run produces at Cmd-
+    construction time, and checked against the model's current value
+    before a `handleLiveStart`/`handleLivePause`/`handleLiveDone` ever
+    applies one — a mismatch means "this is from a run I've since
+    moved on from," silently ignored. The abandoned goroutine itself is
+    never force-cleaned up (it holds no real resources — an in-memory
+    buffer and reader, nothing that outlives the process), just left to
+    finish unheard.
+  - **Reusing the Run tab's settings, not a second input UI.** The Live
+    tab has no store selector or input-file field of its own — `r`
+    reads `m.selectedRunEntry()` and `m.runInput` fresh at run time,
+    exactly the same "the exact *same* settings... not a separate copy"
+    reasoning the Bench tab's own doc comment already establishes for
+    why *it* has no duplicate fields either.
+  - **Breakpoints persist per file** (`develState.LiveBreakpoints`, a
+    `map[int]bool` — `encoding/json` marshals an int-keyed map as an
+    object with stringified keys automatically, no custom
+    (un)marshaling needed) the same `restore*`/`save*BestEffort`
+    read-mutate-write shape `benchBaseline` already established.
+    Toggling one (`toggleLiveBreakpoint`) also pushes the updated set
+    straight to a currently-active `LiveTracer.SetBreakpoints` — which
+    copies its input rather than aliasing it, so the caller mutating
+    its own map afterward can never reach back in and change what a
+    `Step` call already in flight sees — so editing breakpoints mid-run
+    (even while paused somewhere else) takes effect on the very next
+    statement, not just the next time `r` is pressed.
+  - Verified with table-driven Go tests under `-race` (breakpoint
+    pausing and single-stepping through a real parsed-and-evaluated
+    program via `internal/interpreter`, not hand-built `StepEvent`
+    structs; `Env` snapshot timing; `RequestStop` both mid-flight and
+    while already paused; `SetBreakpoints`' copy-not-alias semantics;
+    `liveGen` staleness guarding in `handleLiveStart`/`handleLivePause`/
+    `handleLiveDone`; breakpoint persistence round-tripping) and a real
+    pty-driven session: launched `crust develop` on a small program,
+    Shift+Tab'd directly to the Live tab (now the last tab, so a single
+    backward wrap reaches it), `r` to start (paused at the top-level
+    `recipe store() {` declaration — the always-pause-first entry
+    point), `s` twice to step through `x = 1` and `y = 2` watching both
+    show up in the variables panel, moved the cursor down and set a
+    breakpoint on `deliver(z)`, `c` continued straight to it (variables
+    panel showed `z = 3`, output panel already showed `3` — `deliver`
+    had already run by the time its own statement's pause reports, the
+    same after-the-fact timing as everywhere else), and confirmed via
+    `develop_state.json` that the breakpoint was still there — and
+    still took effect — on an entirely separate `crust develop` launch
+    afterward.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

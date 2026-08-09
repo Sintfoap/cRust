@@ -48,7 +48,7 @@ func TestDebugModelStartsOnTimeTab(t *testing.T) {
 
 func TestDebugModelTabSwitchesBackAndForth(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
-	want := []tab{tabMemory, tabStepper, tabEditor, tabRun, tabBench, tabNav, tabTime}
+	want := []tab{tabMemory, tabStepper, tabEditor, tabRun, tabBench, tabNav, tabLive, tabTime}
 	for _, w := range want {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = next.(debugModel)
@@ -62,8 +62,8 @@ func TestDebugModelShiftTabGoesBackward(t *testing.T) {
 	m := newDebugModel(viewFor(t, "x = 1"))
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(debugModel)
-	if m.active != tabNav {
-		t.Errorf("active = %v, want tabNav (wrapped backward from Time)", m.active)
+	if m.active != tabLive {
+		t.Errorf("active = %v, want tabLive (wrapped backward from Time)", m.active)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -703,7 +704,7 @@ recipe store_part2() { deliver("two") }`),
 
 	got := loadDevelState()[mustAbs(t, m.view.path)]
 	want := develState{Store: "part2", Input: inputPath}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("saved state = %+v, want %+v", got, want)
 	}
 }
@@ -871,7 +872,7 @@ recipe store_part2() { deliver("two") }`)
 
 	got := loadDevelState()[mustAbs(t, m.view.path)]
 	want := develState{Store: "part2", Input: "", RunAll: true}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("saved state = %+v, want %+v", got, want)
 	}
 }

@@ -18,6 +18,14 @@ type develState struct {
 	RunAll        bool           `json:"runAll,omitempty"`
 	BenchCount    int            `json:"benchCount,omitempty"`
 	BenchBaseline *benchBaseline `json:"benchBaseline,omitempty"`
+
+	// LiveBreakpoints backs the Live tab (debug_live.go): line numbers
+	// with a breakpoint set, so they're still there the next time this
+	// file is opened rather than needing to be re-marked from scratch
+	// every session. encoding/json marshals a map[int]bool as an object
+	// with the integer keys stringified ({"3":true}), round-tripping
+	// cleanly without any custom (un)marshaling.
+	LiveBreakpoints map[int]bool `json:"liveBreakpoints,omitempty"`
 }
 
 // develStateDir resolves to os.UserConfigDir() normally; tests
@@ -155,4 +163,37 @@ func restoreRunAll(path string) bool {
 		return false
 	}
 	return loadDevelState()[abs].RunAll
+}
+
+// restoreLiveBreakpoints returns path's remembered Live-tab
+// breakpoints, or an empty (non-nil) map if none are saved yet — a
+// non-nil zero value specifically so callers can index and write
+// straight into it (m.liveBreakpoints[line] = true) without a nil-map
+// check of their own.
+func restoreLiveBreakpoints(path string) map[int]bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return map[int]bool{}
+	}
+	saved := loadDevelState()[abs].LiveBreakpoints
+	if saved == nil {
+		return map[int]bool{}
+	}
+	return saved
+}
+
+// saveLiveBreakpointsBestEffort persists breakpoints as path's new
+// Live-tab breakpoint set, preserving whatever else was already
+// remembered for it — the same read-mutate-write shape
+// saveBenchBaselineBestEffort already uses, and the same best-effort
+// "a write failure shouldn't interrupt anything" reasoning.
+func saveLiveBreakpointsBestEffort(path string, breakpoints map[int]bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	all := loadDevelState()
+	s := all[abs]
+	s.LiveBreakpoints = breakpoints
+	_ = saveDevelState(abs, s)
 }

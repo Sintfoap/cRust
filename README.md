@@ -181,7 +181,7 @@ not counting whatever it delegated to a call or another loop — so a
 recursive `fib` shows up as one bucket across every recursion depth,
 not one row per call site.
 
-On a real terminal this opens an interactive seven-tab TUI: **Time**
+On a real terminal this opens an interactive eight-tab TUI: **Time**
 and **Memory** (one pie chart each, so both get the full window),
 **Stepper** (the tree, each row showing its source line number; `/`
 searches by the visible label/output text with `n`/`N` repeating the
@@ -237,7 +237,19 @@ layout — ↑↓ to move, enter to switch straight to one without leaving
 keeps its own remembered store/input/run-all/bench-count settings, the
 same as reopening it fresh from the command line would; `n` starts a
 new file right there — type a name, enter creates it (`.crust`
-appended if you leave it off) and switches straight to it).
+appended if you leave it off) and switches straight to it), and
+**Live** (a genuinely *live* debugger, unlike the Stepper's
+after-the-fact recording: `b` toggles a breakpoint on the source line
+under the cursor, remembered per file the same as Bench's baseline;
+`r` runs (or restarts) the file with the Run tab's current entry point
+and input file; the very first statement always pauses, so you're
+never left wondering whether anything happened yet. Once paused, `s`
+steps to the next statement regardless of breakpoints, `c` continues
+until the next breakpoint (or the program ends), and `x` stops the run
+early — even mid-flight between breakpoints, not only while actually
+paused. A watch panel below the source shows every variable in scope
+at the current pause, and an output panel shows the program's own
+`deliver()` output as it happens, not only at the end).
 Ctrl+R toggles running *every* entry point in sequence instead of just
 the selected one — each against the same input file, one full run
 apiece, output concatenated under a `=== part1 ===`-style heading per

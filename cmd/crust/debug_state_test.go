@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -53,7 +54,7 @@ func TestSaveThenLoadDevelStateRoundTrips(t *testing.T) {
 	}
 	got := loadDevelState()
 	want := develState{Store: "part2", Input: "/abs/input.txt"}
-	if got["/abs/day07.crust"] != want {
+	if !reflect.DeepEqual(got["/abs/day07.crust"], want) {
 		t.Errorf("loadDevelState()[...] = %+v, want %+v", got["/abs/day07.crust"], want)
 	}
 }
@@ -87,7 +88,7 @@ func TestSaveDevelStateOverwritesSameKey(t *testing.T) {
 		t.Fatalf("loadDevelState() = %v, want 1 entry (overwritten, not appended)", got)
 	}
 	want := develState{Store: "part2", Input: "second.txt"}
-	if got["/abs/day01.crust"] != want {
+	if !reflect.DeepEqual(got["/abs/day01.crust"], want) {
 		t.Errorf("got %+v, want %+v", got["/abs/day01.crust"], want)
 	}
 }
@@ -179,7 +180,7 @@ func TestSaveDevelStateBestEffortPersistsSelection(t *testing.T) {
 
 	got := loadDevelState()[mustAbs(t, path)]
 	want := develState{Store: "part2", Input: "puzzle.txt"}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("saved state = %+v, want %+v", got, want)
 	}
 }
@@ -192,7 +193,7 @@ func TestSaveDevelStateBestEffortPersistsRunAll(t *testing.T) {
 
 	got := loadDevelState()[mustAbs(t, path)]
 	want := develState{Store: "part2", Input: "puzzle.txt", RunAll: true}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("saved state = %+v, want %+v", got, want)
 	}
 }
