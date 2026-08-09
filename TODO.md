@@ -1012,6 +1012,26 @@ confirmed, not before.
       local `x`/`y`/`total` *and* the enclosing `a`/`b`/`combine`, while
       correctly *not* showing the caller's own `c` — not yet assigned
       at that point in the run.
+- [x] A full-value detail panel on the Stepper tab (`o`) — the sixth
+      and last of the same batch of ideas. The table's own "out" column
+      runs every value through `shortInspect`, which caps a value's
+      text at `maxInspectRunes` to keep the column a fixed width —
+      exactly right for scanning the tree, but the tail of a genuinely
+      large List/Map is simply gone from the row itself. `o` shows the
+      selected step's *untruncated* `Inspect()` text instead, in its
+      own panel below the table, hard-wrapped across the panel's own
+      width (`wrapRunes`) rather than the table's fixed column, capped
+      at `maxDetailLines` (10) the same fixed-worst-case reservation
+      shape the watch panel's own `maxWatchLines` already established.
+      Same frame-row guard as the watch panel: no `Step`, no value, so
+      it says so instead of showing the wrong row's data. Verified with
+      Go tests (`wrapRunes`'s own wrapping/edge cases, the panel
+      showing a value long enough that `shortInspect` would have
+      truncated it, the frame-row placeholder, a nil `Out` reading as
+      `nobox`) and a real pty-driven session: a 40-element List
+      genuinely truncated with `…` in the table's own "out" column,
+      then `o` showed the full 150-character value wrapped cleanly
+      across several lines.
 - [x] A richer Stepper tab, on direct request: "can you do richer
       stepper inside the develop tool?", narrowed via a clarifying
       question to three picks: search/filter the tree (this closes out

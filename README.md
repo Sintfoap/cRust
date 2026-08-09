@@ -190,7 +190,9 @@ every variable visible at the selected step — its own scope plus every
 enclosing one, shadowed the same way a real lookup resolves — read from
 a snapshot taken at that exact moment, not live state, so browsing an
 earlier step after the run finished still shows what that variable was
-*then*), **Editor** (opens `nvim` on the file being
+*then*; `o` toggles a panel showing that step's full, untruncated
+result — the table's own "out" column caps a long value with an
+ellipsis to keep the row a fixed width), **Editor** (opens `nvim` on the file being
 debugged as soon as you switch to it — `nvim` behaves normally in
 there, so `:w` just saves and keeps you editing; quitting after a
 save, e.g. `:wq`, reruns the recording, refreshes the other tabs, and

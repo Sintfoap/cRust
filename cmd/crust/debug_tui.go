@@ -9,10 +9,13 @@
 // arrow keys — each row shows its source line number, '/' searches by
 // label/output text with n/N repeating forward/backward, f/F jump
 // straight to the next/previous failed step (all three auto-expanding
-// any folded loop lap standing in the way — see jumpToNode), and 'v'
+// any folded loop lap standing in the way — see jumpToNode), 'v'
 // toggles a watch panel showing every variable visible at the selected
 // step, read straight from a point-in-time environment snapshot taken
-// when that step was traced — see viewStepperWatch), Editor
+// when that step was traced (see viewStepperWatch), and 'o' toggles a
+// panel showing that step's full, untruncated result value (see
+// viewStepperDetail — the table's own "out" column is capped at
+// maxInspectRunes to stay a fixed width), Editor
 // (hands the terminal to nvim on the file being debugged; see
 // debug_editor.go for the save-triggered reload loop), Run (type a
 // path and press enter to run the file with it as stdin and see the
@@ -208,6 +211,16 @@ type debugModel struct {
 	// snapshot (object.Environment.Snapshot), so there's no separate
 	// state here to keep synchronized with the cursor.
 	stepWatch bool
+
+	// stepDetail backs the Stepper tab's full-value detail panel ('o'),
+	// on direct request — the last of the same six ideas: shortInspect
+	// truncates a long List/Map/String result to maxInspectRunes so the
+	// table's own "out" column stays a fixed width, which is exactly
+	// right for scanning the tree but means a genuinely large value's
+	// tail is simply gone from the row itself. 'o' shows the selected
+	// step's untruncated Inspect() text instead, wrapped across the
+	// panel's own width rather than the table's fixed column.
+	stepDetail bool
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -370,6 +383,10 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		if m.active == tabStepper {
 			m.stepWatch = !m.stepWatch
+		}
+	case "o":
+		if m.active == tabStepper {
+			m.stepDetail = !m.stepDetail
 		}
 	}
 	return m, nil
@@ -644,10 +661,16 @@ func (m *debugModel) jumpToNextMatch(forward bool) {
 // moves and could fight with stepperBodyHeight's own row count.
 const maxWatchLines = 8
 
+// maxDetailLines caps the full-value detail panel's own height, the
+// same fixed-worst-case reservation shape maxWatchLines already
+// established — a huge List/Map's Inspect() text could wrap across
+// far more lines than any reasonable panel should claim.
+const maxDetailLines = 10
+
 // stepperExtraLines is how many lines viewStepper prints beyond the
 // fixed baseline (the tree table itself) — the search field or a
 // confirmed query reminder above the header, a status message, and/or
-// the watch panel below the table — computed here rather than
+// the watch/detail panels below the table — computed here rather than
 // duplicated as a second copy of the same conditions inside
 // viewStepper, so stepperBodyHeight's reservation can never drift out
 // of sync with what actually gets rendered.
@@ -661,6 +684,9 @@ func (m debugModel) stepperExtraLines() int {
 	}
 	if m.stepWatch {
 		extra += maxWatchLines + 2
+	}
+	if m.stepDetail {
+		extra += maxDetailLines + 2
 	}
 	return extra
 }
@@ -734,7 +760,7 @@ func (m debugModel) helpText() string {
 		if m.stepSearching {
 			return "enter: search   esc: cancel   ctrl+c: quit"
 		}
-		return "tab/←→: switch tab   ↑↓: move   enter: open/close   /: search   n/N: next/prev match   f/F: next/prev failure   v: watch variables   q: quit"
+		return "tab/←→: switch tab   ↑↓: move   enter: open/close   /: search   n/N: next/prev match   f/F: next/prev failure   v: watch variables   o: full value   q: quit"
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	case tabRun:
@@ -1003,6 +1029,10 @@ func (m debugModel) viewStepper() string {
 		b.WriteByte('\n')
 		b.WriteString(m.viewStepperWatch())
 	}
+	if m.stepDetail {
+		b.WriteByte('\n')
+		b.WriteString(m.viewStepperDetail())
+	}
 	return b.String()
 }
 
@@ -1052,6 +1082,78 @@ func (m debugModel) viewStepperWatch() string {
 		b.WriteString(styleFaint.Render(fmt.Sprintf("… and %d more\n", truncated)))
 	}
 	return b.String()
+}
+
+// viewStepperDetail is the full-value detail panel ('o'), on direct
+// request — the last of the same six ideas: the table's own "out"
+// column runs every value through shortInspect, truncated at
+// maxInspectRunes to keep the column a fixed width, which reads fine
+// for scanning the tree but throws away the tail of anything genuinely
+// large. This panel shows the selected step's *untruncated* Inspect()
+// text instead, hard-wrapped across the panel's own width (wrapRunes)
+// rather than the table's fixed column, capped at maxDetailLines the
+// same way viewStepperWatch caps its own row count.
+//
+// Same frame/closing-row guard as the watch panel, for the same
+// reason: there's no Step to read Out from on a row that isn't one.
+func (m debugModel) viewStepperDetail() string {
+	row := m.rows[m.cursor]
+	if row.closing || row.node.IsFrame() {
+		return styleMuted.Render("(select a step, not a frame, to see its full value)")
+	}
+	text := "nobox"
+	if row.node.Step.Out != nil {
+		text = row.node.Step.Out.Inspect()
+	}
+
+	lines := wrapRunes(text, m.stepperDetailWidth())
+	shown := lines
+	truncated := 0
+	if len(shown) > maxDetailLines {
+		truncated = len(shown) - maxDetailLines
+		shown = shown[:maxDetailLines]
+	}
+
+	var b strings.Builder
+	b.WriteString(styleTitle.Render(fmt.Sprintf("full value (%d chars)", len([]rune(text)))))
+	b.WriteByte('\n')
+	for _, l := range shown {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	if truncated > 0 {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… (%d more line(s) — grow the terminal to see them)\n", truncated)))
+	}
+	return b.String()
+}
+
+// stepperDetailWidth is how wide viewStepperDetail wraps its text —
+// the window's own width, minus a small margin, the same "derive from
+// m.width, clamp to a sane floor" shape benchChartWidth already uses.
+func (m debugModel) stepperDetailWidth() int {
+	return max(20, m.width-4)
+}
+
+// wrapRunes hard-wraps s into width-rune chunks — no word-boundary
+// smartness, since a raw Inspect() dump (`[1, 2, 3, ...]`) has no
+// natural word breaks worth preserving anyway. width <= 0 (a
+// pathologically narrow terminal) returns s as a single unwrapped
+// line rather than looping forever.
+func wrapRunes(s string, width int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	for len(runes) > width {
+		lines = append(lines, string(runes[:width]))
+		runes = runes[width:]
+	}
+	lines = append(lines, string(runes))
+	return lines
 }
 
 // stepLineText is a step's source line number, right-aligned to match

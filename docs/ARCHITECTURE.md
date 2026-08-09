@@ -3885,6 +3885,35 @@ code was written.
     have caught a shadowing or ordering bug — correctly did *not* show
     the caller's own `c`, since the call hadn't returned yet at that
     point in the actual recorded run.
+  - **A full-value detail panel** (`o`, `viewStepperDetail`,
+    `wrapRunes`, `cmd/crust/debug_tui.go`) — the sixth and last of the
+    same batch of ideas. `shortInspect` (`debug_view.go`) — reused by
+    every table row's own "out" column — caps a value's `Inspect()`
+    text at `maxInspectRunes` so the column stays a fixed width, the
+    right call for scanning the tree at a glance but a genuine loss for
+    anything with a real tail: a 40-element List truncates the same way
+    a one-word String would. `o` opens a panel showing the selected
+    step's complete, untruncated `Inspect()` text instead of the
+    table's own capped one, hard-wrapped across the panel's own width
+    (`wrapRunes` — a plain fixed-width rune chunker, no word-boundary
+    logic, since a raw `Inspect()` dump like `[1, 2, 3, ...]` has no
+    natural word breaks worth preserving) rather than squeezed into the
+    table's fixed column. Capped at `maxDetailLines` (10), the same
+    fixed-worst-case reservation `maxWatchLines` already established
+    for the watch panel one bullet up — `stepperExtraLines` grows by
+    the same `+2` pattern for whichever of the two (or both) panels are
+    currently on. Shares the watch panel's own frame-row guard: a frame
+    or closing row has no `Step` to read `Out` from, so the panel says
+    so rather than showing stale data from whichever step was selected
+    last. Verified with Go tests (`wrapRunes`'s exact wrapping behavior
+    including the empty-string and non-positive-width edge cases, the
+    panel actually surfacing a value long enough that `shortInspect`
+    would have cut it off, the frame-row placeholder, a nil `Out`
+    reading as `nobox` rather than panicking) and a real pty-driven
+    session: a 40-element List showed truncated with `…` in the table's
+    own "out" column exactly as expected, then `o` showed all 150
+    characters, correctly wrapped across multiple lines at the panel's
+    own width rather than the table's.
   - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
     request: "can you do richer stepper inside the develop tool?"
     followed by a clarifying `AskUserQuestion` that narrowed it to

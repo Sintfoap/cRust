@@ -1328,3 +1328,164 @@ func TestViewRendersStepperTabWithWatchPanelWithoutPanicking(t *testing.T) {
 	m.stepWatch = true
 	_ = m.View()
 }
+
+// --- Stepper: full-value detail panel -----------------------------------
+
+func TestWrapRunesSplitsAtWidth(t *testing.T) {
+	got := wrapRunes("abcdefgh", 3)
+	want := []string{"abc", "def", "gh"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got %v, want %v", got, want)
+			break
+		}
+	}
+}
+
+func TestWrapRunesShorterThanWidthIsOneLine(t *testing.T) {
+	got := wrapRunes("hi", 10)
+	if len(got) != 1 || got[0] != "hi" {
+		t.Errorf("wrapRunes(short) = %v, want one line %q", got, "hi")
+	}
+}
+
+func TestWrapRunesEmptyStringIsOneEmptyLine(t *testing.T) {
+	got := wrapRunes("", 10)
+	if len(got) != 1 || got[0] != "" {
+		t.Errorf("wrapRunes(\"\") = %v, want one empty line", got)
+	}
+}
+
+func TestWrapRunesNonPositiveWidthReturnsUnwrapped(t *testing.T) {
+	got := wrapRunes("hello", 0)
+	if len(got) != 1 || got[0] != "hello" {
+		t.Errorf("wrapRunes(width=0) = %v, want the whole string unwrapped", got)
+	}
+}
+
+func TestHandleKeyOTogglesStepDetail(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	got := next.(debugModel)
+	if !got.stepDetail {
+		t.Fatal("'o' should turn the detail panel on")
+	}
+
+	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	got = next.(debugModel)
+	if got.stepDetail {
+		t.Error("a second 'o' should turn the detail panel back off")
+	}
+}
+
+func TestHandleKeyODoesNothingOnOtherTabs(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabTime
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	got := next.(debugModel)
+	if got.stepDetail {
+		t.Error("'o' should only toggle the detail panel on the Stepper tab")
+	}
+}
+
+func TestViewStepperDetailShowsUntruncatedValue(t *testing.T) {
+	// A value long enough that shortInspect's own maxInspectRunes cap
+	// would have truncated it in the table's "out" column.
+	var elems []string
+	for i := 0; i < 30; i++ {
+		elems = append(elems, fmt.Sprintf("%d", i))
+	}
+	src := "xs = [" + strings.Join(elems, ", ") + "]\n"
+	m := newDebugModel(viewFor(t, src))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepDetail = true
+
+	full := m.rows[0].node.Step.Out.Inspect()
+	if len(full) <= maxInspectRunes {
+		t.Fatalf("test setup: value is only %d runes, want it longer than maxInspectRunes (%d)", len(full), maxInspectRunes)
+	}
+
+	out := m.viewStepperDetail()
+	// The full, untruncated text should appear somewhere in the panel
+	// once its wrapped lines are stitched back together.
+	if !strings.Contains(strings.ReplaceAll(out, "\n", ""), strings.ReplaceAll(full, "\n", "")) {
+		t.Errorf("viewStepperDetail() is missing the full value; got:\n%s\nwant it to contain:\n%s", out, full)
+	}
+}
+
+func TestViewStepperDetailOnAFrameRowShowsPlaceholder(t *testing.T) {
+	m := newDebugModel(viewFor(t, `
+recipe f() {
+    x = 1
+}
+f()
+`))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepDetail = true
+
+	frameIdx := -1
+	for i, row := range m.rows {
+		if row.node.IsFrame() && !row.closing {
+			frameIdx = i
+			break
+		}
+	}
+	if frameIdx == -1 {
+		t.Fatal("expected at least one frame row in the recording")
+	}
+	m.cursor = frameIdx
+
+	out := m.viewStepperDetail()
+	if !strings.Contains(out, "select a step") {
+		t.Errorf("viewStepperDetail() on a frame row = %q, want a placeholder message", out)
+	}
+}
+
+func TestViewStepperDetailNoboxForNilOut(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepDetail = true
+	m.rows[0].node.Step.Out = nil
+
+	out := m.viewStepperDetail()
+	if !strings.Contains(out, "nobox") {
+		t.Errorf("viewStepperDetail() with a nil Out = %q, want it to show nobox", out)
+	}
+}
+
+func TestStepperExtraLinesReservesSpaceForDetailPanel(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.width, m.height = 100, 30
+	base := m.stepperBodyHeight()
+
+	m.stepDetail = true
+	withDetail := m.stepperBodyHeight()
+	if withDetail >= base {
+		t.Errorf("stepperBodyHeight with the detail panel shown = %d, want less than %d", withDetail, base)
+	}
+}
+
+func TestHelpTextStepperMentionsFullValue(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	if !strings.Contains(m.helpText(), "full value") {
+		t.Errorf("helpText() = %q, want it to mention the full-value panel", m.helpText())
+	}
+}
+
+func TestViewRendersStepperTabWithDetailPanelWithoutPanicking(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active = tabStepper
+	m.width, m.height = 80, 24
+	m.stepDetail = true
+	m.stepWatch = true
+	_ = m.View()
+}
