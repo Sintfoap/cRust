@@ -948,6 +948,24 @@ confirmed, not before.
       short one's circle visibly shrank and the legend/stats stayed
       fully on screen, where before this the tab's own content would
       have run past the bottom.
+- [x] Export Bench results to CSV (`e`) — another of the same six
+      ideas. Writes the current batch to `<file>.bench.csv` (swapping
+      the debugged file's own extension, so `day01.crust` exports to
+      `day01.bench.csv` right next to it, overwritten on each export —
+      a snapshot of "the last batch I ran," not an accumulating
+      history). One row per run: its 1-based index, raw duration in
+      nanoseconds, bytes allocated, and whether it failed.
+      Deliberately not the chart's own already-computed average/
+      median/max/min — a spreadsheet's own formulas already derive
+      those from the raw column, and repeating them here would just be
+      a second copy that could drift out of sync with the tab's own
+      `benchAvgOf`/etc. A one-line status ("exported to ..." or
+      "export failed: ...") shows the outcome, cleared on the next run
+      since it describes a batch that's no longer the one on screen.
+      Verified with Go tests (the path derivation, the exact CSV
+      content against known input, an unwritable-directory error path)
+      and a real pty-driven session confirming the exported file's
+      numbers matched the chart's own.
 - [x] A richer Stepper tab, on direct request: "can you do richer
       stepper inside the develop tool?", narrowed via a clarifying
       question to three picks: search/filter the tree (this closes out

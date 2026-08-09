@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -594,6 +595,118 @@ func TestHandleBenchResultClampsCursorToNewRunCount(t *testing.T) {
 	}
 	if !got.benchInspect {
 		t.Error("a new batch of results should not silently exit inspect mode")
+	}
+}
+
+// --- CSV export --------------------------------------------------------
+
+func TestBenchExportPathSwapsExtensionForBenchCSV(t *testing.T) {
+	m := newDebugModel(&debugView{path: "/tmp/day01.crust", rec: viewFor(t, "x = 1").rec})
+	if got, want := m.benchExportPath(), "/tmp/day01.bench.csv"; got != want {
+		t.Errorf("benchExportPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBenchExportCmdWritesCSV(t *testing.T) {
+	path := writeDebugFile(t, "x = 1")
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.benchRuns = []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100, failed: false},
+		{duration: 2 * time.Millisecond, allocB: 200, failed: true},
+	}
+
+	msg := m.benchExportCmd()().(benchExportMsg)
+	if msg.err != "" {
+		t.Fatalf("benchExportCmd: %s", msg.err)
+	}
+	if msg.path != m.benchExportPath() {
+		t.Errorf("msg.path = %q, want %q", msg.path, m.benchExportPath())
+	}
+
+	data, err := os.ReadFile(msg.path)
+	if err != nil {
+		t.Fatalf("reading exported CSV: %s", err)
+	}
+	want := "run,duration_ns,alloc_bytes,failed\n" +
+		"1,1000000,100,false\n" +
+		"2,2000000,200,true\n"
+	if string(data) != want {
+		t.Errorf("CSV content = %q, want %q", string(data), want)
+	}
+}
+
+func TestBenchExportCmdUnwritablePathIsError(t *testing.T) {
+	m := newDebugModel(&debugView{path: "/nonexistent-dir-xyz/day01.crust", rec: viewFor(t, "x = 1").rec})
+	m.benchRuns = []benchRun{{duration: time.Millisecond}}
+
+	msg := m.benchExportCmd()().(benchExportMsg)
+	if msg.err == "" {
+		t.Error("expected an error writing to a nonexistent directory")
+	}
+}
+
+func TestHandleBenchExportResultSuccess(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	next, _ := m.handleBenchExportResult(benchExportMsg{path: "/tmp/day01.bench.csv"})
+	got := next.(debugModel)
+	if !strings.Contains(got.benchExportStatus, "/tmp/day01.bench.csv") {
+		t.Errorf("benchExportStatus = %q, want it to mention the exported path", got.benchExportStatus)
+	}
+}
+
+func TestHandleBenchExportResultError(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	next, _ := m.handleBenchExportResult(benchExportMsg{err: "disk full"})
+	got := next.(debugModel)
+	if !strings.Contains(got.benchExportStatus, "disk full") {
+		t.Errorf("benchExportStatus = %q, want it to mention the error", got.benchExportStatus)
+	}
+}
+
+func TestHandleBenchResultClearsStaleExportStatus(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchExportStatus = "exported to /tmp/old.bench.csv"
+	next, _ := m.handleBenchResult(benchResultMsg{runs: []benchRun{{duration: time.Millisecond}}})
+	got := next.(debugModel)
+	if got.benchExportStatus != "" {
+		t.Errorf("benchExportStatus = %q, want cleared after a fresh batch", got.benchExportStatus)
+	}
+}
+
+func TestHandleBenchTabKeyERequiresRuns(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	_, cmd := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if cmd != nil {
+		t.Error("'e' with no runs yet should be a no-op, not return an export Cmd")
+	}
+}
+
+func TestHandleBenchTabKeyEExportsWithRuns(t *testing.T) {
+	path := writeDebugFile(t, "x = 1")
+	m := newDebugModel(&debugView{path: path, rec: viewFor(t, "x = 1").rec})
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 10}}
+
+	_, cmd := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if cmd == nil {
+		t.Fatal("'e' with runs present should return an export Cmd")
+	}
+	msg := cmd().(benchExportMsg)
+	if msg.err != "" {
+		t.Fatalf("export failed: %s", msg.err)
+	}
+	if _, err := os.Stat(msg.path); err != nil {
+		t.Errorf("exported file not found: %s", err)
+	}
+}
+
+func TestViewBenchShowsExportStatus(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 10}}
+	m.benchExportStatus = "exported to /tmp/day01.bench.csv"
+	out := m.viewBench()
+	if !strings.Contains(out, "exported to /tmp/day01.bench.csv") {
+		t.Errorf("viewBench() missing export status: %q", out)
 	}
 }
 

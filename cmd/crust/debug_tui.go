@@ -172,6 +172,13 @@ type debugModel struct {
 	benchInspect bool
 	benchCursor  int
 
+	// benchExportStatus is the Bench tab's one-line feedback for the
+	// last 'e' (export to CSV) attempt — "exported to ..." or "export
+	// failed: ...", on direct request ("export Bench results to CSV").
+	// Cleared on a fresh batch of runs (handleBenchResult), since it
+	// describes the *previous* batch's data, not whatever just ran.
+	benchExportStatus string
+
 	// stepSearching/stepQuery/stepSearchInput/stepStatus back the
 	// Stepper tab's search ('/') and jump-to-failure (f/F), on direct
 	// request: "search/filter the tree" and "jump to next/prev
@@ -254,6 +261,8 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRunResult(msg)
 	case benchResultMsg:
 		return m.handleBenchResult(msg)
+	case benchExportMsg:
+		return m.handleBenchExportResult(msg)
 	}
 	return m, nil
 }
@@ -705,9 +714,9 @@ func (m debugModel) helpText() string {
 		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabBench:
 		if m.benchInspect {
-			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
-		return "enter: run N times   i: inspect a run   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		return "enter: run N times   i: inspect a run   e: export CSV   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
 		if m.navCreating {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"

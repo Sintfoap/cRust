@@ -213,7 +213,10 @@ both charts since "average" means the same thing on either one; press
 `l` steps to the previous/next run, `g`/`G` jumps to the first/last,
 and a caret under both charts plus a readout line show that exact
 run's own duration/memory (and whether it failed), not blended into
-any average), and
+any average; `e` exports the current batch to a CSV file next to the
+debugged file — one row per run, its raw duration in nanoseconds and
+bytes allocated, for spreadsheet analysis or comparing across days),
+and
 **Files** (every other `.crust` file alongside the one currently
 open — the natural "AoC folder full of day01.crust..day25.crust"
 layout — ↑↓ to move, enter to switch straight to one without leaving

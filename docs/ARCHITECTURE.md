@@ -3769,6 +3769,34 @@ code was written.
     shrank and the legend plus the stats block beneath it stayed fully
     on screen, where before this change they'd have been the next thing
     `clampHeight` cut off.
+  - **Export Bench results to CSV** (`e`, `benchExportCmd`,
+    `cmd/crust/debug_bench.go`) — another of the same six ideas.
+    `benchExportPath` swaps the debugged file's own extension for
+    `.bench.csv` (`day01.crust` → `day01.bench.csv`, written right next
+    to it), overwritten on every export rather than accumulating a
+    history — a snapshot of "the last batch I ran," matching this tab's
+    own best-effort run-count persistence rather than growing a pile of
+    timestamped files nobody asked for. One row per run: 1-based index, raw
+    duration in nanoseconds, bytes allocated, whether it failed —
+    deliberately *not* the chart's own already-computed average/
+    median/max/min, since a spreadsheet's own `AVERAGE`/`MEDIAN`
+    formulas already derive those from the raw column, and repeating
+    them here would just be a second copy that could drift out of sync
+    with `benchAvgOf`/`benchMedianOf`/etc. Runs asynchronously through
+    the same `tea.Cmd` → result-message shape every other action in
+    this tab already uses (`benchCmd`/`benchResultMsg`, `runProgramCmd`/
+    `runResultMsg`), reporting success or failure in a one-line
+    `benchExportStatus` rather than either silently succeeding or
+    crashing the TUI on a write error (an unwritable directory, a full
+    disk) — cleared on the next batch of runs, since it describes data
+    that's no longer what's on screen. Verified with Go tests (the path
+    derivation, exact CSV content against known input including the
+    failed-run boolean, an unwritable-directory error path, the status
+    line showing and clearing) and a real pty-driven session: ran a
+    batch, pressed `e`, confirmed the `"exported to ..."` status line,
+    and diffed the written file's numbers against the chart's own —
+    exact matches (`69058` ns in the CSV for the `69.058µs` the runtime
+    chart's own max reference line showed).
   - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
     request: "can you do richer stepper inside the develop tool?"
     followed by a clarifying `AskUserQuestion` that narrowed it to

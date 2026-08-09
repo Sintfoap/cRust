@@ -174,6 +174,10 @@ func (m debugModel) handleBenchTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.benchInspect = !m.benchInspect
 					m.benchCursor = clampBenchCursor(m.benchCursor, len(m.benchRuns))
 				}
+			case r == 'e':
+				if len(m.benchRuns) > 0 {
+					return m, m.benchExportCmd()
+				}
 			case m.benchInspect && r == 'h':
 				m.benchCursor = max(0, m.benchCursor-1)
 			case m.benchInspect && r == 'l':
@@ -266,6 +270,69 @@ func (m debugModel) handleBenchResult(msg benchResultMsg) (tea.Model, tea.Cmd) {
 	m.benchErr = ""
 	m.benchRuns = msg.runs
 	m.benchCursor = clampBenchCursor(m.benchCursor, len(msg.runs))
+	// A fresh batch makes any earlier "exported to ..." status stale --
+	// it described the previous batch's data, not this one, and leaving
+	// it up would read as if this new run had already been saved too.
+	m.benchExportStatus = ""
+	return m, nil
+}
+
+// benchExportMsg carries the result of writing the current batch to
+// CSV: either the path it landed at, or an error (an unwritable
+// directory, a full disk, ...).
+type benchExportMsg struct {
+	path string
+	err  string
+}
+
+// benchExportPath is where 'e' writes the current batch to — the
+// debugged file's own path with its extension swapped for
+// ".bench.csv", so day01.crust exports to day01.bench.csv right next
+// to it. Fixed, not timestamped: this is a snapshot of "the last batch
+// I ran," not a growing history, and overwriting it on each export
+// matches every other best-effort persistence in this tab (run count,
+// bench baseline) rather than accumulating files nobody asked for.
+func (m debugModel) benchExportPath() string {
+	ext := filepath.Ext(m.view.path)
+	return strings.TrimSuffix(m.view.path, ext) + ".bench.csv"
+}
+
+// benchExportCmd writes the current batch's per-run measurements to
+// CSV, on direct request ("export Bench results to CSV" — one of six
+// "what could I add to the develop tool?" ideas). One row per run:
+// its 1-based index, raw duration in nanoseconds, bytes allocated, and
+// whether it failed — deliberately not the already-computed average/
+// median/max/min the chart's own legend shows, since a spreadsheet's
+// own AVERAGE/MEDIAN formulas already derive those from the raw
+// column, and repeating them here would just be a second copy that
+// could drift out of sync with benchAvgOf/benchMedianOf/etc.
+// Nanoseconds rather than a formatted duration string, so the column
+// is directly usable in spreadsheet arithmetic without a parse step.
+func (m debugModel) benchExportCmd() tea.Cmd {
+	path := m.benchExportPath()
+	runs := m.benchRuns
+	return func() tea.Msg {
+		var b strings.Builder
+		b.WriteString("run,duration_ns,alloc_bytes,failed\n")
+		for i, r := range runs {
+			fmt.Fprintf(&b, "%d,%d,%d,%t\n", i+1, r.duration.Nanoseconds(), r.allocB, r.failed)
+		}
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			return benchExportMsg{err: err.Error()}
+		}
+		return benchExportMsg{path: path}
+	}
+}
+
+// handleBenchExportResult applies one export attempt's outcome to
+// benchExportStatus, the Bench tab's one-line feedback for the last
+// thing 'e' did — success or failure, always visible, never silent.
+func (m debugModel) handleBenchExportResult(msg benchExportMsg) (tea.Model, tea.Cmd) {
+	if msg.err != "" {
+		m.benchExportStatus = "export failed: " + msg.err
+	} else {
+		m.benchExportStatus = "exported to " + msg.path
+	}
 	return m, nil
 }
 
@@ -708,6 +775,10 @@ func (m debugModel) viewBench() string {
 	}
 	if failed > 0 {
 		b.WriteString(styleError.Render(fmt.Sprintf("\n%d/%d runs exited non-zero", failed, len(m.benchRuns))))
+	}
+	if m.benchExportStatus != "" {
+		b.WriteByte('\n')
+		b.WriteString(styleMuted.Render(m.benchExportStatus))
 	}
 	return b.String()
 }
