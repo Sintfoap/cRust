@@ -162,3 +162,7 @@ crust develop day01.crust --plain  # same recording, printed as text (pipeable)
 crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place
 ```
+
+On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
+forward/backward), `f`/`F` jump straight to the next/previous failed
+step — both auto-expand any collapsed loop fold in the way.

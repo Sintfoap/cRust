@@ -937,7 +937,36 @@ confirmed, not before.
       the terminal's actual size (fixed at 7 today — clampHeight now
       keeps a small terminal from losing the tab bar over it, but the
       chart itself can still get cut off rather than shrinking to fit)
-      and a search/filter over the Stepper tree
+- [x] A richer Stepper tab, on direct request: "can you do richer
+      stepper inside the develop tool?", narrowed via a clarifying
+      question to three picks: search/filter the tree (this closes out
+      the stretch item above), jump to next/prev failed step, and show
+      each row's source line number. All three needed the same real fix
+      first: the visible rows already stop descending into a collapsed
+      "N iterations" fold, so a match or failure sitting inside one
+      (exactly where it's likely to be — a real failure tends to show
+      up on a *later* lap, not the first few still shown before folding
+      kicks in) was invisible to a naive scan. `flattenAll` walks the
+      whole tree regardless of fold state to actually find a target;
+      `expandPathTo` marks every folded ancestor on the path to it as
+      expanded; `jumpToNode` (shared by both features) expands, rebuilds
+      the row list, and scrolls the cursor onto the now-visible row.
+      `/` opens a search field (n/N repeats the same query forward/
+      backward, vim-style); `f`/`F` jump to the next/previous failed
+      step. One real surprise while testing against a real failing
+      program: an error bubbles up through *every* enclosing
+      statement's own result, so a loop and the `order` wrapping the
+      real culprit both read as "failed" too, not just the one
+      statement that actually raised it — already true of how those
+      rows were colored before this feature existed, so `f`/`F` staying
+      consistent with that was the right call, not a bug to paper over.
+      See ARCHITECTURE.md's Phase 6 notes for the rest of the design
+      (findNext's wraparound search, the line-number column, the
+      reserved-line-height bookkeeping). Verified with table-driven Go
+      tests and a real pty-driven session: ran a 5-lap loop whose 4th
+      lap divides by zero, confirmed `f` expanded the fold and landed
+      exactly on the failing statement, `/idiv` found the next match,
+      and `F` stepped back to the original failure.
 - [x] `crust bake documentation` (`internal/docsite`) — a browsable,
       pizza-themed reference site over local HTTP, in the shape of
       RFuller25/domainlang's `domain expansion: documentation` (embedded

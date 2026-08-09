@@ -3740,6 +3740,113 @@ code was written.
     consecutive runs, `G` jumped straight to the last run (caret at the
     chart's right edge), and `g` back to the first (caret at the left
     edge) — all against real per-run data, not a mock.
+  - **A richer Stepper tab** (`cmd/crust/debug_tui.go`), on direct
+    request: "can you do richer stepper inside the develop tool?"
+    followed by a clarifying `AskUserQuestion` that narrowed it to
+    three concrete directions, all three picked: search/filter the
+    tree (the exact stretch item already flagged in TODO.md's Phase 6),
+    jump to the next/previous failed step, and show each row's source
+    line number. All three share one real design problem: the visible
+    rows (`buildRows`) stop descending into any collapsed "N
+    iterations" fold, so a match or failure sitting inside one is
+    invisible to a naive row-by-row scan — exactly the case these
+    features exist for, since a real failure is disproportionately
+    likely to be buried in a loop's later laps, not its first three
+    (the ones still shown unfolded before `foldFrom` kicks in).
+    - **`flattenAll`** walks the *entire* tree, folds included — a
+      second, low-level traversal alongside `buildRows`' own
+      fold-aware one, existing specifically because search/failure-jump
+      need to *find* a match regardless of fold state (the row list
+      itself is the wrong data structure to search over) while still
+      needing the fold-aware view for actually *displaying* it once
+      found. **`expandPathTo`** is the bridge back: given a target node
+      found via `flattenAll`, it walks the same tree again and marks
+      every ancestor on the path to that target as expanded in
+      `m.expanded` (the same map `toggleFold` already writes to) — so a
+      subsequent `rebuildRows` makes the target's own row actually
+      exist to land the cursor on. **`jumpToNode`** is the shared
+      landing sequence both search and failure-jump call once they have
+      a target: expand, rebuild, find the row, `clampAndScrollCursor`
+      (pulled out of `moveCursor` for exactly this reuse, rather than a
+      second copy of the same scroll-into-view math).
+    - **`findNext(all, start, forward, match)`** is the shared "next
+      matching node" search both features are built on: linear scan
+      from `start`'s position in `all` (found by pointer identity,
+      since `flattenAll`'s order is stable across calls — the recorded
+      tree never mutates after a run finishes, only which folds are
+      expanded does), wrapping around either end rather than stopping
+      at the boundary — the same "keep going, don't just give up"
+      behavior vim's own `/` and `n`/`N` train users to expect.
+      `start == nil` (nothing selected, or a fresh recording) searches
+      the whole list from the natural end for that direction.
+    - **Search (`/`, `stepMatches`, `handleStepperSearchKey`)**: `/`
+      opens a text field (the same hand-rolled `runInputModel` every
+      other tab's own field already reuses) with its own dedicated key
+      handler — the same "a query can contain letters bound to actions
+      elsewhere" reasoning `handleRunTabKey`'s own doc comment already
+      gives for the Run tab's input-file field. Enter confirms into
+      `m.stepQuery` (kept around specifically so `n`/`N` can repeat the
+      *same* search without retyping it, mirroring vim's own `/` then
+      `n`/`N` two-step) and jumps to the first match from the current
+      cursor position; an empty query is a no-op close, matching an
+      empty vim `/` prompt. `stepMatches` matches case-insensitively
+      against exactly the text `renderRow` already prints for that row
+      (its label, plus a step's own output) — never a separate,
+      invisible field — so a match is always recognizable the instant
+      the cursor lands on it.
+    - **Jump-to-failure (`f`/`F`, `isFailedStep`, `jumpToFailure`)**:
+      `isFailedStep` is exactly `renderRow`'s own existing
+      `!n.IsFrame() && n.Step.Failed()` check, factored out so both
+      places can never drift apart on what "a failure" means. One real
+      surprise found while testing this against a real failing program:
+      `Failed()` is true for *every* statement an error bubbles up
+      through, not only the one that actually raised it — an `order`
+      wrapping a failing statement, and the `knead` loop around that,
+      both read as "failed" too, since their own `Out` *is* that same
+      propagated `object.Error`. This isn't a bug to fix (it's the
+      exact reason `renderRow` already colors every one of those rows
+      in `styleError`, not just the innermost one, so `f`/`F` staying
+      consistent with what's already on screen is correct, if a shade
+      noisier than "jump straight to the one true root cause" would
+      be) — but it did break this feature's first test draft, which had
+      assumed exactly one failing node per recording; fixed by testing
+      against the *specific* culprit statement rather than an exact
+      failure count.
+    - **Line numbers (`stepLineText`)**: a new leftmost "line" column,
+      right-aligned to match `size`/`time`/`self%`'s own existing
+      style — `Step.Line()` for a real step, blank for a frame (a
+      recipe call or loop lap has no single line of its own) or the
+      rare zero-`Pos` step. `renderClosingRow`'s synthetic `// end ...`
+      marker gets a matching blank line-column field too, so every
+      row's other columns stay aligned regardless of which kind of row
+      it is.
+    - **`stepperExtraLines`/`stepperBodyHeight`**: the search field (or
+      a confirmed-query reminder once it's closed) and/or a status line
+      ("no matches for ...", "no failed steps") print above the column
+      header when active, so the row-count budget `stepperBodyHeight`
+      reserves grows by the same 2-line increments — computed by one
+      shared helper (`stepperExtraLines`) rather than duplicating the
+      exact same conditions in both the rendering code and the height
+      math, which could otherwise drift out of sync the way
+      `benchChartHeight`'s own inspect-mode reservation was careful to
+      avoid.
+    - Verified with table-driven Go tests (`flattenAll` seeing inside a
+      fold that `buildRows` still hides by default, `expandPathTo`
+      actually revealing it, `findNext`'s wraparound in both
+      directions, `stepMatches` case-insensitivity, every new key
+      binding including 'n' staying correctly overloaded between "new
+      file" on the Files tab and "repeat search" on the Stepper tab)
+      and a real pty-driven session: ran a 5-lap loop whose 4th lap
+      divides by zero through the Run tab (Shift+Tab three times from
+      Time to reach Run without ever crossing Editor, the same
+      established trap-avoidance this log keeps reusing), then tabbed
+      forward the long way around to Stepper (through Bench/Files/Time/
+      Memory, same reasoning) and confirmed: line numbers rendered
+      correctly; `f` expanded the fold and landed exactly on
+      `y = idiv(1, 0)`; `/idiv` found the next match after it (the
+      wrapping `order` statement, since its own propagated error text
+      also contains "idiv"); and `F` stepped back to `y = idiv(1, 0)`
+      again.
 
 ### Phase 7 — Testing & Quality
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input

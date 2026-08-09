@@ -180,7 +180,12 @@ not one row per call site.
 
 On a real terminal this opens an interactive seven-tab TUI: **Time**
 and **Memory** (one pie chart each, so both get the full window),
-**Stepper** (the tree), **Editor** (opens `nvim` on the file being
+**Stepper** (the tree, each row showing its source line number; `/`
+searches by the visible label/output text with `n`/`N` repeating the
+same search forward/backward, and `f`/`F` jump straight to the next/
+previous failed step — all three auto-expand any folded loop lap
+standing in the way, so a match or failure buried inside a collapsed
+"N iterations" row is never missed), **Editor** (opens `nvim` on the file being
 debugged as soon as you switch to it — `nvim` behaves normally in
 there, so `:w` just saves and keeps you editing; quitting after a
 save, e.g. `:wq`, reruns the recording, refreshes the other tabs, and

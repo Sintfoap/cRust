@@ -633,3 +633,519 @@ func TestStdinNoNamerReadsThrough(t *testing.T) {
 		t.Errorf("Read() = (%d, %q), want (5, %q)", n, buf, "hello")
 	}
 }
+
+// --- Stepper: line numbers, search, jump-to-failure ------------------------
+
+// failingLoopSrc is a 5-lap loop (>= foldFrom, so the laps fold into
+// one synthetic row) whose 4th lap alone fails a division by zero —
+// exactly the shape jump-to-failure and search both need to prove they
+// find something a folded row would otherwise hide.
+const failingLoopSrc = `
+knead n in [1, 2, 3, 4, 5] {
+    order (n == 4) {
+        y = idiv(1, 0)
+    }
+}
+`
+
+func TestStepLineTextOnAStep(t *testing.T) {
+	view := viewFor(t, "x = 1\ny = 2\n")
+	rows := buildRows(view.rec.Roots(), 0, map[*debugger.TraceNode]bool{})
+	if len(rows) == 0 {
+		t.Fatal("expected at least one row")
+	}
+	got := stepLineText(rows[0].node)
+	if got != "1" {
+		t.Errorf("stepLineText(first statement) = %q, want %q", got, "1")
+	}
+}
+
+func TestStepLineTextOnAFrameIsBlank(t *testing.T) {
+	view := viewFor(t, `
+recipe f() {
+    x = 1
+}
+f()
+`)
+	var frame *debugger.TraceNode
+	for _, n := range flattenAll(view.rec.Roots()) {
+		if n.IsFrame() {
+			frame = n
+			break
+		}
+	}
+	if frame == nil {
+		t.Fatal("expected at least one frame in the recording")
+	}
+	if got := stepLineText(frame); got != "" {
+		t.Errorf("stepLineText(frame) = %q, want blank", got)
+	}
+}
+
+// deepestFailureLabel is the exact label of failingLoopSrc's real
+// culprit -- the division that actually errors, as opposed to the
+// order/knead statements around it, which also read as "failed" once
+// the error bubbles up through their own return value (Failed() just
+// checks Out's type, and every enclosing statement's Out *is* that
+// same propagated Error -- the same reason renderRow already colors
+// every row along that chain, not just the innermost one).
+const deepestFailureLabel = "y = idiv(1, 0)"
+
+func TestFlattenAllSeesInsideAFoldedLoop(t *testing.T) {
+	view := viewFor(t, failingLoopSrc)
+	all := flattenAll(view.rec.Roots())
+	found := false
+	for _, n := range all {
+		if !n.IsFrame() && n.Label() == deepestFailureLabel {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("flattenAll should see the failing step even though its lap is folded")
+	}
+
+	// buildRows, in contrast, must NOT show it without expanding first --
+	// otherwise this whole feature would have nothing to prove.
+	rows := buildRows(view.rec.Roots(), 0, map[*debugger.TraceNode]bool{})
+	for _, r := range rows {
+		if !r.node.IsFrame() && r.node.Label() == deepestFailureLabel {
+			t.Fatal("the failing step should be hidden behind the collapsed fold by default")
+		}
+	}
+}
+
+func TestExpandPathToRevealsAFoldedDescendant(t *testing.T) {
+	view := viewFor(t, failingLoopSrc)
+	all := flattenAll(view.rec.Roots())
+	var target *debugger.TraceNode
+	for _, n := range all {
+		if isFailedStep(n) {
+			target = n
+		}
+	}
+	if target == nil {
+		t.Fatal("expected a failing step in the recording")
+	}
+
+	expanded := map[*debugger.TraceNode]bool{}
+	if !expandPathTo(view.rec.Roots(), target, expanded) {
+		t.Fatal("expandPathTo should find the target")
+	}
+	rows := buildRows(view.rec.Roots(), 0, expanded)
+	found := false
+	for _, r := range rows {
+		if r.node == target {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("after expandPathTo, buildRows should include the target's own row")
+	}
+}
+
+func TestFindNextForwardWrapsAround(t *testing.T) {
+	all := []*debugger.TraceNode{{Frame: "a"}, {Frame: "b"}, {Frame: "c"}}
+	isC := func(n *debugger.TraceNode) bool { return n.Frame == "c" }
+
+	// Starting past c, forward search should wrap to find it again.
+	got := findNext(all, all[2], true, isC)
+	if got != all[2] {
+		t.Errorf("findNext should wrap forward and land back on c")
+	}
+}
+
+func TestFindNextBackwardWrapsAround(t *testing.T) {
+	all := []*debugger.TraceNode{{Frame: "a"}, {Frame: "b"}, {Frame: "c"}}
+	isA := func(n *debugger.TraceNode) bool { return n.Frame == "a" }
+
+	got := findNext(all, all[0], false, isA)
+	if got != all[0] {
+		t.Errorf("findNext should wrap backward and land back on a")
+	}
+}
+
+func TestFindNextNoMatchReturnsNil(t *testing.T) {
+	all := []*debugger.TraceNode{{Frame: "a"}, {Frame: "b"}}
+	got := findNext(all, nil, true, func(n *debugger.TraceNode) bool { return false })
+	if got != nil {
+		t.Error("findNext with no matching node should return nil")
+	}
+}
+
+func TestFindNextNilStartSearchesFromTheBeginning(t *testing.T) {
+	all := []*debugger.TraceNode{{Frame: "a"}, {Frame: "b"}}
+	got := findNext(all, nil, true, func(n *debugger.TraceNode) bool { return n.Frame == "a" })
+	if got != all[0] {
+		t.Error("findNext(nil start) should be able to find the very first node")
+	}
+}
+
+func TestStepMatchesLabelText(t *testing.T) {
+	view := viewFor(t, "x = 1\n")
+	n := view.rec.Roots()[0]
+	if !stepMatches(n, "x = 1") {
+		t.Error("stepMatches should match the step's own label text")
+	}
+	if stepMatches(n, "nonexistent") {
+		t.Error("stepMatches should not match unrelated text")
+	}
+}
+
+func TestStepMatchesIsCaseInsensitive(t *testing.T) {
+	view := viewFor(t, "x = 1\n")
+	n := view.rec.Roots()[0]
+	if !stepMatches(n, "X = 1") {
+		t.Error("stepMatches should be case-insensitive")
+	}
+}
+
+// TestIsFailedStep confirms isFailedStep sees every step whose result
+// is an Error -- which, once idiv(1, 0) fails inside the loop, is more
+// than just that one statement: the error bubbles up through order's
+// and knead's own Out too (deepestFailureLabel's own doc comment), so
+// this deliberately checks "at least the real culprit is among them,"
+// not an exact count.
+func TestIsFailedStep(t *testing.T) {
+	view := viewFor(t, failingLoopSrc)
+	foundCulprit := false
+	for _, n := range flattenAll(view.rec.Roots()) {
+		if !isFailedStep(n) {
+			continue
+		}
+		if n.Label() == deepestFailureLabel {
+			foundCulprit = true
+		}
+	}
+	if !foundCulprit {
+		t.Errorf("isFailedStep should recognize %q as failed", deepestFailureLabel)
+	}
+}
+
+func TestJumpToFailureFindsFailureInsideFoldedLoop(t *testing.T) {
+	m := newDebugModel(viewFor(t, failingLoopSrc))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+
+	// The cursor starts on row 0 -- the top-level knead statement's own
+	// row, itself already "failed" (the error bubbled up into its own
+	// Out too) -- so jumping forward from there has to skip past that
+	// and land on the real culprit buried inside the folded loop, not
+	// just re-report where the cursor already was.
+	m.jumpToFailure(true)
+
+	if m.stepStatus != "" {
+		t.Fatalf("stepStatus = %q, want empty after finding the failure", m.stepStatus)
+	}
+	got := m.rows[m.cursor].node
+	if got.IsFrame() || got.Label() != deepestFailureLabel {
+		t.Errorf("cursor landed on %q, want %q", got.Label(), deepestFailureLabel)
+	}
+}
+
+func TestJumpToFailureNoFailuresSetsStatus(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+
+	m.jumpToFailure(true)
+
+	if m.stepStatus == "" {
+		t.Error("expected stepStatus to report no failed steps")
+	}
+}
+
+func TestConfirmStepperSearchJumpsToFirstMatch(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\nz = 3\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepSearchInput.insert('y')
+
+	m.confirmStepperSearch()
+
+	if m.stepQuery != "y" {
+		t.Errorf("stepQuery = %q, want %q", m.stepQuery, "y")
+	}
+	if got := m.rows[m.cursor].node.Label(); got != "y = 2" {
+		t.Errorf("cursor landed on %q, want %q", got, "y = 2")
+	}
+}
+
+func TestConfirmStepperSearchEmptyQueryIsNoop(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	startCursor := m.cursor
+
+	m.confirmStepperSearch()
+
+	if m.stepQuery != "" {
+		t.Errorf("stepQuery = %q, want unchanged (empty)", m.stepQuery)
+	}
+	if m.cursor != startCursor {
+		t.Error("an empty query should not move the cursor")
+	}
+}
+
+func TestConfirmStepperSearchNoMatchSetsStatus(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepSearchInput.insert('z')
+	m.stepSearchInput.insert('z')
+	m.stepSearchInput.insert('z')
+
+	m.confirmStepperSearch()
+
+	if m.stepStatus == "" {
+		t.Error("expected stepStatus to report no matches")
+	}
+}
+
+func TestRepeatStepperSearchStepsThroughMatches(t *testing.T) {
+	m := newDebugModel(viewFor(t, "match = 1\nnothing = 2\nmatch = 3\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepQuery = "match"
+
+	m.repeatStepperSearch(true)
+	first := m.rows[m.cursor].node.Label()
+	m.repeatStepperSearch(true)
+	second := m.rows[m.cursor].node.Label()
+
+	if first == second {
+		t.Fatalf("two forward repeats should land on different matches, both got %q", first)
+	}
+	if !strings.Contains(first, "match") || !strings.Contains(second, "match") {
+		t.Errorf("both matches should contain %q: %q, %q", "match", first, second)
+	}
+}
+
+func TestRepeatStepperSearchNoQueryIsNoop(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	startCursor := m.cursor
+
+	m.repeatStepperSearch(true)
+
+	if m.cursor != startCursor {
+		t.Error("repeating a search with no prior query should not move the cursor")
+	}
+}
+
+func TestHandleStepperSearchKeyTypingBuildsQuery(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	next, _ := m.handleStepperSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("abc")})
+	got := next.(debugModel)
+	if got.stepSearchInput.String() != "abc" {
+		t.Errorf("stepSearchInput = %q, want %q", got.stepSearchInput.String(), "abc")
+	}
+}
+
+func TestHandleStepperSearchKeyEnterConfirmsAndExitsSearchMode(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\ny = 2\n"))
+	m.active, m.stepSearching = tabStepper, true
+	m.stepSearchInput.insert('y')
+	next, _ := m.handleStepperSearchKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(debugModel)
+	if got.stepSearching {
+		t.Error("enter should exit search mode")
+	}
+	if got.stepQuery != "y" {
+		t.Errorf("stepQuery = %q, want %q", got.stepQuery, "y")
+	}
+}
+
+func TestHandleStepperSearchKeyEscCancelsWithoutSearching(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	m.stepSearchInput.insert('z')
+	next, _ := m.handleStepperSearchKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(debugModel)
+	if got.stepSearching {
+		t.Error("esc should exit search mode")
+	}
+	if got.stepQuery != "" {
+		t.Error("esc should not confirm the typed query")
+	}
+}
+
+func TestHandleStepperSearchKeyCtrlCQuits(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	_, cmd := m.handleStepperSearchKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("expected a quit Cmd")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Errorf("cmd() = %v, want tea.Quit()", msg)
+	}
+}
+
+func TestHandleStepperSearchKeyBackspaceEdits(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	m.stepSearchInput.insert('a')
+	m.stepSearchInput.insert('b')
+	next, _ := m.handleStepperSearchKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	got := next.(debugModel)
+	if got.stepSearchInput.String() != "a" {
+		t.Errorf("stepSearchInput = %q, want %q", got.stepSearchInput.String(), "a")
+	}
+}
+
+func TestHandleKeySlashEntersSearchModeOnStepperTab(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	got := next.(debugModel)
+	if !got.stepSearching {
+		t.Error("'/' on the Stepper tab should enter search mode")
+	}
+}
+
+func TestHandleKeySlashDoesNothingOnOtherTabs(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabTime
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	got := next.(debugModel)
+	if got.stepSearching {
+		t.Error("'/' should only enter search mode on the Stepper tab")
+	}
+}
+
+func TestHandleKeyFJumpsToFailure(t *testing.T) {
+	m := newDebugModel(viewFor(t, failingLoopSrc))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	got := next.(debugModel)
+	if !isFailedStep(got.rows[got.cursor].node) {
+		t.Error("'f' should move the cursor to the failing step")
+	}
+}
+
+func TestHandleKeyShiftFJumpsToPreviousFailure(t *testing.T) {
+	m := newDebugModel(viewFor(t, failingLoopSrc))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("F")})
+	got := next.(debugModel)
+	if !isFailedStep(got.rows[got.cursor].node) {
+		t.Error("'F' should move the cursor to the failing step (wrapping backward)")
+	}
+}
+
+func TestHandleKeyNRepeatsSearchOnStepperTab(t *testing.T) {
+	m := newDebugModel(viewFor(t, "match = 1\nnothing = 2\nmatch = 3\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepQuery = "match"
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	got := next.(debugModel)
+	if !strings.Contains(got.rows[got.cursor].node.Label(), "match") {
+		t.Error("'n' should repeat the search forward")
+	}
+}
+
+func TestHandleKeyNStillCreatesFileOnNavTab(t *testing.T) {
+	// 'n' is overloaded: Files tab still means "new file", Stepper tab
+	// means "repeat search" -- confirm the two didn't get crossed.
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabNav
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	got := next.(debugModel)
+	if !got.navCreating {
+		t.Error("'n' on the Files tab should still start the new-file prompt")
+	}
+}
+
+func TestViewStepperShowsLineNumberColumn(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	out := m.viewStepper()
+	if !strings.Contains(out, "line") {
+		t.Errorf("viewStepper() missing the line-number column header: %q", out)
+	}
+}
+
+func TestViewStepperShowsSearchFieldWhileTyping(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	m.width, m.height = 100, 30
+	m.stepSearchInput.insert('a')
+	out := m.viewStepper()
+	if !strings.Contains(out, "/a") {
+		t.Errorf("viewStepper() missing the search field: %q", out)
+	}
+}
+
+func TestViewStepperShowsQueryReminderAfterSearching(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepQuery = "x"
+	out := m.viewStepper()
+	if !strings.Contains(out, `search: "x"`) {
+		t.Errorf("viewStepper() missing the query reminder: %q", out)
+	}
+}
+
+func TestViewStepperShowsStatusMessage(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	m.width, m.height = 100, 30
+	m.stepStatus = "no failed steps"
+	out := m.viewStepper()
+	if !strings.Contains(out, "no failed steps") {
+		t.Errorf("viewStepper() missing the status message: %q", out)
+	}
+}
+
+func TestHelpTextStepperMentionsSearchAndFailureJump(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active = tabStepper
+	help := m.helpText()
+	if !strings.Contains(help, "search") || !strings.Contains(help, "failure") {
+		t.Errorf("helpText() = %q, want it to mention search and failure navigation", help)
+	}
+}
+
+func TestHelpTextStepperSearchModeIsDifferent(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.active, m.stepSearching = tabStepper, true
+	help := m.helpText()
+	if !strings.Contains(help, "search") {
+		t.Errorf("helpText() = %q, want it to describe the search prompt", help)
+	}
+}
+
+func TestStepperExtraLinesShrinksBodyHeightWhenShowing(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1\n"))
+	m.width, m.height = 100, 30
+	base := m.stepperBodyHeight()
+
+	m.stepQuery = "x"
+	withQuery := m.stepperBodyHeight()
+	if withQuery >= base {
+		t.Errorf("stepperBodyHeight with a query shown = %d, want less than %d", withQuery, base)
+	}
+
+	m.stepStatus = "no matches"
+	withBoth := m.stepperBodyHeight()
+	if withBoth >= withQuery {
+		t.Errorf("stepperBodyHeight with query+status shown = %d, want less than %d", withBoth, withQuery)
+	}
+}
+
+func TestViewRendersStepperTabWithSearchAndStatusWithoutPanicking(t *testing.T) {
+	m := newDebugModel(viewFor(t, failingLoopSrc))
+	m.active = tabStepper
+	m.width, m.height = 80, 24
+	m.stepSearching = true
+	m.stepSearchInput.insert('n')
+	m.stepStatus = "no matches for \"zzz\""
+	_ = m.View()
+}

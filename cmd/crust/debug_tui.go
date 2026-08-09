@@ -6,20 +6,25 @@
 // Seven tabs, switched with tab/left/right: Time and Memory (one pie
 // chart each, self-time/self-memory per function/loop, plus a few
 // overall numbers), Stepper (the recorded tree, navigable with the
-// arrow keys), Editor (hands the terminal to nvim on the file being
-// debugged; see debug_editor.go for the save-triggered reload loop),
-// Run (type a path and press enter to run the file with it as stdin
-// and see the raw output, command-line style; see debug_run.go),
-// Bench (run the file N times with the Run tab's current settings and
-// chart runtime/memory across those runs; see debug_bench.go), and
-// Files (browse and switch to another .crust file alongside the one
-// currently open; see debug_nav.go).
+// arrow keys — each row shows its source line number, '/' searches by
+// label/output text with n/N repeating forward/backward, and f/F jump
+// straight to the next/previous failed step, all three auto-expanding
+// any folded loop lap standing in the way — see jumpToNode), Editor
+// (hands the terminal to nvim on the file being debugged; see
+// debug_editor.go for the save-triggered reload loop), Run (type a
+// path and press enter to run the file with it as stdin and see the
+// raw output, command-line style; see debug_run.go), Bench (run the
+// file N times with the Run tab's current settings and chart runtime/
+// memory across those runs; see debug_bench.go), and Files (browse and
+// switch to another .crust file alongside the one currently open; see
+// debug_nav.go).
 package main
 
 import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -166,6 +171,22 @@ type debugModel struct {
 	// non-empty — toggling on with no runs yet is a no-op).
 	benchInspect bool
 	benchCursor  int
+
+	// stepSearching/stepQuery/stepSearchInput/stepStatus back the
+	// Stepper tab's search ('/') and jump-to-failure (f/F), on direct
+	// request: "search/filter the tree" and "jump to next/prev
+	// failure." stepSearching is whether the query field currently has
+	// focus (typing a new query — handleStepperSearchKey); stepQuery is
+	// the last *confirmed* query, kept around so n/N can repeat the same
+	// search without retyping it (the same vim `/` then `n`/`N`
+	// convention); stepSearchInput is the field itself, reusing
+	// runInputModel like every other tab's own text field; stepStatus
+	// is transient feedback ("no matches for ...", "no failed steps"),
+	// cleared the moment a search or jump actually lands on something.
+	stepSearching   bool
+	stepQuery       string
+	stepSearchInput runInputModel
+	stepStatus      string
 }
 
 func newDebugModel(view *debugView) debugModel {
@@ -259,6 +280,12 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.active == tabNav && m.navCreating {
 		return m.handleNavCreateKey(msg)
 	}
+	// Same reasoning again: a search query can contain letters bound to
+	// actions elsewhere (q, f, n, ...), so typing one needs its own
+	// handler rather than a case in the switch below.
+	if m.active == tabStepper && m.stepSearching {
+		return m.handleStepperSearchKey(msg)
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -296,6 +323,61 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.navCreating = true
 			m.navNewName = runInputModel{}
 			m.navErr = ""
+		} else if m.active == tabStepper {
+			m.repeatStepperSearch(true)
+		}
+	case "N":
+		if m.active == tabStepper {
+			m.repeatStepperSearch(false)
+		}
+	case "/":
+		if m.active == tabStepper {
+			m.stepSearching = true
+			m.stepSearchInput = runInputModel{}
+			m.stepStatus = ""
+		}
+	case "f":
+		if m.active == tabStepper {
+			m.jumpToFailure(true)
+		}
+	case "F":
+		if m.active == tabStepper {
+			m.jumpToFailure(false)
+		}
+	}
+	return m, nil
+}
+
+// handleStepperSearchKey routes keys while the Stepper tab's search
+// field has focus (m.stepSearching) — same "own handler, no shared
+// switch" reasoning as the Run/Bench tabs' own fields (handleKey's own
+// doc comment): a query can contain letters that mean something
+// elsewhere (q, f, n, ...), so those must not leak through as commands
+// while typing one.
+func (m debugModel) handleStepperSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.stepSearching = false
+	case tea.KeyEnter:
+		m.stepSearching = false
+		m.confirmStepperSearch()
+	case tea.KeyLeft:
+		m.stepSearchInput.left()
+	case tea.KeyRight:
+		m.stepSearchInput.right()
+	case tea.KeyBackspace:
+		m.stepSearchInput.backspace()
+	case tea.KeyDelete:
+		m.stepSearchInput.deleteForward()
+	case tea.KeyHome, tea.KeyCtrlA:
+		m.stepSearchInput.cursor = 0
+	case tea.KeyEnd, tea.KeyCtrlE:
+		m.stepSearchInput.cursor = len(m.stepSearchInput.value)
+	case tea.KeyRunes:
+		for _, r := range msg.Runes {
+			m.stepSearchInput.insert(r)
 		}
 	}
 	return m, nil
@@ -318,6 +400,16 @@ func (m *debugModel) moveCursor(delta int) {
 		return
 	}
 	m.cursor += delta
+	m.clampAndScrollCursor()
+}
+
+// clampAndScrollCursor keeps m.cursor in range and slides m.top (the
+// first visible row) to keep it on screen — the scrolling half of
+// moveCursor, pulled out on its own so jumpToNode (search, f/F) can
+// reuse the exact same "make the target visible" logic after setting
+// m.cursor directly, rather than a second copy of the scrolling math
+// that could drift out of sync with moveCursor's.
+func (m *debugModel) clampAndScrollCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
@@ -345,10 +437,200 @@ func (m *debugModel) toggleFold() {
 	m.rebuildRows()
 }
 
+// currentNode is the tree node under the cursor right now — the
+// starting point search and jump-to-failure both search outward from.
+// nil if there's nothing recorded at all.
+func (m debugModel) currentNode() *debugger.TraceNode {
+	if len(m.rows) == 0 {
+		return nil
+	}
+	return m.rows[m.cursor].node
+}
+
+// flattenAll walks nodes and all their descendants, in recording
+// order, regardless of Folded — the order search and jump-to-failure
+// both need, since a match can be buried inside a folded loop lap that
+// the visible rows (buildRows, which stops at an unexpanded fold)
+// currently hide. The underlying tree never mutates after a recording
+// finishes (only which folds are expanded does), so this order is
+// stable across repeated calls within one session.
+func flattenAll(nodes []*debugger.TraceNode) []*debugger.TraceNode {
+	var out []*debugger.TraceNode
+	for _, n := range nodes {
+		out = append(out, n)
+		out = append(out, flattenAll(n.Children)...)
+	}
+	return out
+}
+
+// expandPathTo marks every folded ancestor of target (found anywhere
+// under nodes) as expanded, so a subsequent rebuildRows makes target's
+// own row actually appear — search and jump-to-failure both find
+// matches via flattenAll, which sees straight through folds; without
+// this, landing the cursor on a match still hidden behind an
+// unexpanded fold would be indistinguishable from the jump silently
+// failing. Reports whether target was found at all (an internal
+// consistency check — false should never actually happen, since every
+// candidate target comes from this same tree via flattenAll).
+func expandPathTo(nodes []*debugger.TraceNode, target *debugger.TraceNode, expanded map[*debugger.TraceNode]bool) bool {
+	for _, n := range nodes {
+		if n == target {
+			return true
+		}
+		if expandPathTo(n.Children, target, expanded) {
+			expanded[n] = true
+			return true
+		}
+	}
+	return false
+}
+
+// jumpToNode expands whatever folds are in the way of target, rebuilds
+// the visible rows, and scrolls the cursor onto target's own row —
+// the shared landing logic search and jump-to-failure both use once
+// they've picked a target via findNext.
+func (m *debugModel) jumpToNode(target *debugger.TraceNode) {
+	expandPathTo(m.view.rec.Roots(), target, m.expanded)
+	m.rebuildRows()
+	for i, row := range m.rows {
+		if row.node == target && !row.closing {
+			m.cursor = i
+			break
+		}
+	}
+	m.clampAndScrollCursor()
+}
+
+// findNext returns the first node in all (flattenAll's recording
+// order) after start for which match is true, wrapping around the end
+// (forward) or the beginning (backward) if nothing matches before
+// reaching it again — nil only if nothing in all matches at all. start
+// == nil (nothing selected yet) searches the whole list starting from
+// the first (forward) or last (backward) node.
+func findNext(all []*debugger.TraceNode, start *debugger.TraceNode, forward bool, match func(*debugger.TraceNode) bool) *debugger.TraceNode {
+	n := len(all)
+	if n == 0 {
+		return nil
+	}
+	startIdx := -1
+	if start != nil {
+		for i, node := range all {
+			if node == start {
+				startIdx = i
+				break
+			}
+		}
+	}
+	for step := 1; step <= n; step++ {
+		var i int
+		if forward {
+			i = (startIdx + step) % n
+		} else {
+			i = ((startIdx-step)%n + n) % n
+		}
+		if match(all[i]) {
+			return all[i]
+		}
+	}
+	return nil
+}
+
+// isFailedStep is jumpToFailure's match predicate: a real step (not a
+// frame) whose result was a runtime Error.
+func isFailedStep(n *debugger.TraceNode) bool {
+	return !n.IsFrame() && n.Step.Failed()
+}
+
+// jumpToFailure moves the cursor to the next (or, forward == false,
+// previous) failed step from wherever it currently is, wrapping around
+// the whole recording — on direct request, "jump to next/prev
+// failure." Leaves the cursor untouched and reports it in stepStatus
+// when there are no failed steps at all, rather than silently doing
+// nothing.
+func (m *debugModel) jumpToFailure(forward bool) {
+	target := findNext(flattenAll(m.view.rec.Roots()), m.currentNode(), forward, isFailedStep)
+	if target == nil {
+		m.stepStatus = "no failed steps"
+		return
+	}
+	m.stepStatus = ""
+	m.jumpToNode(target)
+}
+
+// stepMatches reports whether n's own rendered text — its label, plus
+// a step's own output — contains query, case-insensitively. Searching
+// exactly the text already visible in the table (renderRow) means a
+// match found by '/' is always recognizable once the cursor lands on
+// it, with no separate "what did it actually match on" question.
+func stepMatches(n *debugger.TraceNode, query string) bool {
+	text := n.Label()
+	if !n.IsFrame() {
+		text += " " + shortInspect(n.Step.Out)
+	}
+	return strings.Contains(strings.ToLower(text), strings.ToLower(query))
+}
+
+// confirmStepperSearch runs when '/' search input is confirmed with
+// Enter: an empty query just closes the field with no search
+// performed (matching how pressing enter on an empty vim `/` prompt
+// does nothing), otherwise it becomes the new m.stepQuery (so n/N can
+// repeat it) and the cursor jumps to the first match from its current
+// position.
+func (m *debugModel) confirmStepperSearch() {
+	query := strings.TrimSpace(m.stepSearchInput.String())
+	if query == "" {
+		return
+	}
+	m.stepQuery = query
+	m.jumpToNextMatch(true)
+}
+
+// repeatStepperSearch is 'n'/'N': re-run the last confirmed search
+// (m.stepQuery) forward or backward from the cursor's current
+// position, without needing to retype it — the same vim `/` then n/N
+// convention. A no-op if nothing's ever been searched for yet.
+func (m *debugModel) repeatStepperSearch(forward bool) {
+	if m.stepQuery == "" {
+		return
+	}
+	m.jumpToNextMatch(forward)
+}
+
+func (m *debugModel) jumpToNextMatch(forward bool) {
+	query := m.stepQuery
+	target := findNext(flattenAll(m.view.rec.Roots()), m.currentNode(), forward, func(n *debugger.TraceNode) bool {
+		return stepMatches(n, query)
+	})
+	if target == nil {
+		m.stepStatus = fmt.Sprintf("no matches for %q", query)
+		return
+	}
+	m.stepStatus = ""
+	m.jumpToNode(target)
+}
+
+// stepperExtraLines is how many lines viewStepper prints above its
+// column header beyond the fixed baseline — the search field or a
+// confirmed query reminder, and/or a status message — computed here
+// rather than duplicated as a second copy of the same conditions
+// inside viewStepper, so stepperBodyHeight's reservation can never
+// drift out of sync with what actually gets rendered.
+func (m debugModel) stepperExtraLines() int {
+	extra := 0
+	if m.stepSearching || m.stepQuery != "" {
+		extra += 2
+	}
+	if m.stepStatus != "" {
+		extra += 2
+	}
+	return extra
+}
+
 // stepperBodyHeight is how many tree rows fit on screen at once, below
-// the tab bar, the column header, and above the help footer.
+// the tab bar, the column header, and above the help footer — and
+// below the search/status lines (stepperExtraLines), when showing.
 func (m debugModel) stepperBodyHeight() int {
-	h := m.height - 6
+	h := m.height - 6 - m.stepperExtraLines()
 	if h < 3 {
 		h = 3
 	}
@@ -410,7 +692,10 @@ func clampHeight(s string, n int) string {
 func (m debugModel) helpText() string {
 	switch m.active {
 	case tabStepper:
-		return "tab/←→: switch tab   ↑↓: move   enter: open/close   q: quit"
+		if m.stepSearching {
+			return "enter: search   esc: cancel   ctrl+c: quit"
+		}
+		return "tab/←→: switch tab   ↑↓: move   enter: open/close   /: search   n/N: next/prev match   f/F: next/prev failure   q: quit"
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	case tabRun:
@@ -607,6 +892,11 @@ func largestValue(rows []visRow) (*debugger.TraceNode, bool) {
 
 // viewStepper is the scrollable tree table: the same columns
 // writePlain prints, but interactive, with the cursor row highlighted.
+// Above the column header: the search field while typing one ('/'),
+// or a reminder of the last confirmed query once it's closed (n/N
+// still work off it), and/or a status line ("no matches for ...", "no
+// failed steps") — stepperExtraLines' own doc comment on why the
+// exact same condition also drives stepperBodyHeight's reservation.
 func (m debugModel) viewStepper() string {
 	if len(m.rows) == 0 {
 		return styleMuted.Render("(nothing recorded)")
@@ -614,8 +904,22 @@ func (m debugModel) viewStepper() string {
 	t := m.view.timing()
 
 	var b strings.Builder
-	b.WriteString(styleFaint.Render(fmt.Sprintf("%s %s %6s %9s %7s\n",
-		col("step", 40), col("out", 18), "size", "time", "self%")))
+	switch {
+	case m.stepSearching:
+		b.WriteString(styleTitle.Render("/"))
+		b.WriteString(m.stepSearchInput.render())
+		b.WriteString("\n\n")
+	case m.stepQuery != "":
+		b.WriteString(styleMuted.Render(fmt.Sprintf("search: %q (n/N: next/prev match)", m.stepQuery)))
+		b.WriteString("\n\n")
+	}
+	if m.stepStatus != "" {
+		b.WriteString(styleError.Render(m.stepStatus))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString(styleFaint.Render(fmt.Sprintf("%5s %s %s %6s %9s %7s\n",
+		"line", col("step", 40), col("out", 18), "size", "time", "self%")))
 
 	visible := m.stepperBodyHeight()
 	end := m.top + visible
@@ -627,6 +931,21 @@ func (m debugModel) viewStepper() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// stepLineText is a step's source line number, right-aligned to match
+// the header's "line" column — blank for a frame row (a recipe call or
+// loop lap has no single line of its own) or a step whose Line() came
+// back 0 (Pos unset — shouldn't happen for parser-produced AST, but a
+// blank beats a misleading "0").
+func stepLineText(n *debugger.TraceNode) string {
+	if n.IsFrame() {
+		return ""
+	}
+	if line := n.Step.Line(); line > 0 {
+		return strconv.Itoa(line)
+	}
+	return ""
 }
 
 func (m debugModel) renderRow(i int, t *debugger.Timing) string {
@@ -642,8 +961,8 @@ func (m debugModel) renderRow(i int, t *debugger.Timing) string {
 		out = shortInspect(n.Step.Out)
 		size = sizeText(n.Step)
 	}
-	line := fmt.Sprintf("%s %s %6s %9s %7s",
-		col(label, 40), col(out, 18), size, nt.Total.String(), selfPctText(nt, t.Overall()))
+	line := fmt.Sprintf("%5s %s %s %6s %9s %7s",
+		stepLineText(n), col(label, 40), col(out, 18), size, nt.Total.String(), selfPctText(nt, t.Overall()))
 
 	style := lipgloss.NewStyle()
 	switch {
@@ -664,7 +983,7 @@ func (m debugModel) renderRow(i int, t *debugger.Timing) string {
 // up exactly like pressing it on the opening row would.
 func (m debugModel) renderClosingRow(i int) string {
 	row := m.rows[i]
-	line := strings.Repeat("  ", row.depth) + "// end " + closingLabel(row.node.Label())
+	line := fmt.Sprintf("%5s %s", "", strings.Repeat("  ", row.depth)+"// end "+closingLabel(row.node.Label()))
 	if i == m.cursor {
 		return styleSelectedRow.Render("> " + line)
 	}
