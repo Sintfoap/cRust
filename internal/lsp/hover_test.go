@@ -97,6 +97,19 @@ func TestHoverKeyword(t *testing.T) {
 	}
 }
 
+func TestHoverDeliveryKeyword(t *testing.T) {
+	text := `delivery "utils.crust"` + "\n"
+	// "delivery" starts at line 0, char 0.
+	got := hoverAt(text, Position{Line: 0, Character: 2}, "utf-16")
+	if got == nil {
+		t.Fatal("hoverAt = nil, want a hover result for 'delivery'")
+	}
+	want := keywordDocs[token.DELIVERY]
+	if got.Contents.Value != want {
+		t.Errorf("hover value = %q, want %q", got.Contents.Value, want)
+	}
+}
+
 func TestHoverBuiltin(t *testing.T) {
 	text := `deliver("hi")` + "\n"
 	got := hoverAt(text, Position{Line: 0, Character: 3}, "utf-16")

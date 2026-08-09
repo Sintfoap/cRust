@@ -27,9 +27,32 @@ import (
 // loop-lap frame (evalFramed), and every one of those checks costs
 // nothing when it's nil; see BenchmarkTracedVsUntraced. `crust develop`
 // is the one caller that sets it, to a *debugger.Recorder.
+//
+// BaseDir is the directory a `delivery "path.crust"` statement resolves
+// a relative Path against (evalDeliveryStatement, delivery.go) — the
+// directory of whichever file is actually running, not necessarily the
+// process's own working directory. Left at its zero value ("") by New,
+// which os.ReadFile/filepath.Join already treat as "resolve against the
+// current working directory" with no special-casing needed — exactly
+// right for the REPL, which has no backing file of its own. Every
+// caller that *does* have a real path (runner.Run, `crust develop`) is
+// expected to set it right after New returns.
 type Interpreter struct {
 	Builtins map[string]*object.Builtin
 	Trace    trace.Tracer
+	BaseDir  string
+
+	// delivered tracks every distinct file (by absolute path) a
+	// DeliveryStatement has already evaluated, so importing the same
+	// helper file from two different places in a program (or from two
+	// files that both deliver a shared third one) runs its top level
+	// exactly once — same reasoning Go's own import/Python's module
+	// cache both apply, and the mechanism that also makes a circular
+	// delivery terminate instead of recursing forever: a file is marked
+	// delivered *before* its own top level runs (evalDeliveryStatement),
+	// so a cycle's second, inward delivery attempt always finds itself
+	// already marked and simply no-ops rather than re-entering.
+	delivered map[string]bool
 }
 
 // New returns an Interpreter whose `deliver` builtin writes to output,
@@ -42,7 +65,7 @@ type Interpreter struct {
 // returns), never during construction, so the field being briefly
 // unset here is never observed.
 func New(output io.Writer, stdin io.Reader) *Interpreter {
-	i := &Interpreter{}
+	i := &Interpreter{delivered: make(map[string]bool)}
 	i.Builtins = builtins.New(output, stdin, i.Call)
 	return i
 }
@@ -116,6 +139,8 @@ func (i *Interpreter) Eval(node ast.Node, env *object.Environment) object.Object
 		return i.evalForEachLoop(node, env)
 	case *ast.BakeStatement:
 		return i.evalBakeStatement(node, env)
+	case *ast.DeliveryStatement:
+		return i.evalDeliveryStatement(node, env)
 
 	// Literals.
 	case *ast.IntegerLiteral:

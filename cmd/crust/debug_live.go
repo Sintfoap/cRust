@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -131,6 +132,7 @@ func startLiveRun(path string, opts debugOptions, stdin io.Reader, breakpoints m
 
 		interp := interpreter.New(out, stdin)
 		interp.Trace = lt
+		interp.BaseDir = filepath.Dir(path)
 		env := object.NewEnvironment()
 
 		if errObj, failed := interp.Eval(program, env).(*object.Error); failed {

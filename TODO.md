@@ -1744,7 +1744,46 @@ confirmed, not before.
       call = 22 frames, 12 shown + "... and 10 more frame(s)").
 
 ## Stretch Goals
-- [ ] Module/import system
+- [x] Module/import system — `delivery "path.crust"` (SPEC.md §10),
+      from a direct request. Deliberately the simplest thing that
+      could work: no namespacing, no exports list, no separate module
+      value — a delivery statement evaluates the target file's top
+      level directly into the *current* scope, the same as pasting its
+      text in at that line, and it's fully transitive (delivering a
+      file that itself delivers another brings both files' names
+      along). Delivered exactly once even from multiple places, and
+      safe against a circular delivery (terminates rather than
+      recursing). New keyword `delivery` (`SPEC.md` §4 had reserved
+      this exact working name in advance), `ast.DeliveryStatement`,
+      `parser.parseDeliveryStatement`, `Interpreter.BaseDir` +
+      `evalDeliveryStatement` (`internal/interpreter/delivery.go` —
+      the first time that package has ever needed to import
+      `internal/lexer`/`internal/parser` itself, previously always
+      handed an already-parsed `*ast.Program`), wired into every real
+      caller with a backing file (`internal/runner.Run`, `crust
+      develop`'s traced run and Live tab) via `filepath.Dir(path)`.
+      `internal/format`/`internal/lsp` both needed only a small, local
+      addition — no structural changes, and completion/the docs site
+      picked the new keyword up automatically since both already read
+      `token.Keywords()` live rather than hand-maintaining a copy.
+      `crust develop`'s tracer needed zero changes to work correctly
+      through a delivered recipe, verified with a real `--plain` run —
+      falls out for free from the tree-walker sharing one `Eval`/one
+      `Trace` hook regardless of which file a statement came from, the
+      same property that made richer stack traces free earlier.
+      Verified across every layer (lexer/parser/interpreter unit
+      tests, a real two-file example wired into the pinned-output
+      integration test table, and real subprocess verification of
+      `crust run`/`fmt`/`tokens`/`parse`/`develop` plus the missing-
+      file and circular-delivery error paths). See
+      docs/ARCHITECTURE.md's Phase 4 section for the full design,
+      including the one honest limitation: a runtime error inside a
+      recipe *defined* in a delivered file reports an accurate line
+      number but under the *importing* file's own name, since nothing
+      in this codebase's error pipeline tracks which physical file a
+      token came from — fixing that fully would mean threading a
+      source-file identity through every token, a bigger change than
+      this feature's own scope justified.
 - [ ] Bytecode VM instead of tree-walking (perf) — scoped, not started:
       [docs/BYTECODE_VM_SCOPING.md](./docs/BYTECODE_VM_SCOPING.md) is a
       feasibility study on direct request ("scope out exactly what

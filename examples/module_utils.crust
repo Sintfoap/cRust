@@ -1,0 +1,15 @@
+// A shared helper file — not meant to be run directly. Delivered by
+// examples/module_demo.crust via `delivery "module_utils.crust"`
+// (SPEC.md §10): the two recipes below become directly usable there,
+// as if this text had been pasted in at the delivery statement's own
+// location. This is the shape a solver would use to split reusable
+// logic (a Grid helper, a parsing routine, ...) out of a single day's
+// file and share it across several.
+
+recipe manhattan(a, b) {
+    serve abs(a[0] - b[0]) + abs(a[1] - b[1])
+}
+
+recipe sumList(nums) {
+    serve reduce(nums, recipe(acc, n) { serve acc + n }, 0)
+}

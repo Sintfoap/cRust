@@ -28,6 +28,7 @@ var keywordDocs = map[token.Type]string{
 	token.WITH:     "`with` — logical AND (`&&`). \"Pepperoni **with** mushrooms.\"",
 	token.OR:       "`or` — logical OR (`||`).",
 	token.HOLD:     "`hold` — logical NOT (`!`). \"Hold the onions.\"",
+	token.DELIVERY: "`delivery \"path.crust\"` — module import (SPEC.md §10): brings another file's top-level recipes/variables into this file's scope, evaluated once even if delivered from more than one place.",
 }
 
 // builtinDocs mirrors SPEC.md §7's standard library table.

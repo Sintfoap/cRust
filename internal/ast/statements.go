@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Sintfoap/cRust/internal/token"
@@ -143,3 +144,23 @@ func (fs *FlipStatement) statementNode()       {}
 func (fs *FlipStatement) TokenLiteral() string { return fs.Token.Literal }
 func (fs *FlipStatement) String() string       { return "flip" }
 func (fs *FlipStatement) Pos() token.Token     { return fs.Token }
+
+// DeliveryStatement is `delivery "path/to/file.crust"` (SPEC.md §10) —
+// cRust's module system: brings another file's top-level bindings
+// (recipes, variables) into the importing file's own scope, resolved
+// and evaluated at internal/interpreter's discretion (once per
+// distinct file, even if delivered from more than one place — not
+// visible here). Path is always a plain string literal, never a
+// general expression — the same "no computed imports" choice Go's own
+// `import` makes — so there's no separate Expression node for it, just
+// the already-unescaped literal text token.STRING's own lexing already
+// produces.
+type DeliveryStatement struct {
+	Token token.Token // 'delivery'
+	Path  string
+}
+
+func (ds *DeliveryStatement) statementNode()       {}
+func (ds *DeliveryStatement) TokenLiteral() string { return ds.Token.Literal }
+func (ds *DeliveryStatement) Pos() token.Token     { return ds.Token }
+func (ds *DeliveryStatement) String() string       { return fmt.Sprintf("delivery %q", ds.Path) }

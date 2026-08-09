@@ -45,6 +45,7 @@ const (
 	WITH     Type = "WITH"
 	OR       Type = "OR"
 	HOLD     Type = "HOLD"
+	DELIVERY Type = "DELIVERY"
 
 	// Arithmetic.
 	PLUS    Type = "+"
@@ -117,6 +118,7 @@ var keywords = map[string]Type{
 	"with":     WITH,
 	"or":       OR,
 	"hold":     HOLD,
+	"delivery": DELIVERY,
 }
 
 // LookupIdent returns the keyword Type for ident, or IDENT if it isn't

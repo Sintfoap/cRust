@@ -24,6 +24,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseBurntStatement()
 	case token.FLIP:
 		return p.parseFlipStatement()
+	case token.DELIVERY:
+		return p.parseDeliveryStatement()
 	case token.LBRACE:
 		return p.parseBlockStatementNode()
 	default:
@@ -250,6 +252,21 @@ func (p *Parser) parseBurntStatement() ast.Statement {
 
 func (p *Parser) parseFlipStatement() ast.Statement {
 	stmt := &ast.FlipStatement{Token: p.curToken}
+	p.expectTerminator()
+	return stmt
+}
+
+// parseDeliveryStatement handles `delivery "path/to/file.crust"`
+// (SPEC.md §10, deliveryStmt) — the path is always a bare string
+// literal token, never a general expression (no computed imports), so
+// this reads it directly off the STRING token rather than going
+// through parseExpression.
+func (p *Parser) parseDeliveryStatement() ast.Statement {
+	stmt := &ast.DeliveryStatement{Token: p.curToken}
+	if !p.expectPeek(token.STRING) {
+		return nil
+	}
+	stmt.Path = p.curToken.Literal
 	p.expectTerminator()
 	return stmt
 }

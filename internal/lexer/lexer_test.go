@@ -68,7 +68,7 @@ func TestOperatorsAndDelimiters(t *testing.T) {
 }
 
 func TestKeywordsAndIdentifiers(t *testing.T) {
-	input := `recipe order combo special knead in bake burnt flip serve stuffed thin nobox toppings with or hold
+	input := `recipe order combo special knead in bake burnt flip serve stuffed thin nobox toppings with or hold delivery
 deliver slices sauce myVar _underscore camelCase42`
 
 	want := []expected{
@@ -89,6 +89,7 @@ deliver slices sauce myVar _underscore camelCase42`
 		{token.WITH, "with"},
 		{token.OR, "or"},
 		{token.HOLD, "hold"},
+		{token.DELIVERY, "delivery"},
 		{token.NEWLINE, "\n"},
 		{token.IDENT, "deliver"},
 		{token.IDENT, "slices"},

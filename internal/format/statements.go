@@ -92,6 +92,10 @@ func (p *printer) statement(s ast.Statement) {
 		p.startLine()
 		p.buf.WriteString("flip")
 		p.finishLine(s.Token.Line)
+	case *ast.DeliveryStatement:
+		p.startLine()
+		p.buf.WriteString(s.String())
+		p.finishLine(s.Token.Line)
 	case *ast.IfStatement:
 		p.ifStatement(s)
 	case *ast.CountedLoop:

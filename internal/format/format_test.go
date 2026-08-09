@@ -29,8 +29,14 @@ func fmtSrc(t *testing.T, src string) string {
 // run evaluates src top-to-bottom (no entry-point resolution — every
 // examples/*.crust file this package's tests use is a plain
 // top-level script) and returns whatever deliver() wrote, failing the
-// test on a parse or runtime error.
-func run(t *testing.T, src string) string {
+// test on a parse or runtime error. baseDir is the Interpreter's
+// BaseDir (runner.Run's own wiring for a real file) — needed so a
+// `delivery` statement in src (examples/module_demo.crust) resolves
+// its relative path against the example's own directory rather than
+// this test binary's working directory; every synthetic snippet this
+// package's other tests pass has no delivery statement to resolve, so
+// "" (this process's own cwd, never actually consulted) is fine there.
+func run(t *testing.T, src, baseDir string) string {
 	t.Helper()
 	l := lexer.New(src)
 	p := parser.New(l)
@@ -40,6 +46,7 @@ func run(t *testing.T, src string) string {
 	}
 	var out bytes.Buffer
 	interp := interpreter.New(&out, strings.NewReader(""))
+	interp.BaseDir = baseDir
 	result := interp.Eval(program, object.NewEnvironment())
 	if errObj, ok := result.(*object.Error); ok {
 		t.Fatalf("unexpected runtime error: %s", errObj.Message)
@@ -77,9 +84,10 @@ func TestFormatPreservesSemanticsAcrossExamples(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			original := run(t, string(src))
+			dir := filepath.Dir(path)
+			original := run(t, string(src), dir)
 			formatted := fmtSrc(t, string(src))
-			reformatted := run(t, formatted)
+			reformatted := run(t, formatted, dir)
 			if original != reformatted {
 				t.Errorf("output changed after formatting.\n--- original output ---\n%s\n--- formatted source ---\n%s\n--- reformatted output ---\n%s",
 					original, formatted, reformatted)
@@ -205,9 +213,9 @@ func TestFormatPrecedenceReparsesToEquivalentBehavior(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			original := run(t, tt.src)
+			original := run(t, tt.src, "")
 			formatted := fmtSrc(t, tt.src)
-			reformatted := run(t, formatted)
+			reformatted := run(t, formatted, "")
 			if original != reformatted {
 				t.Errorf("%s: original = %q, reformatted = %q (formatted source: %q)", tt.name, original, reformatted, formatted)
 			}
@@ -285,6 +293,14 @@ func TestFormatCollectionLiterals(t *testing.T) {
 func TestFormatUnpackAssign(t *testing.T) {
 	got := fmtSrc(t, "a,b,c = xs")
 	want := "a, b, c = xs\n"
+	if got != want {
+		t.Errorf("Format() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatDeliveryStatement(t *testing.T) {
+	got := fmtSrc(t, `delivery   "utils.crust"`)
+	want := "delivery \"utils.crust\"\n"
 	if got != want {
 		t.Errorf("Format() = %q, want %q", got, want)
 	}

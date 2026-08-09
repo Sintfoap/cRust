@@ -334,6 +334,7 @@ procedure, an `order` either gets made or falls through to today's
 | `with` | `&&` / logical AND | "pepperoni **with** mushrooms" |
 | `or` | `\|\|` / logical OR | plain English reads fine here, no jargon needed |
 | `hold` | `!` / logical NOT | "**hold** the onions" |
+| `delivery` | module import | bringing another file's recipes/variables in — see §10 |
 
 `topping` (singular) and `sauce` no longer exist as keywords — cRust
 dropped the `let`/`const` distinction entirely (§3). `sauce` wasn't
@@ -346,10 +347,8 @@ Everything that isn't in this table (`deliver`, `slices`, `sauce`,
 the lexer always recognizes, so they can never be shadowed or used as a
 variable/function name; builtins are just names predeclared in the
 global scope, so user code is free to redefine them if it wants to.
-
-Reserved for later phases, not yet implemented: a module-import keyword
-(working name `delivery`) for Phase 5+ if a module system gets built
-(see TODO.md stretch goals).
+Note `deliver` (print, a builtin) vs. `delivery` (module import, a
+keyword) — two different words, not the same one used two ways.
 
 ## 5. Operators
 
@@ -675,7 +674,7 @@ program        = { statement } ;
 
 statement      = simpleStmt terminator | recipeStmt | orderStmt
                | kneadStmt | bakeStmt | serveStmt | burntStmt
-               | flipStmt | block ;
+               | flipStmt | deliveryStmt | block ;
 
 simpleStmt     = unpackAssign | assignStmt | incDecStmt | expression ;
 assignStmt     = lvalue assignOp expression ;
@@ -707,6 +706,9 @@ bakeStmt       = "bake" "(" expression ")" block ;
 serveStmt      = "serve" [ expression ] terminator ;
 burntStmt      = "burnt" terminator ;
 flipStmt       = "flip" terminator ;
+deliveryStmt   = "delivery" STRING terminator ;
+                 (* the path is always a bare string literal, never a
+                    general expression — see §10 *)
 
 block          = "{" { statement } "}" ;
 terminator     = NEWLINE | ";" ;
@@ -877,7 +879,76 @@ This section is documented ahead of Phase 4 (the interpreter) actually
 existing to implement it — the same "design before code" order used
 for everything else in this project.
 
-## 10. Examples
+## 10. Modules
+
+A single statement, `delivery "path/to/file.crust"`, is cRust's whole
+module system. It's deliberately the simplest thing that could work
+for AoC-shaped programs — no namespacing, no exports list, no separate
+module value. `delivery` lexes/parses/evaluates the target file's top
+level directly into the *current* scope, the same as if that file's
+text had been pasted in at the `delivery` statement's own location.
+Every recipe or top-level variable it binds becomes an ordinary name
+in the importing file from that point on, resolved by the exact same
+assignment rule (§3) as everything else — a later definition with the
+same name simply wins, since there's no new binding mechanism here
+beyond "run more statements against this Environment."
+
+```
+// grid_utils.crust
+recipe manhattan(a, b) {
+    serve abs(a[0] - b[0]) + abs(a[1] - b[1])
+}
+```
+```
+// day15.crust
+delivery "grid_utils.crust"
+
+deliver(manhattan((0, 0), (3, 4)))   // 7
+```
+
+- **Path is always a bare string literal**, never a general expression
+  — the same "no computed imports" choice Go's own `import` makes.
+  `delivery pathVar` is a parse error.
+- **Resolution is relative to the file actually being run**, not the
+  process's current working directory: `crust run day/solution.crust`
+  resolves a `delivery "../shared/utils.crust"` inside it against
+  `day/`, the file's own directory. A delivered file's *own*
+  `delivery` statements resolve relative to *that* file's directory in
+  turn (not the original top-level file's), the same relative-to-the-
+  current-file rule most module systems use — so `grid_utils.crust`
+  can itself deliver a sibling file without knowing where it was
+  delivered from. An absolute path always works regardless.
+- **A file is only ever evaluated once**, even if delivered from more
+  than one place (two day files sharing one helper, or a diamond —
+  A and B both deliver C) — the second and later `delivery` of an
+  already-delivered file is a silent no-op, both to avoid redundant
+  work and re-running any side effects (like `deliver()` calls) a
+  second time, and to guarantee a circular delivery (A delivers B, B
+  delivers A) terminates instead of recursing forever.
+- **A missing file, a parse error in the delivered file, or a runtime
+  error while its top level runs** are each reported as an ordinary
+  runtime Error at the `delivery` statement's own position, naming the
+  delivered file's path so the failure is traceable back to which
+  import caused it.
+- `crust repl` can `delivery` too — relative paths resolve against the
+  REPL's own working directory, since there's no backing file of its
+  own to be "relative to."
+
+There's no visibility control at all — everything a delivered file
+defines at its top level is visible after the `delivery` statement,
+nothing is "private" — and delivery is fully transitive automatically,
+not something a file has to opt into: since every `delivery`
+statement, however deeply nested, evaluates the target file's top
+level into the *same* Environment the original top-level file is
+running in (not a fresh scope per file), a file A that delivers C,
+which itself delivers D, ends up with D's names directly visible too —
+the same "one flat scope, built up by pasting more text in" model that
+makes the whole feature work with no namespacing to think about.
+Deliberately out of scope for what a single-day-or-a-handful-of-
+shared-helpers AoC solution actually needs: any finer-grained
+visibility control, or a way to *stop* delivery from being transitive.
+
+## 11. Examples
 
 ### Hello, World
 

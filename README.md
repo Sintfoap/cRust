@@ -132,6 +132,35 @@ cp examples/dayNN_template.crust day06.crust
 crust develop day06.crust
 ```
 
+Sharing logic across files (a Grid helper, a parsing routine) instead
+of copy-pasting it into every day's file: `delivery "path.crust"`
+brings that file's recipes and top-level variables directly into
+scope, resolved relative to whichever file is actually running —
+[`examples/module_utils.crust`](./examples/module_utils.crust) /
+[`module_demo.crust`](./examples/module_demo.crust) are a real,
+runnable pair showing the shape:
+
+```
+// grid_utils.crust
+recipe manhattan(a, b) {
+    serve abs(a[0] - b[0]) + abs(a[1] - b[1])
+}
+```
+```
+// day15.crust
+delivery "grid_utils.crust"
+
+deliver(manhattan((0, 0), (3, 4)))   // 7
+```
+
+No namespacing, no exports list — a delivered file's top level runs
+directly into the importing file's own scope, the same as pasting its
+text in at that line, and delivery is fully transitive (deliver a file
+that itself delivers another, and its names come along too). Delivered
+exactly once even if reached from more than one place, and safe
+against a circular `delivery` — see [SPEC.md
+§10](./docs/SPEC.md#10-modules) for the full semantics.
+
 Fetching that day's puzzle input and timing how long it takes is
 optional, and entirely inert until you opt in with `crust login`:
 paste the `session` cookie from a browser logged into

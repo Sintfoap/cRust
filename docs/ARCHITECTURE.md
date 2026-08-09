@@ -803,6 +803,139 @@ way to see the interpreter do anything at all.
   `Eval`, not a new `ast`/`parser` concept — `store_part1` is just an
   ordinary named `recipe`, so nothing upstream of this phase needs to
   change to support it.
+- **Module system** (`delivery "path.crust"`, `SPEC.md` §10), from a
+  direct request ("go ahead with the module system") — the first of
+  TODO.md's two remaining Stretch Goals, and the keyword `SPEC.md` §4
+  had reserved a working name for (`delivery`) since long before this
+  phase's own design was written, specifically so this wouldn't need a
+  new one invented later. Deliberately the simplest thing that could
+  work for AoC-shaped programs: no namespacing, no exports list, no
+  separate module value — a `delivery` statement lexes/parses/
+  evaluates another file's top level directly into the *current*
+  Environment, the same as pasting that file's text in at the
+  statement's own location.
+  - **New surface area, minimal**: `token.DELIVERY` (a new keyword,
+    `internal/token`), `ast.DeliveryStatement{Token, Path string}`
+    (`internal/ast/statements.go` — `Path` is a plain Go string, not an
+    `Expression`, since the grammar (`deliveryStmt = "delivery" STRING
+    terminator`) never lets it be anything but a bare string literal —
+    the same "no computed imports" choice Go's own `import` makes),
+    `parser.parseDeliveryStatement` (`internal/parser/statements.go`,
+    reads the STRING token directly rather than going through
+    `parseExpression`). Everything downstream of parsing is new
+    territory for `internal/interpreter`, though: **this is the first
+    time that package has ever needed to import `internal/lexer`/
+    `internal/parser` itself** (`internal/interpreter/delivery.go`) —
+    every prior caller (`cmd/crust`, `internal/runner`) did the
+    lexing/parsing and handed `Eval` an already-built `*ast.Program`;
+    `evalDeliveryStatement` is the first thing inside the interpreter
+    that needs to read a *second* file and parse it mid-run. No import
+    cycle results — `lexer`/`parser` still depend on nothing above
+    them, `interpreter` was already the higher-level package in that
+    relationship, so this is exactly the direction `ast`/`object`'s own
+    "lower-level packages never import the packages that consume them"
+    layering rule (§2) already allows.
+  - **`Interpreter.BaseDir`**, a new exported field (default `""`,
+    which `os.ReadFile`/`filepath.Join` already treat as "resolve
+    against the process's own working directory" with no special-
+    casing needed — exactly right for `crust repl`, which has no
+    backing file at all): the directory a relative `delivery` path
+    resolves against. Every real caller with an actual file — `crust
+    run`/`develop`'s Run tab/the WASM playground (all three share
+    `internal/runner.Run`, which already threads a `path` string
+    through for error-message prefixing and now reuses that exact same
+    value for this), `crust develop`'s own traced run and Live tab —
+    sets it to `filepath.Dir(path)` right after constructing the
+    `Interpreter`; nothing about `interpreter.New`'s own signature
+    changed, so none of that wiring touched call sites that don't care.
+    `evalDeliveryStatement` temporarily swaps `BaseDir` to the
+    delivered file's *own* directory for the duration of evaluating its
+    top level (restored via `defer` before returning) — so a relative
+    `delivery` written *inside* a delivered file resolves against where
+    that file actually lives, not the original top-level file's
+    directory, the same relative-to-the-current-file rule most module
+    systems use. Since a `DeliveryStatement`'s own `i.Eval(program,
+    env)` call passes the *same* `env` the delivery statement is itself
+    running in (never a fresh, enclosed one), this also makes delivery
+    fully transitive automatically, with no extra mechanism: a file
+    delivered three layers deep still ends up binding its names into
+    the original top-level file's own scope, because there was only
+    ever one `Environment` in play the whole time.
+  - **A `map[string]bool` of already-delivered absolute paths**
+    (`Interpreter.delivered`, initialized in `New`) does two jobs with
+    one mechanism: skips redundant re-evaluation when a shared helper
+    file is delivered from more than one place (both an efficiency
+    concern and a correctness one — re-running a delivered file's own
+    `deliver()` calls a second time would be a visible bug, not just
+    wasted work), and — since a file is marked delivered *before* its
+    own top level starts running, not after — guarantees a circular
+    delivery (A delivers B, B delivers A) terminates instead of
+    recursing forever: by the time B's own delivery of A is reached, A
+    is already marked, so B's attempt is a silent no-op and both files
+    finish defining whatever they were going to define. Verified with a
+    real interpreter test (`TestDeliveryCircularImportTerminates`) that
+    fails on a timeout, not just an assertion, if this ever regresses.
+  - **Errors surface at the `delivery` statement's own position**, not
+    buried inside whatever line inside the delivered file actually
+    failed — a missing file, a parse error, or a runtime error while
+    the delivered file's top level runs are all wrapped into a new
+    `object.Error` naming the delivered path, reusing the exact same
+    `newError(tok, format, args...)` helper every other runtime error in
+    this package already goes through. A genuinely honest limitation,
+    not silently glossed over: a *later* runtime error inside a
+    recipe that was *defined* in a delivered file (called from the
+    importing file, well after the delivery statement itself finished)
+    still reports an accurate line number but under the *importing*
+    file's own name, since nothing in this codebase's error pipeline
+    (`object.Error`, `token.Token`) tracks which physical file a token
+    came from — only its line/column within whatever source it was
+    lexed from. Fixing that fully would mean threading a source-file
+    identity through every token end to end, a materially bigger
+    change than this feature's own AoC-shaped scope justified; the
+    practical mitigation already exists for free, though — a stack
+    trace's `Frames` (the earlier "richer stack traces" feature, above
+    Phase 6) still names the failing recipe by its real name, which is
+    usually enough to locate the bug in a small helper file even
+    without exact file attribution.
+  - **`crust develop`'s tracer needed zero changes** to work correctly
+    through a `delivery` statement — verified with a real `--plain`
+    run, not just reasoned about: a delivered recipe's own call frame
+    shows up in the Stepper tree exactly like any other, because
+    `evalDeliveryStatement` is just another `Eval` call using the same
+    `Interpreter` (and therefore the same `Trace` hook) the rest of the
+    run already shares. The tree-walker's "no separate execution
+    strategy for imported code" design is what makes this fall out for
+    free, the same way it made richer stack traces free earlier.
+  - **`internal/format` and `internal/lsp` both needed a small, local
+    addition, nothing structural**: `format/statements.go` prints
+    `DeliveryStatement` by delegating to its own `String()` method
+    (`fmt.Sprintf("delivery %q", ds.Path)` — no expression sub-tree to
+    re-render, unlike every other statement kind this package prints);
+    `lsp/hover.go` gained one `keywordDocs` entry. Completion
+    (`internal/lsp/definition.go`'s `keywordSpellings`) and the docs
+    site (`internal/docsite`, itself data-driven from
+    `lsp.KeywordDocs()`) both picked the new keyword up automatically,
+    with no code change at all, since both were already built to read
+    `token.Keywords()`'s live table rather than hand-maintaining a
+    second copy of it.
+  - Verified with table-driven tests across every layer this touches
+    (lexer keyword recognition; parser path-must-be-a-string-literal
+    and path-required error cases; eleven interpreter-level tests
+    covering a basic import, a shared variable, a missing file, a
+    parse error and a runtime error inside the delivered file, same-
+    file-delivered-twice dedup, later-definition-wins under the same
+    scope rule, relative-path resolution against `BaseDir`, a nested
+    file's own relative import resolving against *its* directory, the
+    circular-import termination case, and an absolute path) plus a
+    real two-file example
+    (`examples/module_utils.crust`/`module_demo.crust`, wired into
+    `cmd/crust/examples_test.go`'s pinned-output table the same way
+    every other shipped example is) and real subprocess verification —
+    `crust run`, `crust fmt` round-tripping it canonically, `crust
+    tokens`/`crust parse` on the new keyword, `crust develop --plain`
+    showing the delivered recipes traced correctly, and both the
+    missing-file and circular-delivery error/termination paths through
+    a real built binary, not just Go's own test harness.
 
 ### Phase 5 — Standard Library (`internal/builtins`) ✅
 **Built ahead of schedule**, starting alongside Phase 4 — without at

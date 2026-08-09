@@ -23,6 +23,7 @@ instead of a blank file.
 | `nobox` | `nil` / `null` |
 | `toppings{ }` | Set literal |
 | `with` / `or` / `hold` | `&&` / `\|\|` / `!` |
+| `delivery "path.crust"` | module import — see below |
 
 ## Operators
 
@@ -69,6 +70,18 @@ recipe store_part2() { ... }       // crust run day01.crust --store=part2
 
 Top-level code (outside any `store`-family recipe) always runs first,
 same as Python module-level code.
+
+## Modules
+
+```
+delivery "grid_utils.crust"    // brings its recipes/variables directly into scope
+```
+
+Path is always a bare string literal (no computed imports), resolved
+relative to whichever file is actually running. Fully transitive (A
+delivers B delivers C — C's names end up visible in A too), delivered
+exactly once even if reached from more than one place, and a circular
+delivery terminates rather than looping forever. See SPEC.md §10.
 
 ## Builtins by category
 

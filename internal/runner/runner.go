@@ -9,6 +9,7 @@ package runner
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/Sintfoap/cRust/internal/ast"
@@ -21,10 +22,14 @@ import (
 // Run lexes, parses, and evaluates src (top-level code runs first, same
 // as Python module-level code), then resolves and calls a
 // store/store_<name> entry point per SPEC.md §9, if src defines one.
-// storeFlag is the --store value ("" selects the bare `store`). path is
-// used only to prefix runtime error locations that come from top-level
-// evaluation ("" omits it — the REPL and playground have no backing
-// file). Every message this writes to stderr is prefixed with msgPrefix
+// storeFlag is the --store value ("" selects the bare `store`). path
+// prefixes runtime error locations that come from top-level evaluation
+// ("" omits it — the REPL and playground have no backing file) and,
+// separately, sets the Interpreter's BaseDir (its directory) so a
+// `delivery "path.crust"` statement (SPEC.md §10) resolves a relative
+// Path against wherever the file being run actually lives rather than
+// the process's own working directory. Every message this writes to
+// stderr is prefixed with msgPrefix
 // verbatim, so each caller keeps its own framing (`crust run: `, or
 // none at all) without this package hardcoding one. Returns 0 on
 // success, 1 on any parse/runtime/entry-point error. A single recover()
@@ -52,6 +57,9 @@ func Run(src, storeFlag, path, msgPrefix string, stdin io.Reader, stdout, stderr
 	}
 
 	interp := interpreter.New(stdout, stdin)
+	if path != "" {
+		interp.BaseDir = filepath.Dir(path)
+	}
 	env := object.NewEnvironment()
 
 	result := interp.Eval(program, env)

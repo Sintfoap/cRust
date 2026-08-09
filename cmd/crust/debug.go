@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -216,6 +217,7 @@ func buildDebugView(path string, opts debugOptions, stdin io.Reader, progOut io.
 	rec := debugger.NewRecorder(opts.MaxSteps)
 	interp := interpreter.New(progOut, stdin)
 	interp.Trace = rec
+	interp.BaseDir = filepath.Dir(path)
 	env := object.NewEnvironment()
 
 	// Only resolve/call an entry point if top-level evaluation itself

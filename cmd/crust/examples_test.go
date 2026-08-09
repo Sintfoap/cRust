@@ -39,6 +39,7 @@ func TestRealExamplesProduceExpectedOutput(t *testing.T) {
 		{"aoc2020 day05 part2", "../../examples/aoc2020/day05.crust", "part2", "../../examples/aoc2020/day05_input.txt", "no missing seat in this example set (needs full-scale puzzle input for a real gap)"},
 		{"day01_find_pair (shape-only example)", "../../examples/day01_find_pair.crust", "", "", "514579"},
 		{"day06_group_answers (shape-only example)", "../../examples/day06_group_answers.crust", "", "", "3\n4"},
+		{"module_demo (delivery / module system)", "../../examples/module_demo.crust", "", "", "7\n15"},
 		{"day1_essentials (Phase 8 confirmation pass)", "../../examples/day1_essentials.crust", "", "../../examples/day1_essentials_input.txt",
 			"hello from a real file\n12\n1\n2\n3.5\ncRust 2026\na-b-c\nPEPPERONI basil\nstuffed\n12\n6\n3\n" +
 				"[1, 2, 3, 4, 5, 6]\n[2, 3, 4]\n[1, 4, 9, 16, 25, 36]\n[2, 4, 6]\n21\n10\nnobox\n[alice, bob, carol]\n20\n[alice, carol]"},

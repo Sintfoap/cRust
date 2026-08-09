@@ -1,0 +1,11 @@
+// Demonstrates delivery (SPEC.md §10): module_utils.crust's recipes
+// become directly usable here, resolved relative to this file's own
+// directory.
+
+delivery "module_utils.crust"
+
+a = (0, 0)
+b = (3, 4)
+deliver(manhattan(a, b))
+
+deliver(sumList([1, 2, 3, 4, 5]))

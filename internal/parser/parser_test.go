@@ -334,6 +334,46 @@ func TestBurntAndFlipStatements(t *testing.T) {
 	}
 }
 
+// --- Delivery (module system, SPEC.md §10) -----------------------------------
+
+func TestDeliveryStatement(t *testing.T) {
+	program := parseProgram(t, `delivery "utils.crust"`+"\n")
+	stmt := singleStatement(t, program)
+	ds, ok := stmt.(*ast.DeliveryStatement)
+	if !ok {
+		t.Fatalf("statement is %T, want *ast.DeliveryStatement", stmt)
+	}
+	if ds.Path != "utils.crust" {
+		t.Errorf("Path = %q, want %q", ds.Path, "utils.crust")
+	}
+}
+
+func TestDeliveryStatementString(t *testing.T) {
+	program := parseProgram(t, `delivery "utils.crust"`+"\n")
+	stmt := singleStatement(t, program)
+	if got := stmt.String(); got != `delivery "utils.crust"` {
+		t.Errorf("String() = %q, want %q", got, `delivery "utils.crust"`)
+	}
+}
+
+func TestDeliveryStatementRequiresStringLiteral(t *testing.T) {
+	l := lexer.New("delivery utils\n")
+	p := New(l)
+	p.ParseProgram()
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected a parse error for a non-string delivery path, got none")
+	}
+}
+
+func TestDeliveryStatementRequiresPath(t *testing.T) {
+	l := lexer.New("delivery\n")
+	p := New(l)
+	p.ParseProgram()
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected a parse error for a delivery statement with no path, got none")
+	}
+}
+
 // --- Literals ---------------------------------------------------------------
 
 func TestLiteralExpressions(t *testing.T) {
