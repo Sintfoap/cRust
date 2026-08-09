@@ -4398,6 +4398,92 @@ code was written.
     near-identical lines. Verified with a real 20-level recursive
     program: 21 `boom()` calls plus 1 `store()` call is 22 frames — 12
     shown, "... and 10 more frame(s)," matching the math exactly.
+- **Puzzle input auto-fetch + solve timer** (`internal/aoc`,
+  `cmd/crust/login.go`/`fetch.go`/`done.go`/`debug_aoc.go`), from a
+  direct request resolved into three concrete choices via
+  `AskUserQuestion`: fetch triggered by both an explicit subcommand and
+  `crust develop`'s own auto-fetch; the session cookie stored in a
+  crust-managed config file; the timer shown live during a run and
+  saved at the end. Every part of this feature is opt-in and silently
+  inert the moment no session has been saved — `crust run`, `crust
+  develop` on a file with no day number, and everyone not using `crust
+  login` at all see zero behavior change.
+  - **`internal/aoc` — no dependency on `cmd/crust` or the terminal at
+    all**, same "pure Go, testable in isolation" shape as
+    `internal/debugger`. `session.go`: `LoadSession()`/`SaveSession()`,
+    a `0600` file at `$XDG_CONFIG_HOME/crust/session` (`os.UserConfigDir`
+    behind a swappable `sessionDir` var, the same test-seam pattern
+    `cmd/crust/debug_state.go`'s `develStateDir` already established) —
+    `$AOC_SESSION` is checked first, the same override-by-env-var
+    convention `NO_COLOR` already uses elsewhere in this codebase.
+    `fetch.go`: `Client.FetchInput(year, day)`, with an overridable
+    `BaseURL` field existing purely so tests can point it at an
+    `httptest.Server`. **No test anywhere in this feature — not
+    `internal/aoc`'s own, not `cmd/crust`'s — ever makes a real request
+    to adventofcode.com**, both because there's no legitimate session
+    cookie available to test with here and, independently of that, out
+    of respect for the site operator's own publicly stated request that
+    automated tools not hammer the endpoint; `FetchInput` sets a
+    descriptive `User-Agent` for the same reason. `timer.go`:
+    `StartTimer`/`StopTimer`/`Elapsed`, one shared `timers.json` under
+    the same config directory, keyed `"<year>/<day>"`, read-mutate-
+    write-the-whole-file on every call — deliberately the same shape
+    `debug_state.go`'s `saveDevelState` already uses for its own
+    per-file settings blob, not a new pattern.
+  - **Three new `cmd/crust` subcommands**, matching the existing
+    any-order-flags-then-positional parsing shape `parseRunArgs`/
+    `parseFmtArgs` already use. `crust login`: prompts on stdin with no
+    input masking — `golang.org/x/term` isn't a dependency this project
+    otherwise needs (confirmed via `go.mod` before deciding this), so
+    adding one purely to hide a single paste wasn't judged worth it; the
+    prompt states the lack of masking up front rather than leaving it a
+    surprise. `crust fetch <day> [--year Y] [--force] [--out path]`:
+    refuses to overwrite an existing `dayNN_input.txt` unless `--force`
+    is passed (a hand-edited or already-fetched input file is never
+    silently replaced), starts that day's timer on a successful fetch.
+    `crust done <day> [--year Y]`: stops the timer and prints elapsed —
+    **deliberately a separate, explicit command rather than
+    auto-stopping on a clean run**, since nothing in this codebase
+    checks a run's output against AoC's own accepted answer, so a
+    program finishing without a runtime error doesn't mean the puzzle
+    is actually solved; only the solver knows that.
+  - **`crust develop`'s auto-fetch and live stopwatch**
+    (`cmd/crust/debug_aoc.go`), wired into `runDebug` right after
+    `ensureFileExists` and into the Nav tab's file-switch/new-file
+    paths. `dayNumberFromPath` parses a day number from a filename
+    following `examples/dayNN_template.crust`'s own convention
+    (`day06.crust`, `Day6_input.txt`, ...); `maybeAutoFetchInput` fetches
+    and starts the timer only when a day number parses, a session is
+    saved, and `dayNN_input.txt` doesn't already exist — any fetch
+    failure (day not unlocked, bad cookie, network error) is reported to
+    stderr but never fatal to `develop` itself, the same "convenience on
+    top of a workflow that works fine without it" posture as the rest of
+    this feature. The header's live stopwatch (`aocStatusLine`, appended
+    to `debugView.header()`'s existing one-line summary) needed **the
+    first periodic-redraw mechanism anywhere in this TUI** — every other
+    tab only ever redraws in response to a keypress or a background
+    goroutine's own result message. `aocTickMsg` (`time.Time`) plus
+    `aocTickCmd` (`tea.Tick(time.Second, ...)`) starts ticking from
+    `Init()` only when `aocTimerRunning()` already holds for the file
+    being opened, and the `Update` case only reschedules itself while
+    that's still true — so a file with no timer, or nobody using the
+    feature at all, never pays for a background tick loop, and a timer
+    stopped elsewhere (`crust done` in another terminal) is noticed and
+    the ticking stops itself within one second rather than running
+    forever. Switching files via the Files tab (`switchToSelectedFile`)
+    or creating a new one there (`n`) both re-check
+    `aocTimerRunning()` for the *new* file and restart the tick if
+    needed, since `Init()` only ever runs once at TUI startup and
+    wouldn't otherwise notice a file swap mid-session. Verified with a
+    real subprocess run (help text, `crust login`'s saved-cookie file
+    permissions and content, the no-session error path naming `crust
+    login`, `$AOC_SESSION` overriding a saved file) and a real pty
+    session with a pre-seeded `timers.json` showing the header's
+    stopwatch genuinely counting up once a second on screen (`0s` ->
+    `6s` over ~6 real seconds) plus a separate run confirming a file
+    opened with no session configured never even creates the config
+    directory, proving the feature is fully inert by default rather
+    than merely "looks inert in the cases tested."
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).
 - `interpreter_test.go`: evaluate a snippet, assert the resulting

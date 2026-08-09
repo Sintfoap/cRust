@@ -132,6 +132,41 @@ cp examples/dayNN_template.crust day06.crust
 crust develop day06.crust
 ```
 
+Fetching that day's puzzle input and timing how long it takes is
+optional, and entirely inert until you opt in with `crust login`:
+paste the `session` cookie from a browser logged into
+[adventofcode.com](https://adventofcode.com) (dev tools ->
+Application/Storage -> Cookies), and it's saved to a private
+(`0600`) file under your user config directory — or set `$AOC_SESSION`
+instead, if you'd rather not have crust write one. Once that's in
+place, `crust fetch <day>` downloads that day's input as
+`dayNN_input.txt` and starts a timer for it; `crust done <day>` stops
+the timer and prints the total. `crust develop dayNN.crust` does the
+fetch (and starts the timer) automatically the moment it opens a
+`dayNN.crust` file whose input isn't already sitting there — and shows
+a live-ticking stopwatch in its own header for as long as that day's
+timer is running:
+
+```
+crust login
+# Paste your adventofcode.com session cookie (from a logged-in browser's
+# dev tools -> Application/Storage -> Cookies -> "session").
+# Note: this will be visible as you type/paste it — there's no input masking.
+# session: ...
+
+crust fetch 6
+# Saved day 6, 2026 input to day06_input.txt (1234 bytes). Timer started — `crust done 6` when you've got the star.
+
+crust done 6
+# Day 6, 2026: 14m32s
+```
+
+`crust fetch`/`crust develop`'s auto-fetch both refuse to overwrite an
+existing `dayNN_input.txt` (pass `--force` to `crust fetch` if you
+really want to redownload it) — a hand-edited or already-fetched input
+file is never silently replaced. `--year <n>` targets a different AoC
+event (default: 2026) on any of `crust fetch`/`crust done`.
+
 `crust repl` starts an interactive session — one persistent
 environment for as long as it's open, so a variable or recipe defined
 on one line is still there on the next:
@@ -326,6 +361,12 @@ last-used Run tab settings are remembered in a small JSON file under
 your user config directory (`$XDG_CONFIG_HOME/crust/develop_state.json`,
 or the platform equivalent) — delete it to forget everything, or an
 individual file's entry to forget just that one.
+
+If `crust login` has a session saved, opening `dayNN.crust` here also
+fetches its input (unless `dayNN_input.txt` already exists) and starts
+its timer — see "Starting a new day" above — and the header shows a
+live-ticking `⏱ day N: 3m12s (running)` for as long as that timer's
+going, whichever tab you're on.
 
 ### Documentation site
 

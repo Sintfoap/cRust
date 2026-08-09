@@ -1721,3 +1721,47 @@ confirmed, not before.
       exists unless/until it's proven both correct and actually
       faster. Still gated on profiling real AoC 2026 input first —
       no puzzle exists yet to profile against.
+- [x] (Stretch) Puzzle input auto-fetch + solve timer, from a direct
+      request ("the puzzle input and timer sounds interesting"),
+      resolved via `AskUserQuestion` into three concrete choices: fetch
+      triggered both by an explicit subcommand and by `crust develop`
+      auto-fetching; the session cookie stored in a crust-managed
+      config file; the timer shown live during a run and saved at the
+      end. `internal/aoc` (new package): `session.go` (`LoadSession`/
+      `SaveSession`, a private `0600` file under
+      `$XDG_CONFIG_HOME/crust/session`, `$AOC_SESSION` env var checked
+      first — same override convention as `NO_COLOR`), `fetch.go`
+      (`Client.FetchInput(year, day)`, an overridable `BaseURL` so
+      tests point at an `httptest.Server` instead of the real
+      adventofcode.com — no test in this feature, at any layer, ever
+      makes a real request to it, both because there's no legitimate
+      session cookie to test with here and out of respect for the
+      site's own "don't hammer this endpoint" etiquette; sets a
+      descriptive `User-Agent` per that same etiquette), `timer.go`
+      (`StartTimer`/`StopTimer`/`Elapsed`, a shared `timers.json` under
+      the same config dir, one entry per `<year>/<day>`, read-mutate-
+      write-whole-file the same way `debug_state.go` does). Three new
+      `cmd/crust` subcommands: `crust login` (prompts for the cookie on
+      stdin — no input masking, since `golang.org/x/term` isn't a
+      dependency this project otherwise needs, and the prompt says so
+      up front), `crust fetch <day> [--year Y] [--force] [--out path]`
+      (refuses to overwrite an existing `dayNN_input.txt` without
+      `--force`, starts the day's timer on success), `crust done <day>
+      [--year Y]` (stops the timer, prints elapsed) — a separate
+      command rather than auto-stopping on a clean run, since nothing
+      here checks a run's output against AoC's actual accepted answer,
+      so "ran without crashing" was judged not to mean "solved."
+      `crust develop dayNN.crust` auto-fetches the same input (skipped
+      silently the moment `dayNN_input.txt` already exists, or no
+      session is saved at all) and its TUI header shows a live-ticking
+      `⏱ day N: 3m12s (running)` for as long as that day's timer runs,
+      via a new `tea.Tick`(1s)-driven redraw that reschedules itself
+      only while the timer's actually running and stays off entirely
+      for anyone not using the feature. Verified real end-to-end
+      subprocess behavior (help text, `crust login`'s saved-cookie file
+      permissions, the no-session error path, `$AOC_SESSION` override)
+      and a real pty session showing the header's stopwatch genuinely
+      ticking up once a second in a live terminal — plus that a file
+      opened with no session configured never touches the config
+      directory at all, confirming the feature is fully inert by
+      default.

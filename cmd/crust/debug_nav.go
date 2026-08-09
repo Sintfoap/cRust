@@ -277,7 +277,11 @@ func (m debugModel) createNavFile() (tea.Model, tea.Cmd) {
 
 	m.navCreating = false
 	m.navNewName = runInputModel{}
-	return m.switchToFile(path), nil
+	m = m.switchToFile(path)
+	if m.aocTimerRunning() {
+		return m, aocTickCmd()
+	}
+	return m, nil
 }
 
 // viewNav lists every file listCrustFiles found alongside the one

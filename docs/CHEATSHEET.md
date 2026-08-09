@@ -199,3 +199,16 @@ one statement at a time — not the Stepper's after-the-fact recording.
 current entry point and input file; once paused, `s` steps one
 statement, `c` continues to the next breakpoint (or the end), and `x`
 stops the run early.
+
+## Puzzle input + timer (optional)
+
+```
+crust login            # save your adventofcode.com session cookie ($AOC_SESSION also works)
+crust fetch <day>      # download dayNN_input.txt, start its timer (--year, --force, --out)
+crust done <day>       # stop the timer, print elapsed (--year)
+```
+
+Entirely opt-in: with no session saved, none of this ever runs.
+`crust develop dayNN.crust` auto-fetches the same way (if
+`dayNN_input.txt` isn't already there) and shows a live `⏱ day N:
+3m12s (running)` in its header for as long as the timer's going.

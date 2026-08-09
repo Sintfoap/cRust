@@ -347,12 +347,27 @@ func buildRows(nodes []*debugger.TraceNode, depth int, expanded map[*debugger.Tr
 	return rows
 }
 
-func (m debugModel) Init() tea.Cmd { return nil }
+// Init starts the header's live stopwatch ticking (aocTickMsg, one a
+// second) only when this file's day already has a running AoC timer —
+// never for anyone not using `crust login`/`crust fetch`, and it stops
+// rescheduling itself the moment the timer isn't running anymore (see
+// the aocTickMsg case below).
+func (m debugModel) Init() tea.Cmd {
+	if m.aocTimerRunning() {
+		return aocTickCmd()
+	}
+	return nil
+}
 
 func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+	case aocTickMsg:
+		if m.aocTimerRunning() {
+			return m, aocTickCmd()
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -441,6 +456,9 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openEditorCmd()
 		case tabNav:
 			m = m.switchToSelectedFile()
+			if m.aocTimerRunning() {
+				return m, aocTickCmd()
+			}
 		}
 	case "n":
 		if m.active == tabNav {
@@ -848,6 +866,7 @@ func (m debugModel) View() string {
 	b.WriteString(m.viewTabs())
 	b.WriteByte('\n')
 	b.WriteString(m.view.header())
+	b.WriteString(m.aocStatusLine())
 	b.WriteByte('\n')
 	b.WriteString(body)
 	b.WriteByte('\n')

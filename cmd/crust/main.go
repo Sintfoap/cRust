@@ -25,12 +25,20 @@ const usageBody = `Usage:
   crust bake documentation [-p <port>]        serve the docs site, open a browser
   crust bake playground [-p <port>]           serve an in-browser cRust sandbox (WASM)
   crust lsp                                   start a language server on stdin/stdout
+  crust login                                 save your adventofcode.com session cookie
+  crust fetch <day> [--year Y] [--force]      download that day's puzzle input, start its timer
+  crust done <day> [--year Y]                 stop that day's timer, print elapsed time
   crust --version                             print the version
   crust --help | -h                           show this help
 
 Run flags:
   --store <name>  which store/store_<name> recipe to run as the entry
                   point (default: the bare "store", if the file has one)
+
+Fetch flags:
+  --year <n>   AoC event year (default: 2026)
+  --force      overwrite an existing input file
+  --out <path> where to save the input (default: dayNN_input.txt)
 
 Pizza flags (banner customization):
   --toppings <list>  comma-separated: pepperoni, basil, all, plain (default: pepperoni,basil)
@@ -48,6 +56,9 @@ Examples:
   crust bake documentation          open the docs site in a browser
   crust bake playground             open the in-browser sandbox (nothing sent anywhere)
   crust lsp                         debug: run the language server by hand
+  crust login                       save your adventofcode.com session cookie
+  crust fetch 1                     download day 1's input, start its timer
+  crust done 1                      stop day 1's timer, print how long it took
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
 `
@@ -182,6 +193,26 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 		}
 	case "lsp":
 		return runLSP(stdin, stdout, stderr)
+	case "login":
+		if len(rest) > 1 {
+			fmt.Fprintf(stderr, "crust login: takes no arguments (got %q)\n", rest[1])
+			return 2
+		}
+		return runLogin(stdin, stdout, stderr)
+	case "fetch":
+		day, year, force, out, err := parseFetchArgs(rest[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "crust fetch: %s\n", err)
+			return 2
+		}
+		return runFetch(day, year, force, out, stdout, stderr)
+	case "done":
+		day, year, err := parseDoneArgs(rest[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "crust done: %s\n", err)
+			return 2
+		}
+		return runDone(day, year, stdout, stderr)
 	default:
 		// Bare-file shorthand: `crust foo.crust [--store=<name>]`
 		// behaves like `crust run foo.crust [--store=<name>]`.

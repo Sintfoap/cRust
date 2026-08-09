@@ -118,11 +118,18 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // harmless for a file with nothing recorded yet, with the Editor tab's
 // nvim hand-off one tab-key away (or, --plain, an (empty, harmless)
 // "0 steps" printout) instead of a dead end.
+//
+// maybeAutoFetchInput (debug_aoc.go) runs right after: if path's name
+// parses as a day number and a session cookie has been saved (`crust
+// login`), its input gets fetched and its timer started the same way
+// `crust fetch` would — entirely opt-in, and a no-op the moment
+// there's no saved session to use.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := ensureFileExists(path, stderr); err != nil {
 		fmt.Fprintf(stderr, "crust develop: %s\n", err)
 		return 1
 	}
+	maybeAutoFetchInput(path, stderr)
 
 	opts = applySavedStore(path, opts)
 
