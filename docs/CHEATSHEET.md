@@ -131,6 +131,23 @@ counts), `pop(map, key)` (remove+return) — a missing key reads as
 `gridBounds(g)`, `neighbors4(pos)`, `neighbors8(pos)`, `manhattan(a, b)`
 (taxicab distance) — `pos`/`a`/`b` are always `(row, col)` Tuples
 
+**Priority queue** — no separate type; any List becomes a min-heap the
+moment you call `heapify(list)`, `heapPush(list, item)`,
+`heapPop(list)`, or `heapPeek(list)` on it (Python's `heapq` idiom).
+Pushing `(priority, payload)` Tuples orders by `priority` first, `payload`
+as a tiebreaker — the standard Dijkstra/A* shape:
+```
+pq = []
+heapPush(pq, (0, start))
+bake (slices(pq) > 0) {
+    dist, node = heapPop(pq)
+    knead edge in graph[node] {
+        neighbor, weight = edge
+        // ...relax, heapPush(pq, (dist + weight, neighbor)) on improvement
+    }
+}
+```
+
 **Math** — `idiv(a, b)` (floor div), `abs(x)`, `pow(base, exp)`,
 `sqrt(x)`, `gcd(a, b)`, `lcm(a, b)`
 

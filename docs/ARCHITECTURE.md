@@ -2031,6 +2031,54 @@ below). Phase 5's stdlib checklist is now fully complete.
     `deliver()` loop on the Run tab and confirming PageDown/PageUp
     scroll the output window and hints correctly.
 
+- **`heapify`/`heapPush`/`heapPop`/`heapPeek`**, the priority-queue/heap
+  gap named but deliberately deferred out of the eight-builtin batch
+  above, now built out from a direct "go ahead on those" against a
+  short list of AoC-workflow ideas. The design call made up front:
+  **no new `object.Heap` type** — heap operations mutate an ordinary
+  List in place, the exact same "any List becomes a heap the moment
+  you call heap ops on it" posture Python's own `heapq` module takes
+  (`heapq.heapify(list)`, not a dedicated heap object). That sidesteps
+  a whole category of plumbing a real fifth collection type would
+  otherwise need — `equal.go`/`copy.go`/`truthy.go` cases, LSP/format
+  awareness, a new `ObjectType` — for a feature that's really just
+  "keep this List in a particular order," the same reasoning that kept
+  `sortBy`/`reverse`/`zip` from inventing anything new either.
+  - **`heapCompare` extends `compareTwo` with lexicographic Tuple
+    ordering** — the one genuinely new piece, and the reason
+    `heapPush(pq, (dist, node))` (the standard Dijkstra/A* idiom,
+    priority paired with payload) orders by `dist` first and only
+    falls back to `node` as a tiebreaker, without a separate
+    key-function argument the way `sortBy` needs one. `compareTwo`
+    itself stays untouched (Integer/Float/String only, as every other
+    caller — `min`/`max`/`pizzasort`/`sortBy` — already expects);
+    `heapCompare` checks for the Tuple case first and recurses through
+    *itself* (not `compareTwo`) on each element pair, so a Tuple of
+    Tuples nests correctly, falling through to `compareTwo` for the
+    ordinary numeric/String leaves.
+  - **Hand-rolled sift-up/sift-down instead of Go's `container/heap`.**
+    `container/heap`'s `Less(i, j) bool` can't propagate an error, but
+    `heapCompare` can fail (mismatched, incomparable element types) and
+    needs to come back as an ordinary cRust runtime `*object.Error`,
+    not a panic — the same reason `sortBy`'s own comparator threads an
+    error return through `slices.SortStableFunc`'s wrapper instead of
+    using a plain `bool`-returning `less`. Hand-rolling two ~15-line
+    functions was cheaper than adapting `container/heap`'s
+    `Len`/`Less`/`Swap`/`Push`/`Pop` interface around that constraint.
+  - `heapify` is bottom-up (starting from the last parent, sifting
+    every subtree down once) rather than an element-by-element
+    `heapPush` loop — O(n) instead of O(n log n), the standard
+    binary-heap construction algorithm.
+  - Verified with table-driven Go tests (heapify-then-drain comes back
+    sorted, heapPush-only construction, peek doesn't mutate, empty-heap
+    errors on both pop and peek, draining to exactly one element leaves
+    no trailing slice garbage, wrong-type/wrong-arg-count errors, a
+    mismatched-element-type push surfaces as an error rather than
+    panicking) and a real `crust run` subprocess running a small
+    Dijkstra shortest-path solver end-to-end — `heapPush(pq, (dist,
+    node))`/`heapPop(pq)` against a tiny hand-checked weighted graph,
+    confirming both the ordering and the final distances by hand.
+
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,
   now real — see Phase 4) and `crust repl` (interactive loop, still a

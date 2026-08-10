@@ -1877,3 +1877,15 @@ confirmed, not before.
       the specific keys it did. Verified with table-driven Go tests and
       real pty sessions driving `crust develop` end-to-end for both
       features.
+- [x] (Stretch) `heapify(list)`/`heapPush(list, item)`/`heapPop(list)`/
+      `heapPeek(list)` — the priority-queue/heap type flagged earlier
+      as its own open design question, now closed out: no new object
+      type, any List becomes a min-heap the moment heap ops are called
+      on it (Python's `heapq` idiom). `heapPush(pq, (dist, node))`
+      orders by `dist` first, `node` as a tiebreaker, via lexicographic
+      Tuple comparison — the standard Dijkstra/A* shape. See
+      docs/ARCHITECTURE.md's Phase 5 section for why it's List-mutation
+      rather than a fifth collection type, and why the sift-up/down was
+      hand-rolled instead of using Go's `container/heap`. Verified with
+      table-driven Go tests and a real `crust run` subprocess running a
+      small Dijkstra shortest-path solver end-to-end.

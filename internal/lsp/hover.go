@@ -107,6 +107,10 @@ var builtinDocs = map[string]string{
 	"findInts":    "`findInts(s) -> List` — every integer embedded anywhere in s, in order — \"extract the numbers from this line.\" A `-` counts as a sign only when it isn't itself preceded by a digit, so `findInts(\"1-3 a: abcde\")` is `[1, 3]` (a range, not a negative number) while `findInts(\"y=-10..-5\")` is `[-10, -5]`.",
 	"zip":         "`zip(a, b) -> List` — pairs a and b (each a List or Tuple) element-wise into a List of (a[i], b[i]) Tuples, truncating to the shorter of the two.",
 	"manhattan":   "`manhattan(a, b) -> Integer` — taxicab distance between two (row, col) Tuples: |a.row - b.row| + |a.col - b.col|. No bounds checking, same posture as neighbors4/neighbors8.",
+	"heapify":     "`heapify(list) -> nobox` — reorders list's elements in place into min-heap order, in O(n). No separate priority-queue type: any List becomes one the moment heapify/heapPush/heapPop/heapPeek are called on it.",
+	"heapPush":    "`heapPush(list, item) -> nobox` — appends item and sifts it into its correct min-heap position, in place. Assumes list is already a heap (built by heapify, or empty).",
+	"heapPop":     "`heapPop(list) -> Any` — removes and returns list's smallest element, in place. Errors on an empty heap. Pushing `(priority, payload)` Tuples orders by priority first — the standard Dijkstra/A* idiom.",
+	"heapPeek":    "`heapPeek(list) -> Any` — list's smallest element without removing it. Errors on an empty heap.",
 }
 
 // KeywordDocs returns every reserved word's hover doc, keyed by its

@@ -3115,3 +3115,139 @@ func TestManhattanWrongArgCount(t *testing.T) {
 	a := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
 	wantError(t, call(t, table, "manhattan", a))
 }
+
+// --- heapify / heapPush / heapPop / heapPeek -------------------------------
+
+func TestHeapifyThenPopIsSortedOrder(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{
+		object.NewInteger(5), object.NewInteger(1), object.NewInteger(4),
+		object.NewInteger(2), object.NewInteger(8), object.NewInteger(0),
+	})
+	if got := call(t, table, "heapify", list); got != object.NULL {
+		t.Fatalf("heapify() = %v, want NULL", got)
+	}
+	var popped []int64
+	for len(list.Elements) > 0 {
+		got := call(t, table, "heapPop", list)
+		i, ok := got.(*object.Integer)
+		if !ok {
+			t.Fatalf("heapPop() = %T (%v), want *object.Integer", got, got)
+		}
+		popped = append(popped, i.Value)
+	}
+	want := []int64{0, 1, 2, 4, 5, 8}
+	if len(popped) != len(want) {
+		t.Fatalf("popped %d elements, want %d", len(popped), len(want))
+	}
+	for i, w := range want {
+		if popped[i] != w {
+			t.Errorf("popped[%d] = %d, want %d", i, popped[i], w)
+		}
+	}
+}
+
+func TestHeapPushMaintainsInvariant(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList(nil)
+	for _, n := range []int64{5, 1, 4, 2, 8, 0, 9, 3} {
+		if got := call(t, table, "heapPush", list, object.NewInteger(n)); got != object.NULL {
+			t.Fatalf("heapPush(%d) = %v, want NULL", n, got)
+		}
+	}
+	var popped []int64
+	for len(list.Elements) > 0 {
+		got := call(t, table, "heapPop", list).(*object.Integer)
+		popped = append(popped, got.Value)
+	}
+	want := []int64{0, 1, 2, 3, 4, 5, 8, 9}
+	for i, w := range want {
+		if popped[i] != w {
+			t.Errorf("popped[%d] = %d, want %d", i, popped[i], w)
+		}
+	}
+}
+
+func TestHeapPeekDoesNotRemove(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(3), object.NewInteger(1), object.NewInteger(2)})
+	call(t, table, "heapify", list)
+	wantInteger(t, call(t, table, "heapPeek", list), 1)
+	if len(list.Elements) != 3 {
+		t.Fatalf("heapPeek mutated the heap: len = %d, want 3", len(list.Elements))
+	}
+	wantInteger(t, call(t, table, "heapPeek", list), 1)
+}
+
+func TestHeapPopOnEmptyIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPop", object.NewList(nil)))
+}
+
+func TestHeapPeekOnEmptyIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPeek", object.NewList(nil)))
+}
+
+func TestHeapPopToOneElementLeavesNoTrailingGarbage(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantInteger(t, call(t, table, "heapPop", list), 1)
+	if len(list.Elements) != 0 {
+		t.Fatalf("len = %d, want 0", len(list.Elements))
+	}
+}
+
+// TestHeapPriorityTuplesOrderByFirstElement exercises the Dijkstra/A*
+// idiom directly: pushing (priority, payload) Tuples pops them back out
+// ordered by priority, breaking ties on payload the same way Python's
+// heapq (via tuple comparison) does.
+func TestHeapPriorityTuplesOrderByFirstElement(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	mk := func(prio int64, node string) *object.Tuple {
+		return object.NewTuple([]object.Object{object.NewInteger(prio), &object.String{Value: node}})
+	}
+	list := object.NewList(nil)
+	for _, item := range []*object.Tuple{mk(5, "e"), mk(1, "b"), mk(1, "a"), mk(3, "c"), mk(4, "d")} {
+		call(t, table, "heapPush", list, item)
+	}
+	wantOrder := []string{"a", "b", "c", "d", "e"}
+	for _, want := range wantOrder {
+		got := call(t, table, "heapPop", list).(*object.Tuple)
+		node := got.Elements[1].(*object.String).Value
+		if node != want {
+			t.Errorf("popped %q, want %q", node, want)
+		}
+	}
+}
+
+func TestHeapPushWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPush", object.NewList(nil)))
+}
+
+func TestHeapifyWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapify", object.NewInteger(1)))
+}
+
+func TestHeapPushWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPush", object.NewInteger(1), object.NewInteger(2)))
+}
+
+func TestHeapPopWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPop", object.NewInteger(1)))
+}
+
+func TestHeapPeekWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "heapPeek", object.NewInteger(1)))
+}
+
+func TestHeapPushMismatchedElementTypesIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "heapPush", list, &object.String{Value: "x"}))
+}

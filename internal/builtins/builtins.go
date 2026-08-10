@@ -71,6 +71,10 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"neighbors4":  {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
 		"neighbors8":  {Fn: neighborsFn("neighbors8", allOffsets)},
 		"manhattan":   {Fn: manhattanFn},
+		"heapify":     {Fn: heapifyFn},
+		"heapPush":    {Fn: heapPushFn},
+		"heapPop":     {Fn: heapPopFn},
+		"heapPeek":    {Fn: heapPeekFn},
 		"idiv":        {Fn: idivFn},
 		"abs":         {Fn: absFn},
 		"pow":         {Fn: powFn},
@@ -1326,6 +1330,185 @@ func manhattanFn(args ...object.Object) object.Object {
 		colDiff = -colDiff
 	}
 	return object.NewInteger(rowDiff + colDiff)
+}
+
+// heapCompare orders two heap elements the same way compareTwo does
+// for Integer/Float/String, plus one addition compareTwo itself
+// doesn't need: two Tuples compare lexicographically, element by
+// element, the shorter one winning a tie on every shared position
+// (Python's own tuple-ordering rule). That's what makes `push(pq,
+// (dist, node))` — the standard Dijkstra/A* idiom, priority paired
+// with payload — order by dist first and fall back to node only on a
+// tie, without heapPush/heapPop needing a separate key-function
+// argument the way sortBy does. Recursing through heapCompare itself
+// (not compareTwo) means a Tuple of Tuples orders correctly too.
+func heapCompare(name string, a, b object.Object) (int, *object.Error) {
+	at, aIsTuple := a.(*object.Tuple)
+	bt, bIsTuple := b.(*object.Tuple)
+	if !aIsTuple || !bIsTuple {
+		return compareTwo(name, a, b)
+	}
+	n := len(at.Elements)
+	if len(bt.Elements) < n {
+		n = len(bt.Elements)
+	}
+	for i := 0; i < n; i++ {
+		cmp, errObj := heapCompare(name, at.Elements[i], bt.Elements[i])
+		if errObj != nil {
+			return 0, errObj
+		}
+		if cmp != 0 {
+			return cmp, nil
+		}
+	}
+	return len(at.Elements) - len(bt.Elements), nil
+}
+
+// heapSiftDown restores the min-heap invariant below index i (elems[0:n])
+// by repeatedly swapping a too-large parent with its smaller child,
+// the standard binary-heap "sink" operation heapifyFn/heapPopFn both
+// build on.
+func heapSiftDown(name string, elems []object.Object, i, n int) *object.Error {
+	for {
+		left, right := 2*i+1, 2*i+2
+		smallest := i
+		if left < n {
+			cmp, errObj := heapCompare(name, elems[left], elems[smallest])
+			if errObj != nil {
+				return errObj
+			}
+			if cmp < 0 {
+				smallest = left
+			}
+		}
+		if right < n {
+			cmp, errObj := heapCompare(name, elems[right], elems[smallest])
+			if errObj != nil {
+				return errObj
+			}
+			if cmp < 0 {
+				smallest = right
+			}
+		}
+		if smallest == i {
+			return nil
+		}
+		elems[i], elems[smallest] = elems[smallest], elems[i]
+		i = smallest
+	}
+}
+
+// heapSiftUp restores the min-heap invariant above index i by
+// repeatedly swapping a too-small child up past its larger parent —
+// the "bubble up" counterpart to heapSiftDown, what heapPushFn uses
+// after appending the new element at the end.
+func heapSiftUp(name string, elems []object.Object, i int) *object.Error {
+	for i > 0 {
+		parent := (i - 1) / 2
+		cmp, errObj := heapCompare(name, elems[i], elems[parent])
+		if errObj != nil {
+			return errObj
+		}
+		if cmp >= 0 {
+			return nil
+		}
+		elems[i], elems[parent] = elems[parent], elems[i]
+		i = parent
+	}
+	return nil
+}
+
+// heapifyFn is `heapify(list)` (SPEC.md §7) — reorders list's own
+// elements in place into min-heap order, in O(n) via the standard
+// bottom-up sift-down (starting from the last parent, not every leaf,
+// is what keeps it linear instead of the O(n log n) an element-by-
+// element heapPush loop would cost). A List that's empty or already
+// in heap order is left alone. Mirrors Python's `heapq.heapify` —
+// cRust has no separate priority-queue type; any List becomes one the
+// moment code starts calling heapify/heapPush/heapPop/heapPeek on it,
+// the same "mutate the List you're given" posture push/sprinkle/pop
+// already take rather than inventing a fifth collection type.
+func heapifyFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("heapify", "1", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("heapify", 0, "a List", args[0])
+	}
+	n := len(list.Elements)
+	for i := n/2 - 1; i >= 0; i-- {
+		if errObj := heapSiftDown("heapify", list.Elements, i, n); errObj != nil {
+			return errObj
+		}
+	}
+	return object.NULL
+}
+
+// heapPushFn is `heapPush(list, item)` (SPEC.md §7) — appends item and
+// sifts it up into its correct min-heap position, in place. Assumes
+// list is already a valid heap (built by heapify, or empty) — pushing
+// onto an unheapified List gives an unheapified result, the same
+// "garbage in, garbage out" contract Python's `heapq.heappush` makes.
+func heapPushFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("heapPush", "2", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("heapPush", 0, "a List", args[0])
+	}
+	list.Elements = append(list.Elements, args[1])
+	if errObj := heapSiftUp("heapPush", list.Elements, len(list.Elements)-1); errObj != nil {
+		return errObj
+	}
+	return object.NULL
+}
+
+// heapPopFn is `heapPop(list)` (SPEC.md §7) — removes and returns
+// list's smallest element, in place: swap it with the last element,
+// shrink by one, then sift the new root down into place. Errors on an
+// empty heap rather than returning nobox, the same "fail loud" posture
+// pop()/find() already take on their own empty/not-found cases.
+func heapPopFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("heapPop", "1", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("heapPop", 0, "a List", args[0])
+	}
+	n := len(list.Elements)
+	if n == 0 {
+		return newError("heapPop: heap is empty")
+	}
+	top := list.Elements[0]
+	last := n - 1
+	list.Elements[0] = list.Elements[last]
+	list.Elements = list.Elements[:last]
+	if len(list.Elements) > 0 {
+		if errObj := heapSiftDown("heapPop", list.Elements, 0, len(list.Elements)); errObj != nil {
+			return errObj
+		}
+	}
+	return top
+}
+
+// heapPeekFn is `heapPeek(list)` (SPEC.md §7) — list's smallest
+// element without removing it. Errors on an empty heap, same as
+// heapPop.
+func heapPeekFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("heapPeek", "1", len(args))
+	}
+	list, ok := args[0].(*object.List)
+	if !ok {
+		return wrongArgType("heapPeek", 0, "a List", args[0])
+	}
+	if len(list.Elements) == 0 {
+		return newError("heapPeek: heap is empty")
+	}
+	return list.Elements[0]
 }
 
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of
