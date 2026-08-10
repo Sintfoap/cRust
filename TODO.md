@@ -1889,3 +1889,16 @@ confirmed, not before.
       hand-rolled instead of using Go's `container/heap`. Verified with
       table-driven Go tests and a real `crust run` subprocess running a
       small Dijkstra shortest-path solver end-to-end.
+- [x] (Stretch) `crust new <day>` — stamps out `dayNN.crust` from the
+      same `store_part1`/`store_part2` shape
+      `examples/dayNN_template.crust` already documented for manual
+      copying, day number filled in automatically, refusing to
+      overwrite an existing file unless `--force` is passed. Shows up
+      in `crust develop`'s own Nav tab with no code change needed
+      there — it already lists every `.crust` file in the directory.
+      See docs/ARCHITECTURE.md's Phase 6 section for why it's scoped
+      to just `dayNN.crust` (no custom `--out`) and why the Nav tab's
+      own blank-file "n" key was deliberately left alone. Verified
+      with table-driven Go tests — including one that runs the
+      freshly-stamped file through the real interpreter, not just
+      checking its text — and a real built binary.

@@ -243,6 +243,12 @@ has more variables than fit — ↑↓ then scroll through them instead of
 moving the source cursor, with "N more above/below" hints and a
 "(1-6 of 13)" position readout in the title.
 
+## Starting a new day
+
+```
+crust new <day>        # stamp out dayNN.crust from the store_part1/store_part2 template (--force)
+```
+
 ## Puzzle input + timer (optional)
 
 ```

@@ -4984,6 +4984,48 @@ AST shape directly) and `TestSliceExclusiveEndAtContainerLengthIsValid`
 file, which would only prove today's five puzzles work, not that the
 underlying bug is actually gone.
 
+- **`crust new <day>` (`cmd/crust/new.go`)**, from the same "go ahead
+  on those" AoC-workflow batch as the heap builtins above. Stamps out
+  `dayNN.crust` using the exact `store_part1`/`store_part2` shape
+  `examples/dayNN_template.crust` already documents for manual `cp`ing
+  — one starter layout taught in one place, not a second one invented
+  just because this path fills in its own placeholder — with the real
+  day number substituted in via `fmt.Sprintf` everywhere the template
+  file's own copy still says "NN" for a human to replace by hand.
+  Deliberately narrow scope: only `dayNN.crust`, no custom `--out` path
+  the way `crust fetch` offers one, since the whole point is removing
+  the one remaining manual step (`cp ... dayNN.crust`) from a workflow
+  that's otherwise `crust new`/`crust fetch`/`crust develop` in
+  sequence — a custom name would just be `cp` again with extra steps.
+  Refuses to overwrite an existing file unless `--force` is passed,
+  the same protection `runFetch` already gives an existing input file,
+  for the same reason (a file someone's already started writing in is
+  exactly what the guard exists to not silently discard).
+  - **No change needed in `crust develop`'s own Nav tab.** The Nav
+    tab already lists every `.crust` file "alongside the one currently
+    open" by directory scan, so a file `crust new` creates from the
+    command line shows up there automatically the next time the tab
+    renders — confirmed by inspection of `debug_nav.go`'s listing
+    logic, not assumed. The Nav tab's own `n` key (task history:
+    "Persist crust develop's per-file store/input settings") still
+    creates a genuinely blank file, deliberately left alone here — that
+    key makes a new file of *any* name (a shared helper, not
+    necessarily a `dayNN.crust`), and seeding it with
+    `store_part1`/`store_part2` stubs wouldn't make sense for a file
+    that was never meant to hold either.
+  - Verified with table-driven Go tests (`parseNewArgs`'s flag/day
+    parsing, force-vs-refuse-to-overwrite, dispatch wiring through
+    `run()`) plus one that goes a level further than the other CLI
+    subcommands' own tests do: `TestRunNewCreatedFileParsesAndRuns`
+    feeds the freshly-stamped file straight through `runFile`, proving
+    the template is actual parseable, runnable cRust — not just text
+    that happens to contain the right substrings — the same standard
+    `examples_test.go` already holds every checked-in example file to.
+    Also checked by hand against a real built binary: created,
+    confirmed the header/day number/stub content, ran it against piped
+    stdin, and confirmed the overwrite guard actually refuses a second
+    `crust new` for the same day.
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

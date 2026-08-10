@@ -120,17 +120,26 @@ A single level of call wrapping (an error happening directly inside
 always has — just the one line — since a one-entry chain wouldn't add
 anything the failing line doesn't already say.
 
-Starting a new day: copy
-[`examples/dayNN_template.crust`](./examples/dayNN_template.crust) —
-a `store_part1`/`store_part2` skeleton already reading its input via
-`unbox()`, with the day-to-day workflow (copy, save input, `crust
-develop`/`crust run`) in its own header comment — rather than starting
-from a blank file every time:
+Starting a new day: `crust new <day>` stamps out `dayNN.crust` from
+the same `store_part1`/`store_part2` skeleton
+[`examples/dayNN_template.crust`](./examples/dayNN_template.crust)
+documents for manual copying — reading its input via `unbox()`, with
+the day-to-day workflow (`crust fetch`, `crust develop`/`crust run`)
+in its own header comment — with the day number already filled in
+rather than left as a `dayNN` placeholder to edit by hand. Refuses to
+overwrite an existing file unless you pass `--force`, the same
+protection `crust fetch` gives an existing input file:
 
 ```
-cp examples/dayNN_template.crust day06.crust
+crust new 6
+# Created day06.crust. `crust fetch 6` to grab its input, `crust develop day06.crust` to start writing.
+crust fetch 6
 crust develop day06.crust
 ```
+
+The new file is immediately visible in `crust develop`'s own Files/Nav
+tab, described below — "every other `.crust` file alongside the one
+currently open" already includes it, no extra step needed.
 
 Sharing logic across files (a Grid helper, a parsing routine) instead
 of copy-pasting it into every day's file: `delivery "path.crust"`
