@@ -224,6 +224,30 @@ type debugModel struct {
 	benchBaseline       *benchBaseline
 	benchBaselineStatus string
 
+	// benchCompare/benchCompareStatus back the Bench tab's two-entry-
+	// point diff ('c'): benchCompare is a snapshot of a batch captured
+	// earlier in this session — its entry point, run count, and average
+	// duration/memory — for viewBench to compare the *current* batch
+	// against, the same "compare(vs, cur)" numeric-diff shape
+	// viewBenchBaseline already established for 'b'. The two features
+	// answer different questions, though: 'b's baseline is persisted
+	// per file (debug_state.go) for tracking drift across sessions —
+	// "did today's run get faster than last week's" — while 'c' is
+	// deliberately session-only (nil at every startup, never saved),
+	// for A/B-ing two entry points or two rewrites of the same one
+	// while both are still open in front of you (a brute-force
+	// store_part2 against an optimized rewrite, or store_part1 against
+	// store_part2) — comparing across sessions would mean comparing
+	// against a stale entry point nobody's iterating on anymore.
+	// benchCompareStatus is 'c's one-line "captured ..." confirmation,
+	// the same shape benchExportStatus/benchBaselineStatus already use,
+	// cleared on a fresh batch (handleBenchResult) same as those two;
+	// benchCompare itself is NOT cleared, the same "has to outlive the
+	// run being compared against it" reasoning benchBaseline's own doc
+	// comment gives.
+	benchCompare       *benchCompareSnapshot
+	benchCompareStatus string
+
 	// stepSearching/stepQuery/stepSearchInput/stepStatus back the
 	// Stepper tab's search ('/') and jump-to-failure (f/F), on direct
 	// request: "search/filter the tree" and "jump to next/prev
@@ -972,9 +996,9 @@ func (m debugModel) helpText() string {
 		return "r: run   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabBench:
 		if m.benchInspect {
-			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   b: save baseline   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+			return "h/l: prev/next run   g/G: first/last run   i: exit inspect   e: export CSV   b: save baseline   c: capture for compare   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
-		return "enter: run N times   i: inspect a run   e: export CSV   b: save baseline   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		return "enter: run N times   i: inspect a run   e: export CSV   b: save baseline   c: capture for compare   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
 		if m.navCreating {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"

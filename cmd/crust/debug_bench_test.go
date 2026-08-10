@@ -864,6 +864,123 @@ func TestHandleBenchResultClearsBaselineStatusButKeepsBaseline(t *testing.T) {
 	}
 }
 
+// --- two-entry-point compare ---------------------------------------------
+
+func TestBenchCompareSnapshotFromComputesAveragesAndLabel(t *testing.T) {
+	runs := []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+	got := benchCompareSnapshotFrom(runs, "part1")
+	if got.EntryLabel != "part1" {
+		t.Errorf("EntryLabel = %q, want %q", got.EntryLabel, "part1")
+	}
+	if got.Runs != 2 {
+		t.Errorf("Runs = %d, want 2", got.Runs)
+	}
+	if got.DurationAvgNS != int64(2*time.Millisecond) {
+		t.Errorf("DurationAvgNS = %d, want %d", got.DurationAvgNS, int64(2*time.Millisecond))
+	}
+	if got.AllocAvg != 200 {
+		t.Errorf("AllocAvg = %d, want 200", got.AllocAvg)
+	}
+}
+
+func TestBenchCompareSnapshotFromBareStoreLabelsAsDefault(t *testing.T) {
+	got := benchCompareSnapshotFrom([]benchRun{{duration: time.Millisecond}}, "")
+	if got.EntryLabel != "(default)" {
+		t.Errorf("EntryLabel = %q, want %q for the bare store", got.EntryLabel, "(default)")
+	}
+}
+
+func TestHandleBenchTabKeyCCapturesForCompare(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchRuns = []benchRun{
+		{duration: 1 * time.Millisecond, allocB: 100},
+		{duration: 3 * time.Millisecond, allocB: 300},
+	}
+
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	got := next.(debugModel)
+	if got.benchCompare == nil {
+		t.Fatal("'c' should set benchCompare")
+	}
+	if got.benchCompare.DurationAvgNS != int64(2*time.Millisecond) {
+		t.Errorf("DurationAvgNS = %d, want %d", got.benchCompare.DurationAvgNS, int64(2*time.Millisecond))
+	}
+	if got.benchCompare.Runs != 2 {
+		t.Errorf("Runs = %d, want 2", got.benchCompare.Runs)
+	}
+	if got.benchCompareStatus == "" {
+		t.Error("expected a non-empty benchCompareStatus after capturing")
+	}
+}
+
+func TestHandleBenchTabKeyCRequiresRuns(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	next, _ := m.handleBenchTabKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	got := next.(debugModel)
+	if got.benchCompare != nil {
+		t.Error("'c' with no runs yet should be a no-op")
+	}
+}
+
+func TestViewBenchCompareShowsBothLabelsAndDiff(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: 240 * time.Millisecond, allocB: 60}}
+	m.benchCompare = &benchCompareSnapshot{
+		EntryLabel: "part1", Runs: 5,
+		DurationAvgNS: int64(200 * time.Millisecond), AllocAvg: 50,
+	}
+
+	out := m.viewBench()
+	if !strings.Contains(out, "compare:") {
+		t.Errorf("viewBench() missing the compare line: %q", out)
+	}
+	if !strings.Contains(out, "part1 (5 runs)") {
+		t.Errorf("viewBench() = %q, want the captured entry's label and run count shown", out)
+	}
+	if !strings.Contains(out, "(default) (1 runs)") {
+		t.Errorf("viewBench() = %q, want the current (bare store) entry labeled (default)", out)
+	}
+	if !strings.Contains(out, "+20.0%") {
+		t.Errorf("viewBench() = %q, want +20.0%% (240ms vs a 200ms captured average)", out)
+	}
+}
+
+func TestViewBenchCompareHiddenWithoutACapture(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 100, 40
+	m.benchRuns = []benchRun{{duration: time.Millisecond, allocB: 10}}
+	out := m.viewBench()
+	if strings.Contains(out, "compare:") {
+		t.Errorf("viewBench() = %q, should not show a compare line when nothing has been captured", out)
+	}
+}
+
+func TestHandleBenchResultClearsCompareStatusButKeepsCompare(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.benchCompare = &benchCompareSnapshot{EntryLabel: "part1", Runs: 3, DurationAvgNS: 500, AllocAvg: 1024}
+	m.benchCompareStatus = "captured part1 (3 runs) for comparison"
+
+	next, _ := m.handleBenchResult(benchResultMsg{runs: []benchRun{{duration: time.Millisecond}}})
+	got := next.(debugModel)
+	if got.benchCompareStatus != "" {
+		t.Errorf("benchCompareStatus = %q, want cleared after a fresh batch", got.benchCompareStatus)
+	}
+	if got.benchCompare == nil || got.benchCompare.EntryLabel != "part1" {
+		t.Errorf("benchCompare = %+v, want it to survive a fresh batch of runs", got.benchCompare)
+	}
+}
+
+func TestBenchCompareIsNilAtStartup(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	if m.benchCompare != nil {
+		t.Error("expected benchCompare to start nil (session-only, never restored from disk)")
+	}
+}
+
 // --- persistence -------------------------------------------------------
 
 func TestRestoreBenchCountDefaultsToTen(t *testing.T) {

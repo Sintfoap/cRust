@@ -56,6 +56,21 @@
 // min stay visible as absolute numbers on the current batch's own
 // legend, so a diffed copy of those too would answer a question
 // ("did the typical run get faster") the average alone already does.
+//
+// Two-entry-point diff ('c'), from a later "what else could help with
+// the AoC workflow" batch: "diffing two entry points, not just one
+// against a saved baseline — useful once a day has both a brute-force
+// and optimized store_part2." 'c' captures the current batch (its
+// entry point, run count, and average duration/memory) into
+// m.benchCompare; switch the Run tab's entry-point selector to
+// whatever's being compared against and run a fresh batch, and
+// viewBenchCompare shows both sides' labels plus the same signed-
+// percentage diff the baseline feature already uses. Deliberately
+// session-only, never persisted — unlike 'b's baseline (which tracks
+// drift across sessions against one fixed comparison point), 'c' is
+// for A/B-ing two things that are both still open and being iterated
+// on right now, where persisting a capture across a restart would just
+// mean comparing against a stale entry point later.
 package main
 
 import (
@@ -199,6 +214,12 @@ func (m debugModel) handleBenchTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.benchBaseline = &baseline
 					m.benchBaselineStatus = "baseline saved"
 				}
+			case r == 'c':
+				if len(m.benchRuns) > 0 {
+					snap := benchCompareSnapshotFrom(m.benchRuns, m.selectedRunEntry())
+					m.benchCompare = &snap
+					m.benchCompareStatus = fmt.Sprintf("captured %s (%d runs) for comparison — switch entry point and run again to compare", snap.EntryLabel, snap.Runs)
+				}
 			case m.benchInspect && r == 'h':
 				m.benchCursor = max(0, m.benchCursor-1)
 			case m.benchInspect && r == 'l':
@@ -292,13 +313,15 @@ func (m debugModel) handleBenchResult(msg benchResultMsg) (tea.Model, tea.Cmd) {
 	m.benchRuns = msg.runs
 	m.benchCursor = clampBenchCursor(m.benchCursor, len(msg.runs))
 	// A fresh batch makes any earlier "exported to ..."/"baseline
-	// saved" status stale -- it described the previous batch's data,
-	// not this one, and leaving it up would read as if this new run
-	// had already been saved too. m.benchBaseline itself is left
-	// alone: unlike the status message, the saved baseline is meant to
-	// outlive the run it's being compared against.
+	// saved"/"captured ... for comparison" status stale -- it described
+	// the previous batch's data, not this one, and leaving it up would
+	// read as if this new run had already been saved/captured too.
+	// m.benchBaseline/m.benchCompare are both left alone: unlike the
+	// status messages, they're meant to outlive the run being compared
+	// against them.
 	m.benchExportStatus = ""
 	m.benchBaselineStatus = ""
+	m.benchCompareStatus = ""
 	return m, nil
 }
 
@@ -802,6 +825,10 @@ func (m debugModel) viewBench() string {
 		b.WriteByte('\n')
 		b.WriteString(baseline)
 	}
+	if compare := m.viewBenchCompare(refsDur[benchAvg], refsMem[benchAvg]); compare != "" {
+		b.WriteByte('\n')
+		b.WriteString(compare)
+	}
 	if failed > 0 {
 		b.WriteString(styleError.Render(fmt.Sprintf("\n%d/%d runs exited non-zero", failed, len(m.benchRuns))))
 	}
@@ -812,6 +839,10 @@ func (m debugModel) viewBench() string {
 	if m.benchBaselineStatus != "" {
 		b.WriteByte('\n')
 		b.WriteString(styleMuted.Render(m.benchBaselineStatus))
+	}
+	if m.benchCompareStatus != "" {
+		b.WriteByte('\n')
+		b.WriteString(styleMuted.Render(m.benchCompareStatus))
 	}
 	return b.String()
 }
@@ -837,6 +868,40 @@ func (m debugModel) viewBenchBaseline(curDurAvg, curAllocAvg float64) string {
 		return ""
 	}
 	return styleMuted.Render("vs baseline: " + strings.Join(parts, ", "))
+}
+
+// viewBenchCompare is the current batch compared against
+// m.benchCompare — 'c's two-entry-point diff, e.g. store_part1
+// captured then compared against store_part2, or a brute-force rewrite
+// against its optimized replacement, both still open in the same
+// session. Empty until something's actually been captured, the same
+// "no unnecessary UI" posture viewBenchBaseline already takes for its
+// own nil case. Deliberately labels *both* sides (current entry point
+// and run count, not just the captured one) — unlike the baseline
+// diff, where "vs baseline" alone is unambiguous (there's only ever
+// one baseline, always for this same file), a two-entry-point compare
+// is genuinely comparing two different things, and "vs part1 (10
+// runs)" alone wouldn't say what the current numbers even are.
+func (m debugModel) viewBenchCompare(curDurAvg, curAllocAvg float64) string {
+	if m.benchCompare == nil {
+		return ""
+	}
+	curLabel := m.selectedRunEntry()
+	if curLabel == "" {
+		curLabel = "(default)"
+	}
+	var parts []string
+	if pct, ok := benchDiffPct(curDurAvg, float64(m.benchCompare.DurationAvgNS)); ok {
+		parts = append(parts, fmt.Sprintf("runtime avg %+.1f%% (vs %s)", pct, time.Duration(m.benchCompare.DurationAvgNS)))
+	}
+	if pct, ok := benchDiffPct(curAllocAvg, float64(m.benchCompare.AllocAvg)); ok {
+		parts = append(parts, fmt.Sprintf("memory avg %+.1f%% (vs %s)", pct, formatBytes(float64(m.benchCompare.AllocAvg))))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return styleMuted.Render(fmt.Sprintf("compare: %s (%d runs) vs captured %s (%d runs) — %s",
+		curLabel, len(m.benchRuns), m.benchCompare.EntryLabel, m.benchCompare.Runs, strings.Join(parts, ", ")))
 }
 
 // viewBenchInspect is inspect mode's readout: the selected run's exact
@@ -989,6 +1054,34 @@ func benchBaselineFrom(runs []benchRun) benchBaseline {
 		DurationAvgNS: int64(benchAvgOf(durations)),
 		AllocAvg:      benchAvgOf(allocs),
 	}
+}
+
+// benchCompareSnapshot is one captured batch's headline numbers plus
+// which entry point/how many runs produced it — 'c's session-only,
+// two-entry-point counterpart to benchBaseline (see benchCompare's own
+// doc comment on debugModel for the two features' different use
+// cases). EntryLabel is already the display-ready form
+// ("(default)" for the bare `store`, matching renderEntryOptions'
+// own convention) rather than the raw --store value, so
+// viewBenchCompare never has to re-derive it.
+type benchCompareSnapshot struct {
+	EntryLabel    string
+	Runs          int
+	DurationAvgNS int64
+	AllocAvg      uint64
+}
+
+// benchCompareSnapshotFrom captures runs (the just-finished batch) and
+// entry (m.selectedRunEntry() at the moment 'c' was pressed) into a
+// benchCompareSnapshot — reusing benchBaselineFrom's own average
+// computation rather than a second copy of the same arithmetic.
+func benchCompareSnapshotFrom(runs []benchRun, entry string) benchCompareSnapshot {
+	label := entry
+	if label == "" {
+		label = "(default)"
+	}
+	b := benchBaselineFrom(runs)
+	return benchCompareSnapshot{EntryLabel: label, Runs: len(runs), DurationAvgNS: b.DurationAvgNS, AllocAvg: b.AllocAvg}
 }
 
 // benchDiffPct is how far v has moved from baseline, as a signed

@@ -5148,6 +5148,64 @@ underlying bug is actually gone.
     confirming "(used by 2 other files)" renders exactly where expected
     and files with no importers show no hint at all.
 
+- **Bench tab two-entry-point diff ('c')** (`cmd/crust/debug_bench.go`'s
+  `benchCompareSnapshot`/`benchCompareSnapshotFrom`/
+  `viewBenchCompare`), the last item in the batch — on direct request:
+  "diffing two entry points, not just one against a saved baseline —
+  useful once a day has both a brute-force and optimized
+  `store_part2`."
+  - **Reuses the baseline feature's own shape rather than inventing a
+    second one** — `benchCompareSnapshot` mirrors `benchBaseline`
+    (average duration/memory, computed via the exact same
+    `benchBaselineFrom`), and `viewBenchCompare` mirrors
+    `viewBenchBaseline`'s signed-percentage-diff format
+    (`benchDiffPct`, unmodified). The one real difference: a two-
+    entry-point compare has no single fixed "the" baseline the way a
+    per-file regression baseline does, so `viewBenchCompare` labels
+    *both* sides (`"compare: part2 (10 runs) vs captured part1 (10
+    runs) — ..."`), where `viewBenchBaseline`'s own `"vs baseline:
+    ..."` can safely leave the comparison target unlabeled — there's
+    only ever one baseline, always for this same file.
+  - **Deliberately session-only, never persisted to
+    `debug_state.json`** — the opposite call from 'b's own baseline,
+    and for a reason specific to what each feature is actually for:
+    'b' tracks drift against one fixed comparison point across
+    sessions/days, so persisting it is the whole point; 'c' is for
+    A/B-ing two entry points (or two rewrites of the same one) that
+    are both still open and being actively iterated on *right now* —
+    persisting a capture across a restart would just mean comparing
+    against a stale entry point nobody's touching anymore by the next
+    session. `benchCompare` starts nil at every `newDebugModel` and is
+    never written to disk, confirmed directly by
+    `TestBenchCompareIsNilAtStartup` rather than left as an assumption.
+  - **The workflow crosses tabs by design, not by accident**: capture
+    on the Bench tab ('c'), switch the entry point on the *Run* tab
+    (the same selector `benchCmd` itself already reads from —
+    `m.selectedRunEntry()`), then run a fresh batch back on Bench. No
+    new entry-point picker was added directly on the Bench tab itself
+    — the Run tab's selector is already the single source of truth
+    every batch reads from (the file's own top doc comment: "whichever
+    entry point... the Run tab currently has selected"), so a second
+    picker here would just be two controls that could disagree about
+    which entry point a batch actually used.
+  - `EntryLabel` is captured pre-formatted (`"(default)"` for the bare
+    `store`, matching `renderEntryOptions`' own convention) rather than
+    the raw `--store` value, so `viewBenchCompare` never has to
+    re-derive the same display rule a second place.
+  - Verified with table-driven Go tests (`benchCompareSnapshotFrom`'s
+    averages and default-label case, 'c' requiring at least one run the
+    same way 'b' does, `viewBenchCompare`'s both-sides-labeled diff
+    text and its hidden-until-captured case, `handleBenchResult`
+    clearing the status message but keeping the capture, and the
+    nil-at-startup case) and a real pty session: a file with a fast
+    `store_part1` and a deliberately slow `store_part2` (a tight
+    counting loop, 5,000 vs 500,000 iterations), captured `part1` on
+    Bench, switched to `part2` on Run, ran a fresh batch back on Bench,
+    and confirmed the rendered line — `"compare: part2 (10 runs) vs
+    captured part1 (10 runs) — runtime avg +9152.7% (vs 858.086µs),
+    memory avg +8599.4% (vs 90.1KiB)"` — matched the two batches'
+    actual, very different numbers.
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

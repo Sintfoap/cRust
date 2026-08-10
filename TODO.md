@@ -1929,3 +1929,18 @@ confirmed, not before.
       full design reasoning. Verified with table-driven Go tests and a
       real pty session against a small helper-file-plus-two-importers
       directory.
+- [x] (Stretch) Bench tab two-entry-point diff (`c`) — captures the
+      current batch (entry point, run count, average runtime/memory);
+      switch the Run tab's entry-point selector and run a fresh batch
+      on Bench to see both sides labeled side by side with the same
+      signed-percentage diff `b`'s regression baseline already uses.
+      Deliberately session-only, never persisted — unlike the
+      baseline's own "track drift across sessions" job, this is for
+      A/B-ing a brute-force `store_part2` against an optimized rewrite
+      (or `part1` against `part2`) while both are still open right
+      now. See docs/ARCHITECTURE.md's Phase 6 section for the full
+      design reasoning. Verified with table-driven Go tests and a real
+      pty session: a fast `store_part1` vs a deliberately slow
+      `store_part2`, captured/switched/re-run through the actual TUI,
+      confirming the rendered diff matched the two batches' real
+      numbers.

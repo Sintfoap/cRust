@@ -226,7 +226,11 @@ toggles a panel showing that step's full, untruncated result.
 On the Bench tab: `e` exports the current batch to `<file>.bench.csv`
 (run, duration_ns, alloc_bytes, failed — one row per run). `b` saves
 the current batch's average as a baseline; later batches show `vs
-baseline: ...` as a signed percentage until `b` is pressed again.
+baseline: ...` as a signed percentage until `b` is pressed again. `c`
+captures the current batch (entry point, run count, averages); switch
+the Run tab's entry point and run a fresh batch to see `compare: ...`
+— both sides labeled, same signed-percentage diff, but session-only
+(not remembered across restarts, unlike the baseline).
 
 On the Run tab: output taller than the panel scrolls with pgup/pgdn,
 showing "N more line(s) above/below" hints; a fresh run always

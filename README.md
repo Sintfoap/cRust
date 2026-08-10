@@ -353,7 +353,15 @@ bytes allocated, for spreadsheet analysis or comparing across days;
 `b` saves the current batch's average runtime/memory as a named
 baseline, remembered per file — every batch after that shows how far
 its own average has moved from it, as a signed percentage, until `b`
-is pressed again to replace it), and
+is pressed again to replace it; `c` captures the current batch (which
+entry point, how many runs, its average runtime/memory) for a
+two-entry-point diff — switch the Run tab's entry-point selector to
+whatever you want to compare against (a brute-force `store_part2`
+against an optimized rewrite, or `part1` against `part2`) and run a
+fresh batch on the Bench tab, and it shows both sides labeled side by
+side with the same signed-percentage diff the baseline uses.
+Session-only, unlike the baseline — it's for A/B-ing two things both
+still open right now, not tracking drift across sessions), and
 **Files** (every other `.crust` file alongside the one currently
 open — the natural "AoC folder full of day01.crust..day25.crust"
 layout — ↑↓ to move, enter to switch straight to one without leaving
