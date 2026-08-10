@@ -254,8 +254,13 @@ crust new <day>        # stamp out dayNN.crust from the store_part1/store_part2 
 ```
 crust login            # save your adventofcode.com session cookie ($AOC_SESSION also works)
 crust fetch <day>      # download dayNN_input.txt, start its timer (--year, --force, --out)
+crust submit <day> [answer] --part=<1|2>   # submit an answer; reads stdin if answer is omitted
 crust done <day>       # stop the timer, print elapsed (--year)
 ```
+
+`crust submit` exits 0 only on a correct answer, so it chains with
+`&&`/pipes: `crust run day06.crust --store=part1 < day06_input.txt |
+crust submit 6 --part=1`. Never touches the timer either way.
 
 Entirely opt-in: with no session saved, none of this ever runs.
 `crust develop dayNN.crust` auto-fetches the same way (if

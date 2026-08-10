@@ -5026,6 +5026,76 @@ underlying bug is actually gone.
     stdin, and confirmed the overwrite guard actually refuses a second
     `crust new` for the same day.
 
+- **`crust submit <day> [answer] --part=<1|2>` (`internal/aoc/submit.go`,
+  `cmd/crust/submit.go`)**, the last item in the same "go ahead on
+  those" batch: `crust fetch`/`crust done` already handle getting a
+  day's input and timing how long it takes, but closing the loop back
+  to adventofcode.com itself — actually submitting an answer — still
+  meant leaving the terminal for a browser tab. `Client.Submit` posts
+  the same `level`/`answer` form fields the site's own page does to
+  `/<year>/day/<day>/answer`, reusing `Client`'s existing
+  `Session`/`BaseURL`/`userAgent` plumbing from `FetchInput` rather
+  than a second HTTP setup.
+  - **Response parsing is plain substring matching on a stripped
+    `<article><p>...</p>` extract, not an HTML parser.** AoC has no
+    structured submission API — only this one HTML page — but its own
+    response wording ("That's the right answer", "too low"/"too high",
+    "you gave an answer too recently", "don't seem to be solving the
+    right level") is stable, narrow, and long-documented enough by the
+    AoC community that reaching for a real parser (a new dependency,
+    against the zero-Go-dependency policy) to recognize five known
+    sentences would be over-engineering a problem this doesn't have —
+    the same reasoning `findInts` gave for hand-rolling its own scanner
+    instead of pulling in `regexp`. `stripTags` is a ~15-line
+    depth-counting scan, not a parser: good enough to turn `That's the
+    right answer! <a href="...">[Return to Day N]</a>` into readable
+    plain text, nothing more ambitious attempted.
+  - **`SubmitOutcome` is a closed enum a caller switches on
+    (`OutcomeCorrect`/`OutcomeIncorrect`/`OutcomeTooLow`/
+    `OutcomeTooHigh`/`OutcomeRateLimited`/`OutcomeAlreadySolved`/
+    `OutcomeUnknown`), not just an error-or-not bool** — a caller
+    scripting around this (the whole point of a CLI over a browser)
+    needs to tell "wrong, try again" apart from "rate-limited, wait"
+    apart from "already solved, nothing to do" programmatically, not
+    just read a sentence. `OutcomeTooLow`/`OutcomeTooHigh` get their
+    own values rather than folding into a generic `OutcomeIncorrect`
+    specifically because they're the signal a binary-search-refinement
+    workflow needs. `OutcomeUnknown` (an unrecognized response, AoC
+    wording changing) is deliberately not an error — the HTTP request
+    itself succeeded — so `Message` still carries whatever text came
+    back for the caller to show verbatim.
+  - **`runSubmit` reads the answer from stdin when the CLI omits it**,
+    the one piece with no `crust fetch`/`crust done` precedent to
+    follow: `crust run day06.crust --store=part1 | crust submit 6
+    --part=1` pipes a run's own `deliver()`d answer straight through
+    without a manual copy-paste step, mirroring how cRust programs
+    themselves read input via `unbox()`. Exit code 0 only on
+    `OutcomeCorrect`, every other outcome (including the request
+    succeeding but the answer being wrong) exiting 1 — success-is-0 is
+    what makes `crust submit ... && crust done N`-style chaining work
+    the way every other crust subcommand's exit code already does.
+  - **Deliberately doesn't touch the timer.** `crust fetch`/`crust
+    done`'s own history already reasoned through this: "nothing here
+    checks a run's output against AoC's own accepted answer, so a
+    program finishing without error doesn't mean the day is actually
+    solved." `crust submit` could now tell — but a correct part 1
+    isn't "done" for a two-part day, and auto-stopping on part 2's
+    correct answer would be one more piece of implicit behavior for a
+    command whose only job is reporting what AoC said, matching
+    `runDone`'s own explicit "the solver is the only one who knows
+    that" stance rather than reopening it.
+  - Verified with table-driven Go tests at both layers:
+    `internal/aoc/submit_test.go` (all six outcomes classified
+    correctly against `httptest`-served AoC-shaped HTML, `stripTags`/
+    `articleText` tested directly, bad-session and server-error paths)
+    and `cmd/crust/submit_test.go` (flag/positional parsing including
+    "answer omitted", stdin-fallback, exit codes per outcome, and
+    dispatch wiring through `run()`) — the same "never touch the real
+    adventofcode.com from an automated test" posture `fetch_test.go`
+    already established, for the same two reasons (no legitimate
+    session available here, and not putting load — or in submit's
+    case, a real wrong-answer rate-limit penalty — on the live site).
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

@@ -28,6 +28,7 @@ const usageBody = `Usage:
   crust lsp                                   start a language server on stdin/stdout
   crust login                                 save your adventofcode.com session cookie
   crust fetch <day> [--year Y] [--force]      download that day's puzzle input, start its timer
+  crust submit <day> [answer] --part=<1|2>    submit that day's answer (reads stdin if omitted)
   crust done <day> [--year Y]                 stop that day's timer, print elapsed time
   crust --version                             print the version
   crust --help | -h                           show this help
@@ -60,6 +61,9 @@ Examples:
   crust lsp                         debug: run the language server by hand
   crust login                       save your adventofcode.com session cookie
   crust fetch 1                     download day 1's input, start its timer
+  crust submit 1 42 --part=1        submit 42 as day 1 part 1's answer
+  crust run day01.crust --store=part1 | crust submit 1 --part=1
+                                     pipe a run's output straight in as the answer
   crust done 1                      stop day 1's timer, print how long it took
   crust --toppings=all --help       preview the fully-loaded pizza
   crust --no-color --help           plain-text help, no ANSI
@@ -215,6 +219,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			return 2
 		}
 		return runFetch(day, year, force, out, stdout, stderr)
+	case "submit":
+		day, part, year, answer, err := parseSubmitArgs(rest[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "crust submit: %s\n", err)
+			return 2
+		}
+		return runSubmit(day, part, year, answer, stdin, stdout, stderr)
 	case "done":
 		day, year, err := parseDoneArgs(rest[1:])
 		if err != nil {

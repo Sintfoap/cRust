@@ -205,6 +205,24 @@ really want to redownload it) — a hand-edited or already-fetched input
 file is never silently replaced. `--year <n>` targets a different AoC
 event (default: 2026) on any of `crust fetch`/`crust done`.
 
+Same session cookie, one step further: `crust submit <day> <answer>
+--part=<1|2>` posts an answer to adventofcode.com and prints its
+verdict, exiting 0 only on a correct answer — so it composes with `&&`
+in a shell one-liner. Leave the answer off and it reads the first line
+of stdin instead, which is what makes piping a run's own output
+straight in worthwhile:
+
+```
+crust run day06.crust --store=part1 < day06_input.txt | crust submit 6 --part=1
+# Correct! Day 6 part 1, 2026: That's the right answer! [Return to Day 6]
+```
+
+A wrong answer, AoC's own rate-limit cooldown, or "you already have
+that star" all print AoC's own response text and exit 1 — `crust
+submit` never touches the timer `crust fetch` starts/`crust done`
+stops, since a correct part 1 isn't "done" for the day and only the
+solver knows when they actually are.
+
 `crust repl` starts an interactive session — one persistent
 environment for as long as it's open, so a variable or recipe defined
 on one line is still there on the next:

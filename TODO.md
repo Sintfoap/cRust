@@ -1902,3 +1902,18 @@ confirmed, not before.
       with table-driven Go tests — including one that runs the
       freshly-stamped file through the real interpreter, not just
       checking its text — and a real built binary.
+- [x] (Stretch) `crust submit <day> [answer] --part=<1|2>` — closes the
+      loop `crust fetch`/`crust done` left open: submits an answer to
+      adventofcode.com and classifies the response (correct, wrong —
+      too low/too high, rate-limited, already solved, or unrecognized)
+      via plain substring matching on the response page, no HTML-parser
+      dependency needed. Reads the answer from stdin when omitted, so
+      `crust run day06.crust --store=part1 | crust submit 6 --part=1`
+      pipes straight through. Exits 0 only on a correct answer, for
+      shell chaining. Deliberately never touches the fetch/done timer —
+      see docs/ARCHITECTURE.md's Phase 6 section for why. Verified with
+      table-driven Go tests at both the `internal/aoc` (response
+      classification against `httptest`-served AoC-shaped HTML) and
+      `cmd/crust` (flag parsing, stdin fallback, exit codes, dispatch
+      wiring) layers — never against the real adventofcode.com, same
+      posture `crust fetch`'s own tests already take.
