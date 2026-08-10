@@ -203,7 +203,24 @@ crust done 6
 existing `dayNN_input.txt` (pass `--force` to `crust fetch` if you
 really want to redownload it) — a hand-edited or already-fetched input
 file is never silently replaced. `--year <n>` targets a different AoC
-event (default: 2026) on any of `crust fetch`/`crust done`.
+event (default: 2026) on `crust fetch`/`crust done`/`crust submit`.
+
+Working a past year (not just 2026) through `crust develop` itself:
+pass `--year` there too, and it sticks — remembered per file, the
+same way the entry point/input path already are, so it only needs
+saying once:
+
+```
+crust new 7 --year 2020        # stamps day07.crust's header with 2020 too
+crust develop day07.crust      # already knows 2020 from here on, no --year needed
+# day07.crust — 0 steps · 0s total  ⏱ day 7, 2020: 11s (running)
+```
+
+`crust develop day07.crust --year <other>` on a later invocation
+overrides and re-remembers the new year, the same explicit-flag-wins
+precedence `--store` already follows. Switching to a file that's never
+had `--year` set falls back to 2026, same as always — this only
+matters for files actually set up for a different event.
 
 Same session cookie, one step further: `crust submit <day> <answer>
 --part=<1|2>` posts an answer to adventofcode.com and prints its
@@ -432,17 +449,21 @@ crust develop day01.crust
 
 `--store=<name>` picks the entry point the same way `crust run` does;
 `--max-steps N` bounds the recording for a program that loops far more
-than a terminal (or a human) wants to read through. Each file's
-last-used Run tab settings are remembered in a small JSON file under
-your user config directory (`$XDG_CONFIG_HOME/crust/develop_state.json`,
-or the platform equivalent) — delete it to forget everything, or an
-individual file's entry to forget just that one.
+than a terminal (or a human) wants to read through; `--year <n>`
+targets a past AoC event instead of 2026 (see "Starting a new day"
+above), and sticks for this file once given. Each file's last-used
+Run tab settings — store, input path, and year — are remembered in a
+small JSON file under your user config directory
+(`$XDG_CONFIG_HOME/crust/develop_state.json`, or the platform
+equivalent) — delete it to forget everything, or an individual file's
+entry to forget just that one.
 
 If `crust login` has a session saved, opening `dayNN.crust` here also
 fetches its input (unless `dayNN_input.txt` already exists) and starts
-its timer — see "Starting a new day" above — and the header shows a
-live-ticking `⏱ day N: 3m12s (running)` for as long as that timer's
-going, whichever tab you're on.
+its timer — see "Starting a new day" above — using whichever year this
+file resolves to (2026, unless `--year` set something else for it),
+and the header shows a live-ticking `⏱ day N, YYYY: 3m12s (running)`
+for as long as that timer's going, whichever tab you're on.
 
 ### Documentation site
 

@@ -5206,6 +5206,78 @@ underlying bug is actually gone.
     memory avg +8599.4% (vs 90.1KiB)"` — matched the two batches'
     actual, very different numbers.
 
+- **`--year` on `crust develop`/`crust new`**, from a direct follow-up
+  question after the stretch-goal batch above shipped: `crust fetch`/
+  `crust done`/`crust submit` already accepted `--year` per call, but
+  `crust develop`'s own auto-fetch, timer, and header stopwatch
+  (`debug_aoc.go`) were still hardcoded to `defaultAoCYear` everywhere
+  — a solver working a past AoC year through `develop` would have had
+  its auto-fetch silently reach for the wrong event's input, and its
+  timer silently key off the wrong year's record, with no flag able to
+  fix either one. README's own `--year` documentation had scoped the
+  flag to just fetch/done, confirming this wasn't an oversight in the
+  docs — the feature genuinely didn't exist yet for `develop`.
+  - **`debugOptions.Year` resolves once, early, and every downstream
+    reader trusts it** — `applySavedOptions` (renamed from
+    `applySavedStore`, now resolving Store *and* Year in one pass) runs
+    before `maybeAutoFetchInput` in `runDebug`, specifically so the
+    auto-fetch itself — not just the header, after the fact — reaches
+    the right year. It always leaves `opts.Year` non-zero (falling back
+    to `defaultAoCYear` itself if neither an explicit flag nor a saved
+    value exists), so `maybeAutoFetchInput`/`aocTimerRunning`/
+    `aocStatusLine` never need their own zero-value handling — except
+    `aocYear()` still adds one anyway, purely as a second line of
+    defense for any `debugModel` built without going through
+    `runDebug` at all (most existing tests construct one directly via
+    `newDebugModel`), so the invariant holds even for code paths that
+    never got the memo.
+  - **An explicit `--year` persists immediately, unlike `--store`.**
+    Every other per-file setting (`Store`/`Input`/`RunAll`) is saved
+    only once something's actually *run* from the interactive Run tab
+    — there's no equivalent "run" action for a year, since nothing in
+    the TUI ever sets one interactively. The CLI flag is the only way
+    Year is ever set at all, so it has to stick the moment it's given,
+    or a solver working a past year would be back to retyping `--year`
+    on every single invocation — exactly the friction being removed.
+    `saveYearBestEffort` mirrors `saveBenchBaselineBestEffort`'s own
+    read-mutate-write-preserve-everything-else shape. The common case
+    (no `--year`, this year's puzzle) never writes a `Year` entry at
+    all (`omitempty`, and `applySavedOptions`'s own defaulting-to-2026
+    step happens *after* the explicit-or-not check that gates saving)
+    — `develop_state.json` doesn't get a `"year": 2026` line for every
+    ordinary file that never needed one.
+  - **`crust new` got the same flag for the same reason, one layer
+    earlier** — `crust new 7 --year 2020` stamps 2020 into the file's
+    own header comment *and* calls the same `saveYearBestEffort`
+    immediately, so the very first `crust develop day07.crust`
+    afterward already resolves to 2020 with no `--year` of its own.
+    Closes the loop end-to-end: past-year setup is genuinely one flag,
+    once, not one flag repeated on every subsequent command.
+  - **The header now shows the year, not just the day**
+    (`"⏱ day 7, 2020: 11s (running)"`, was `"⏱ day 7: ..."`) — day
+    numbers repeat across every AoC event, so once a file's year can
+    actually differ from 2026, leaving it out of the one place solvers
+    glance at to check the clock would be genuinely ambiguous about
+    which year's timer that even is.
+  - Verified with table-driven Go tests across every layer this
+    touches (`parseDebugArgs`'s `--year` parsing in both forms,
+    `applySavedOptions`'s explicit-wins/fills-in/defaults-to-2026
+    cases for Year specifically, `saveYearBestEffort`'s persistence
+    and preservation of other settings, `maybeAutoFetchInput` actually
+    fetching under a passed year — not 2026 — confirmed against both
+    the request path (`/2020/day/3/input`) and that 2020's and 2026's
+    timer records stay genuinely independent, `aocYear`'s fallback,
+    `aocStatusLine`/`aocTimerRunning` reading `opts.Year`, and
+    `runDebug`'s own persist-on-explicit/reuse-when-saved round trip)
+    plus real end-to-end verification against the actual built binary:
+    `crust new 7 --year 2020` (confirmed the stamped header and the
+    saved `develop_state.json` entry), then a real pty session driving
+    `crust develop day07.crust` with a pre-seeded 2020 timer record and
+    *no* `--year` flag on that invocation at all, confirming the header
+    rendered `"⏱ day 7, 2020: 11s (running)"` purely from the
+    remembered state — and a follow-up `--year 2026` invocation
+    confirmed the explicit-override-and-re-persist path too.
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

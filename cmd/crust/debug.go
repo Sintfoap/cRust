@@ -29,6 +29,17 @@ type debugOptions struct {
 	Store    string // --store=<name>: which store_<name> to run as the entry point
 	MaxSteps int    // --max-steps N: capture bound (0 = the recorder's default)
 	Plain    bool   // --plain: print the trace as text instead of opening the TUI
+
+	// Year is --year N: which AoC event this file's auto-fetch/timer/
+	// stopwatch (debug_aoc.go) target — 0 here means "not passed on
+	// this invocation," resolved to a real year (an explicit --year, a
+	// remembered one, or defaultAoCYear) by applySavedOptions before
+	// anything reads it. Unlike Store/MaxSteps, an explicit --year is
+	// persisted immediately (debug.go's runDebug), not only once
+	// something's actually run — there's no interactive place in the
+	// TUI to set a year the way the Run tab's entry-point selector sets
+	// Store, so the CLI flag is the only way it's ever set at all.
+	Year int
 }
 
 // parseDebugArgs parses `crust develop` arguments — the same
@@ -63,6 +74,22 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 				return "", opts, fmt.Errorf("--max-steps needs a positive number, got %q", args[i])
 			}
 			opts.MaxSteps = n
+		case strings.HasPrefix(a, "--year="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--year="))
+			if err != nil {
+				return "", opts, fmt.Errorf("invalid --year %q", strings.TrimPrefix(a, "--year="))
+			}
+			opts.Year = n
+		case a == "--year":
+			if i+1 >= len(args) {
+				return "", opts, fmt.Errorf("--year needs a value")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return "", opts, fmt.Errorf("invalid --year %q", args[i])
+			}
+			opts.Year = n
 		case strings.HasPrefix(a, "-"):
 			return "", opts, fmt.Errorf("unknown flag %q for develop", a)
 		default:
@@ -104,11 +131,18 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // just to report one. It's still shown, in place, as the step that
 // produced it.
 //
-// applySavedStore fills in an unset --store from this file's
-// remembered settings (debug_state.go) before anything else runs, so
-// a --plain recording (and the TUI's Run-tab entry-point selector's
-// starting position) already reflects whichever entry point was last
-// used here.
+// applySavedOptions fills in an unset --store and resolves --year from
+// this file's remembered settings (debug_state.go) before anything
+// else runs, so a --plain recording (and the TUI's Run-tab entry-point
+// selector's starting position, and its header's AoC year) already
+// reflect whichever entry point/year were last used here. An explicit
+// --year on this invocation is saved right back out immediately
+// (unlike --store, which only persists once something's actually run
+// from the Run tab) — there's no interactive place in the TUI to set a
+// year the way the Run tab sets Store, so the CLI flag is the only way
+// it's ever set, and it needs to stick the moment it's given or a
+// solver working a past year would have to repeat --year on every
+// single invocation, exactly the friction this exists to remove.
 //
 // ensureFileExists runs first, ahead of even that: starting a new
 // AoC day's file is the single most common reason to invoke `develop`
@@ -120,19 +154,25 @@ func parseDebugArgs(args []string) (string, debugOptions, error) {
 // nvim hand-off one tab-key away (or, --plain, an (empty, harmless)
 // "0 steps" printout) instead of a dead end.
 //
-// maybeAutoFetchInput (debug_aoc.go) runs right after: if path's name
-// parses as a day number and a session cookie has been saved (`crust
-// login`), its input gets fetched and its timer started the same way
-// `crust fetch` would — entirely opt-in, and a no-op the moment
-// there's no saved session to use.
+// maybeAutoFetchInput (debug_aoc.go) runs right after year resolution:
+// if path's name parses as a day number and a session cookie has been
+// saved (`crust login`), that day's *resolved* year's input gets
+// fetched and its timer started the same way `crust fetch --year`
+// would — entirely opt-in, and a no-op the moment there's no saved
+// session to use.
 func runDebug(path string, opts debugOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := ensureFileExists(path, stderr); err != nil {
 		fmt.Fprintf(stderr, "crust develop: %s\n", err)
 		return 1
 	}
-	maybeAutoFetchInput(path, stderr)
 
-	opts = applySavedStore(path, opts)
+	explicitYear := opts.Year != 0
+	opts = applySavedOptions(path, opts)
+	if explicitYear {
+		saveYearBestEffort(path, opts.Year)
+	}
+
+	maybeAutoFetchInput(path, opts.Year, stderr)
 
 	if opts.Plain || !isColorTerminal(stdout) {
 		view, err := buildDebugView(path, opts, stdin, stdout)

@@ -254,7 +254,8 @@ moving the source cursor, with "N more above/below" hints and a
 ## Starting a new day
 
 ```
-crust new <day>        # stamp out dayNN.crust from the store_part1/store_part2 template (--force)
+crust new <day>              # stamp out dayNN.crust from the store_part1/store_part2 template (--force)
+crust new <day> --year 2020  # same, but for a past AoC event -- year sticks for this file from here on
 ```
 
 ## Puzzle input + timer (optional)
@@ -262,7 +263,7 @@ crust new <day>        # stamp out dayNN.crust from the store_part1/store_part2 
 ```
 crust login            # save your adventofcode.com session cookie ($AOC_SESSION also works)
 crust fetch <day>      # download dayNN_input.txt, start its timer (--year, --force, --out)
-crust submit <day> [answer] --part=<1|2>   # submit an answer; reads stdin if answer is omitted
+crust submit <day> [answer] --part=<1|2>   # submit an answer; reads stdin if answer is omitted (--year)
 crust done <day>       # stop the timer, print elapsed (--year)
 ```
 
@@ -271,6 +272,10 @@ crust done <day>       # stop the timer, print elapsed (--year)
 crust submit 6 --part=1`. Never touches the timer either way.
 
 Entirely opt-in: with no session saved, none of this ever runs.
-`crust develop dayNN.crust` auto-fetches the same way (if
-`dayNN_input.txt` isn't already there) and shows a live `⏱ day N:
-3m12s (running)` in its header for as long as the timer's going.
+`crust develop dayNN.crust [--year Y]` auto-fetches the same way (if
+`dayNN_input.txt` isn't already there) and shows a live `⏱ day N,
+YYYY: 3m12s (running)` in its header for as long as the timer's going.
+`--year` on `develop` (or `new`) is remembered per file — set it once
+and every later `crust develop dayNN.crust` already knows it, no
+`--year` required again. An explicit `--year` on a later invocation
+still overrides and re-remembers.

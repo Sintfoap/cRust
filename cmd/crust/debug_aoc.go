@@ -59,16 +59,17 @@ func aocInputPath(path string, day int) string {
 	return filepath.Join(filepath.Dir(path), fmt.Sprintf("day%02d_input.txt", day))
 }
 
-// maybeAutoFetchInput downloads path's day's puzzle input and starts
-// its timer, but only when every one of these hold: path's filename
-// parses as a day number, a session cookie has been saved, and the
-// input file isn't already sitting there (never overwrites something
-// that already exists — same protection `crust fetch` gives without
-// --force). Any fetch failure (day not unlocked yet, bad cookie, a
-// network error) is reported but never fatal to `crust develop`
-// itself — the whole feature is a convenience on top of a workflow
-// that works fine without it.
-func maybeAutoFetchInput(path string, stderr io.Writer) {
+// maybeAutoFetchInput downloads path's day's puzzle input (for year —
+// runDebug always passes an already-resolved one, see
+// applySavedOptions) and starts its timer, but only when every one of
+// these hold: path's filename parses as a day number, a session cookie
+// has been saved, and the input file isn't already sitting there
+// (never overwrites something that already exists — same protection
+// `crust fetch` gives without --force). Any fetch failure (day not
+// unlocked yet, bad cookie, a network error) is reported but never
+// fatal to `crust develop` itself — the whole feature is a convenience
+// on top of a workflow that works fine without it.
+func maybeAutoFetchInput(path string, year int, stderr io.Writer) {
 	day, ok := dayNumberFromPath(path)
 	if !ok {
 		return
@@ -83,17 +84,32 @@ func maybeAutoFetchInput(path string, stderr io.Writer) {
 	}
 
 	client := &aoc.Client{Session: session, BaseURL: fetchBaseURL}
-	data, err := client.FetchInput(defaultAoCYear, day)
+	data, err := client.FetchInput(year, day)
 	if err != nil {
-		fmt.Fprintf(stderr, "crust develop: auto-fetch for day %d failed: %s\n", day, err)
+		fmt.Fprintf(stderr, "crust develop: auto-fetch for day %d, %d failed: %s\n", day, year, err)
 		return
 	}
 	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
 		fmt.Fprintf(stderr, "crust develop: auto-fetch: writing %s: %s\n", inputPath, err)
 		return
 	}
-	_ = aoc.StartTimer(defaultAoCYear, day)
-	fmt.Fprintf(stderr, "crust develop: fetched day %d input to %s — timer started\n", day, inputPath)
+	_ = aoc.StartTimer(year, day)
+	fmt.Fprintf(stderr, "crust develop: fetched day %d, %d input to %s — timer started\n", day, year, inputPath)
+}
+
+// aocYear returns m.opts.Year, falling back to defaultAoCYear for any
+// debugModel built without going through runDebug's own
+// applySavedOptions resolution (most existing tests construct one
+// directly via newDebugModel, leaving opts.Year at its zero value) —
+// the same "always end up with a real year, never 0" guarantee
+// applySavedOptions itself gives the normal startup path, just
+// enforced again here so aocTimerRunning/aocStatusLine never depend on
+// every caller having gone through that path first.
+func (m debugModel) aocYear() int {
+	if m.opts.Year != 0 {
+		return m.opts.Year
+	}
+	return defaultAoCYear
 }
 
 // aocTimerRunning reports whether m's current file has a day number
@@ -104,7 +120,7 @@ func (m debugModel) aocTimerRunning() bool {
 	if !ok {
 		return false
 	}
-	_, running := aoc.Elapsed(defaultAoCYear, day)
+	_, running := aoc.Elapsed(m.aocYear(), day)
 	return running
 }
 
@@ -112,13 +128,17 @@ func (m debugModel) aocTimerRunning() bool {
 // if this file has no day number or no timer record at all (a file
 // nobody's ever `crust fetch`ed or `crust done`d shows nothing —
 // there's no "0s, not started" clutter for solvers not using the
-// feature).
+// feature). Includes the year (not just the day) now that a file's
+// year is no longer always defaultAoCYear — day 1 exists in every AoC
+// event, so leaving it out once --year is actually in play would be
+// genuinely ambiguous about which one's timer this is.
 func (m debugModel) aocStatusLine() string {
 	day, ok := dayNumberFromPath(m.view.path)
 	if !ok {
 		return ""
 	}
-	elapsed, running := aoc.Elapsed(defaultAoCYear, day)
+	year := m.aocYear()
+	elapsed, running := aoc.Elapsed(year, day)
 	if elapsed == 0 && !running {
 		return ""
 	}
@@ -126,7 +146,7 @@ func (m debugModel) aocStatusLine() string {
 	if running {
 		state = "running"
 	}
-	return fmt.Sprintf("  ⏱ day %d: %s (%s)", day, elapsed.Round(time.Second), state)
+	return fmt.Sprintf("  ⏱ day %d, %d: %s (%s)", day, year, elapsed.Round(time.Second), state)
 }
 
 // aocTickMsg drives the header's live stopwatch: a redraw once a

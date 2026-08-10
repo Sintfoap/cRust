@@ -60,7 +60,7 @@ func TestMaybeAutoFetchInputSkipsWithoutSession(t *testing.T) {
 	path := filepath.Join(dir, "day01.crust")
 
 	var stderr bytes.Buffer
-	maybeAutoFetchInput(path, &stderr)
+	maybeAutoFetchInput(path, 2026, &stderr)
 
 	if _, err := os.Stat(aocInputPath(path, 1)); err == nil {
 		t.Error("expected no input file written with no session configured")
@@ -79,7 +79,7 @@ func TestMaybeAutoFetchInputSkipsForNonDayFile(t *testing.T) {
 	path := filepath.Join(dir, "scratch.crust")
 
 	var stderr bytes.Buffer
-	maybeAutoFetchInput(path, &stderr)
+	maybeAutoFetchInput(path, 2026, &stderr)
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want silence for a file with no day number", stderr.String())
 	}
@@ -103,7 +103,7 @@ func TestMaybeAutoFetchInputFetchesAndStartsTimer(t *testing.T) {
 	path := filepath.Join(dir, "day03.crust")
 
 	var stderr bytes.Buffer
-	maybeAutoFetchInput(path, &stderr)
+	maybeAutoFetchInput(path, 2026, &stderr)
 
 	data, err := os.ReadFile(aocInputPath(path, 3))
 	if err != nil {
@@ -119,6 +119,47 @@ func TestMaybeAutoFetchInputFetchesAndStartsTimer(t *testing.T) {
 	_, running := aoc.Elapsed(2026, 3)
 	if !running {
 		t.Error("expected auto-fetch to start the timer")
+	}
+}
+
+// TestMaybeAutoFetchInputUsesThePassedYearNotHardcoded2026 confirms the
+// year threading actually works: a past-year fetch/timer lands on that
+// year, not on whatever defaultAoCYear happens to be — the whole point
+// of `crust develop --year`.
+func TestMaybeAutoFetchInputUsesThePassedYearNotHardcoded2026(t *testing.T) {
+	withTempConfigHome(t)
+	if err := aoc.SaveSession("s"); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Write([]byte("2020 puzzle input\n"))
+	}))
+	defer srv.Close()
+	old := fetchBaseURL
+	fetchBaseURL = srv.URL
+	t.Cleanup(func() { fetchBaseURL = old })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "day03.crust")
+
+	var stderr bytes.Buffer
+	maybeAutoFetchInput(path, 2020, &stderr)
+
+	if gotPath != "/2020/day/3/input" {
+		t.Errorf("fetched path = %q, want /2020/day/3/input", gotPath)
+	}
+	if !strings.Contains(stderr.String(), "day 3, 2020") {
+		t.Errorf("stderr = %q, want it to mention day 3, 2020", stderr.String())
+	}
+
+	if _, running := aoc.Elapsed(2020, 3); !running {
+		t.Error("expected the timer to start under year 2020")
+	}
+	if _, running := aoc.Elapsed(2026, 3); running {
+		t.Error("expected no timer started under defaultAoCYear (2026) when --year 2020 was requested")
 	}
 }
 
@@ -144,7 +185,7 @@ func TestMaybeAutoFetchInputNeverOverwritesExistingInput(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	maybeAutoFetchInput(path, &stderr)
+	maybeAutoFetchInput(path, 2026, &stderr)
 
 	data, _ := os.ReadFile(inputPath)
 	if string(data) != "hand-edited input\n" {
@@ -222,6 +263,55 @@ func TestAocStatusLineShowsStoppedTimer(t *testing.T) {
 	}
 	if m.aocTimerRunning() {
 		t.Error("aocTimerRunning() = true, want false once stopped")
+	}
+}
+
+func TestAocYearFallsBackToDefaultWhenUnset(t *testing.T) {
+	m := debugModel{}
+	if got := m.aocYear(); got != defaultAoCYear {
+		t.Errorf("aocYear() = %d, want %d (fallback)", got, defaultAoCYear)
+	}
+}
+
+func TestAocYearUsesOptsYearWhenSet(t *testing.T) {
+	m := debugModel{opts: debugOptions{Year: 2020}}
+	if got := m.aocYear(); got != 2020 {
+		t.Errorf("aocYear() = %d, want 2020", got)
+	}
+}
+
+// TestAocStatusLineUsesOptsYearNotHardcoded2026 confirms the header's
+// stopwatch actually reads whichever year opts.Year resolved to,
+// rather than always assuming defaultAoCYear the way it did before
+// `crust develop --year` existed.
+func TestAocStatusLineUsesOptsYearNotHardcoded2026(t *testing.T) {
+	withTempConfigHome(t)
+	path := writeAocDebugFile(t, t.TempDir(), "day02.crust")
+	if err := aoc.StartTimer(2020, 2); err != nil {
+		t.Fatalf("StartTimer: %v", err)
+	}
+
+	view, err := emptyDebugView(path)
+	if err != nil {
+		t.Fatalf("emptyDebugView: %v", err)
+	}
+	m := newDebugModel(view)
+	m.opts.Year = 2020
+
+	got := m.aocStatusLine()
+	if !strings.Contains(got, "day 2, 2020") || !strings.Contains(got, "running") {
+		t.Errorf("aocStatusLine() = %q, want it to mention day 2, 2020 and running", got)
+	}
+	if !m.aocTimerRunning() {
+		t.Error("aocTimerRunning() = false, want true for the 2020 timer")
+	}
+
+	// A model still defaulted to defaultAoCYear should see nothing
+	// running for this same day -- 2020's timer and 2026's are
+	// genuinely independent records.
+	m2 := newDebugModel(view)
+	if m2.aocTimerRunning() {
+		t.Error("aocTimerRunning() = true for defaultAoCYear, want false (the running timer is under 2020)")
 	}
 }
 

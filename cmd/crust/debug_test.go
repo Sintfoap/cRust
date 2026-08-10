@@ -54,6 +54,84 @@ func TestParseDebugArgs(t *testing.T) {
 	}
 }
 
+func TestParseDebugArgsYear(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantYear int
+		wantErr  bool
+	}{
+		{"no year", []string{"day01.crust"}, 0, false},
+		{"equals form", []string{"day01.crust", "--year=2020"}, 2020, false},
+		{"space form", []string{"day01.crust", "--year", "2020"}, 2020, false},
+		{"bad value", []string{"day01.crust", "--year=nope"}, 0, true},
+		{"missing value", []string{"day01.crust", "--year"}, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, opts, err := parseDebugArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseDebugArgs(%v) = %+v, want an error", tt.args, opts)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDebugArgs(%v) unexpected error: %v", tt.args, err)
+			}
+			if opts.Year != tt.wantYear {
+				t.Errorf("parseDebugArgs(%v).Year = %d, want %d", tt.args, opts.Year, tt.wantYear)
+			}
+		})
+	}
+}
+
+// TestRunDebugPersistsExplicitYear confirms an explicit `crust develop
+// --year` sticks for next time — the one place Year's persistence
+// genuinely differs from Store's own "only saved once something's
+// actually run from the Run tab" behavior, since there's no
+// interactive equivalent for setting a year.
+func TestRunDebugPersistsExplicitYear(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, `deliver("hi")`)
+
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{Year: 2020, Plain: true}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	saved := loadDevelState()[mustAbs(t, path)]
+	if saved.Year != 2020 {
+		t.Errorf("saved Year = %d, want 2020", saved.Year)
+	}
+}
+
+// TestRunDebugUsesSavedYearWhenNoneGiven mirrors
+// TestRunDebugUsesSavedStoreWhenNoneGiven for Year: once persisted,
+// reopening the file with no --year at all should still resolve to the
+// remembered one.
+func TestRunDebugUsesSavedYearWhenNoneGiven(t *testing.T) {
+	withTempDevelStateDir(t)
+	path := writeDebugFile(t, `deliver("hi")`)
+	if err := saveDevelState(mustAbs(t, path), develState{Year: 2020}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runDebug(path, debugOptions{Plain: true}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+
+	// Still 2020 afterward -- resolving from the saved state shouldn't
+	// have overwritten it with defaultAoCYear.
+	saved := loadDevelState()[mustAbs(t, path)]
+	if saved.Year != 2020 {
+		t.Errorf("saved Year = %d, want 2020 (should be untouched)", saved.Year)
+	}
+}
+
 func writeDebugFile(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -151,7 +229,7 @@ recipe store_part2() { deliver("two") }
 	}
 }
 
-// TestRunDebugUsesSavedStoreWhenNoneGiven confirms applySavedStore is
+// TestRunDebugUsesSavedStoreWhenNoneGiven confirms applySavedOptions is
 // actually wired into runDebug: with no explicit --store, a
 // remembered store for this file (debug_state.go) should be used for
 // the very first recording, same as passing --store=part2 by hand

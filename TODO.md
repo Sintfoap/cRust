@@ -1944,3 +1944,20 @@ confirmed, not before.
       `store_part2`, captured/switched/re-run through the actual TUI,
       confirming the rendered diff matched the two batches' real
       numbers.
+- [x] (Stretch) `--year` on `crust develop`/`crust new` — `crust
+      fetch`/`crust done`/`crust submit` already accepted `--year`,
+      but `crust develop`'s own auto-fetch/timer/header stopwatch were
+      still hardcoded to 2026, so a past-year puzzle's auto-fetch
+      would silently reach for the wrong event. `--year` on `develop`
+      (or `new`) is now remembered per file the moment it's given —
+      set it once, every later invocation already knows it, no need
+      to repeat the flag. The header now shows the year too
+      (`⏱ day 7, 2020: 11s (running)`), since day numbers repeat
+      across every AoC event. See docs/ARCHITECTURE.md's Phase 6
+      section for the full design reasoning. Verified with
+      table-driven Go tests across every layer this touches, plus
+      real end-to-end verification against the actual built binary:
+      `crust new 7 --year 2020`, then a real pty session driving
+      `crust develop day07.crust` (no `--year` on that invocation)
+      confirming the header correctly read 2020 from the remembered
+      state alone.

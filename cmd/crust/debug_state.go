@@ -19,6 +19,17 @@ type develState struct {
 	BenchCount    int            `json:"benchCount,omitempty"`
 	BenchBaseline *benchBaseline `json:"benchBaseline,omitempty"`
 
+	// Year backs `crust develop`'s --year flag (debug_aoc.go): which
+	// AoC event this file's auto-fetch/timer/stopwatch target. Unlike
+	// Store/Input/RunAll (only ever saved once something's actually
+	// run from the Run tab), Year is saved the moment an explicit
+	// --year is passed on the command line — see debugOptions.Year's
+	// own doc comment for why. Omitted from the JSON (omitempty) for
+	// every file that's never had an explicit --year, which is most of
+	// them — no reason to clutter develop_state.json with an entry
+	// that's just defaultAoCYear spelled out.
+	Year int `json:"year,omitempty"`
+
 	// LiveBreakpoints backs the Live tab (debug_live.go): line numbers
 	// with a breakpoint set, so they're still there the next time this
 	// file is opened rather than needing to be re-marked from scratch
@@ -114,26 +125,52 @@ func saveDevelStateBestEffort(path, store, input string, runAll bool) {
 	_ = saveDevelState(abs, develState{Store: store, Input: input, RunAll: runAll})
 }
 
-// applySavedStore fills in opts.Store from path's remembered settings
-// when the caller didn't already pass an explicit --store — an
-// explicit flag always wins over a remembered default, the same
-// precedence any "remember my last choice" feature gives an explicit
-// override. Applied before the very first recording is built
-// (runDebug), so both --plain and the TUI's initial Time/Memory/
-// Stepper tabs already reflect the last store used, not just the Run
-// tab after it's re-run once.
-func applySavedStore(path string, opts debugOptions) debugOptions {
-	if opts.Store != "" {
-		return opts
-	}
+// applySavedOptions fills in opts.Store and opts.Year from path's
+// remembered settings when the caller didn't already pass an explicit
+// --store/--year — an explicit flag always wins over a remembered
+// default, the same precedence any "remember my last choice" feature
+// gives an explicit override. Applied before the very first recording
+// is built (runDebug), so both --plain and the TUI's initial
+// Time/Memory/Stepper tabs (and header) already reflect the last
+// store/year used, not just the Run tab after it's re-run once.
+//
+// opts.Year is always left resolved to a real year by the time this
+// returns — defaultAoCYear if neither an explicit flag nor a saved
+// value exists — so every caller downstream (maybeAutoFetchInput,
+// aocTimerRunning, aocStatusLine) can just use it directly without its
+// own zero-value fallback.
+func applySavedOptions(path string, opts debugOptions) debugOptions {
 	abs, err := filepath.Abs(path)
-	if err != nil {
-		return opts
+	if err == nil {
+		if saved, ok := loadDevelState()[abs]; ok {
+			if opts.Store == "" {
+				opts.Store = saved.Store
+			}
+			if opts.Year == 0 {
+				opts.Year = saved.Year
+			}
+		}
 	}
-	if saved, ok := loadDevelState()[abs]; ok {
-		opts.Store = saved.Store
+	if opts.Year == 0 {
+		opts.Year = defaultAoCYear
 	}
 	return opts
+}
+
+// saveYearBestEffort persists path's --year as its new remembered AoC
+// event, preserving whatever else was already remembered for it — the
+// same read-mutate-write shape saveBenchBaselineBestEffort/
+// saveLiveBreakpointsBestEffort already use, and the same best-effort
+// "a write failure shouldn't interrupt anything" reasoning.
+func saveYearBestEffort(path string, year int) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	all := loadDevelState()
+	s := all[abs]
+	s.Year = year
+	_ = saveDevelState(abs, s)
 }
 
 // restoreRunInput returns a runInputModel pre-filled with path's

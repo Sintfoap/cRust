@@ -196,8 +196,8 @@ func (m debugModel) switchToSelectedFile() debugModel {
 // session begins with (runDebug's real-terminal path builds an
 // emptyDebugView before bubbletea ever takes the screen, so that a
 // store recipe's unbox() can never silently eat a keystroke meant for
-// the TUI). Every per-file setting (opts.Store, the Run tab's input
-// path and run-all toggle) is reloaded from that new file's own
+// the TUI). Every per-file setting (opts.Store, opts.Year, the Run
+// tab's input path and run-all toggle) is reloaded from that new file's own
 // remembered state (debug_state.go) rather than carried over from the
 // file being left, the same way a fresh `crust develop otherday.crust`
 // invocation would start. A parse failure in the target file is shown
@@ -218,7 +218,7 @@ func (m debugModel) switchToFile(path string) debugModel {
 	m.cursor, m.top = 0, 0
 	m.rebuildRows()
 
-	m.opts = applySavedStore(path, debugOptions{MaxSteps: m.opts.MaxSteps})
+	m.opts = applySavedOptions(path, debugOptions{MaxSteps: m.opts.MaxSteps})
 	m.runEntryIndex = indexOfEntry(view.entryPoints(), m.opts.Store)
 	m.runEntryFocused = false
 	m.runInput = restoreRunInput(path)

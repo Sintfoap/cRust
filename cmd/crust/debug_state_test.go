@@ -109,33 +109,79 @@ func TestDevelStatePathErrorPropagates(t *testing.T) {
 	}
 }
 
-func TestApplySavedStoreExplicitFlagWins(t *testing.T) {
+func TestApplySavedOptionsExplicitStoreWins(t *testing.T) {
 	dir := withTempDevelStateDir(t)
 	path := filepath.Join(dir, "day07.crust")
 	saveDevelState(mustAbs(t, path), develState{Store: "part2"})
 
-	got := applySavedStore(path, debugOptions{Store: "part1"})
+	got := applySavedOptions(path, debugOptions{Store: "part1"})
 	if got.Store != "part1" {
 		t.Errorf("Store = %q, want %q (explicit flag should win)", got.Store, "part1")
 	}
 }
 
-func TestApplySavedStoreFillsInWhenUnset(t *testing.T) {
+func TestApplySavedOptionsFillsInStoreWhenUnset(t *testing.T) {
 	dir := withTempDevelStateDir(t)
 	path := filepath.Join(dir, "day07.crust")
 	saveDevelState(mustAbs(t, path), develState{Store: "part2"})
 
-	got := applySavedStore(path, debugOptions{})
+	got := applySavedOptions(path, debugOptions{})
 	if got.Store != "part2" {
 		t.Errorf("Store = %q, want %q (remembered store)", got.Store, "part2")
 	}
 }
 
-func TestApplySavedStoreNoSavedEntryLeavesEmpty(t *testing.T) {
+func TestApplySavedOptionsNoSavedEntryLeavesStoreEmpty(t *testing.T) {
 	withTempDevelStateDir(t)
-	got := applySavedStore("/no/such/day07.crust", debugOptions{})
+	got := applySavedOptions("/no/such/day07.crust", debugOptions{})
 	if got.Store != "" {
 		t.Errorf("Store = %q, want empty (nothing remembered)", got.Store)
+	}
+}
+
+func TestApplySavedOptionsExplicitYearWins(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "day07.crust")
+	saveDevelState(mustAbs(t, path), develState{Year: 2020})
+
+	got := applySavedOptions(path, debugOptions{Year: 2019})
+	if got.Year != 2019 {
+		t.Errorf("Year = %d, want 2019 (explicit flag should win)", got.Year)
+	}
+}
+
+func TestApplySavedOptionsFillsInYearWhenUnset(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "day07.crust")
+	saveDevelState(mustAbs(t, path), develState{Year: 2020})
+
+	got := applySavedOptions(path, debugOptions{})
+	if got.Year != 2020 {
+		t.Errorf("Year = %d, want 2020 (remembered year)", got.Year)
+	}
+}
+
+func TestApplySavedOptionsDefaultsYearWhenNothingSavedOrPassed(t *testing.T) {
+	withTempDevelStateDir(t)
+	got := applySavedOptions("/no/such/day07.crust", debugOptions{})
+	if got.Year != defaultAoCYear {
+		t.Errorf("Year = %d, want %d (defaultAoCYear)", got.Year, defaultAoCYear)
+	}
+}
+
+func TestSaveYearBestEffortPersistsAndPreservesOtherSettings(t *testing.T) {
+	dir := withTempDevelStateDir(t)
+	path := filepath.Join(dir, "day07.crust")
+	saveDevelStateBestEffort(path, "part1", "input.txt", true)
+
+	saveYearBestEffort(path, 2020)
+
+	saved := loadDevelState()[mustAbs(t, path)]
+	if saved.Year != 2020 {
+		t.Errorf("Year = %d, want 2020", saved.Year)
+	}
+	if saved.Store != "part1" || saved.Input != "input.txt" || !saved.RunAll {
+		t.Errorf("saved = %+v, want store/input/runAll preserved alongside the new year", saved)
 	}
 }
 

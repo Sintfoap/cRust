@@ -20,8 +20,9 @@ const usageBody = `Usage:
   crust repl                                  start an interactive REPL
   crust tokens <file.crust>                   print the lexer's token stream and exit
   crust parse <file.crust>                    print the parsed AST and exit
-  crust develop <file.crust> [--store=<name>] step through a run: time/memory per function
-  crust new <day> [--force]                   stamp out dayNN.crust from the starter template
+  crust develop <file.crust> [--store=<name>] [--year Y]
+                                               step through a run: time/memory per function
+  crust new <day> [--year Y] [--force]        stamp out dayNN.crust from the starter template
   crust fmt <file.crust> [-w]                 print (or write, with -w) canonically formatted source
   crust bake documentation [-p <port>]        serve the docs site, open a browser
   crust bake playground [-p <port>]           serve an in-browser cRust sandbox (WASM)
@@ -38,7 +39,10 @@ Run flags:
                   point (default: the bare "store", if the file has one)
 
 Fetch flags:
-  --year <n>   AoC event year (default: 2026)
+  --year <n>   AoC event year (default: 2026) -- also accepted by
+               develop/new/submit/done for working a past year's
+               puzzles; on develop/new it's remembered per file, so
+               it only needs to be given once
   --force      overwrite an existing input file
   --out <path> where to save the input (default: dayNN_input.txt)
 
@@ -54,6 +58,8 @@ Examples:
   crust parse day01.crust           debug: see how it parses
   crust develop day01.crust         step through a run, see time/memory per function
   crust new 7                       stamp out day07.crust from the starter template
+  crust new 7 --year 2020           set up day07.crust for a past AoC year; crust
+                                     develop day07.crust remembers 2020 from here on
   crust fmt day01.crust             preview canonically formatted source
   crust fmt -w day01.crust          reformat the file in place
   crust bake documentation          open the docs site in a browser
@@ -167,12 +173,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 		}
 		return runDebug(path, opts, stdin, stdout, stderr)
 	case "new":
-		day, force, err := parseNewArgs(rest[1:])
+		day, year, force, err := parseNewArgs(rest[1:])
 		if err != nil {
 			fmt.Fprintf(stderr, "crust new: %s\n", err)
 			return 2
 		}
-		return runNew(day, force, stdout, stderr)
+		return runNew(day, year, force, stdout, stderr)
 	case "fmt":
 		path, write, err := parseFmtArgs(rest[1:])
 		if err != nil {
