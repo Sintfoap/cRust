@@ -5096,6 +5096,58 @@ underlying bug is actually gone.
     session available here, and not putting load — or in submit's
     case, a real wrong-answer rate-limit penalty — on the live site).
 
+- **Files-tab "(used by N other files)" delivery-usage hints**
+  (`cmd/crust/debug_nav.go`'s `deliveryTargets`/`computeDeliveryUsage`),
+  the last item in the same AoC-workflow batch — a directory of
+  `dayNN.crust` files sharing a handful of helper files (`grid_utils.
+  crust`, a parsing routine) makes "is this helper still used, and by
+  how many days" a real question with no easy answer short of grepping
+  every file by hand.
+  - **Reuses the real lexer/parser, not a text scan**, unlike a few
+    other narrow-task hand-rolled scanners this session leaned on
+    (`findInts`, `stripTags`) — `delivery`'s own syntax
+    (`delivery "path.crust"`) is simple enough that a scan would mostly
+    work, but the real parser is already a dependency this package has
+    (every other tab already lexes/parses target files — switching to
+    one, formatting, the Editor tab's reload), so reusing it here costs
+    nothing extra and is correct by construction rather than by
+    coincidence. `deliveryTargets` walks `program.Statements` (the
+    file's own top level) rather than every nested block — `delivery`
+    is syntactically legal anywhere a statement is, but every real use
+    in this codebase and SPEC.md §10's own examples puts it at top
+    level, so a full recursive walk would cost more than the hint
+    actually needs for real cRust code.
+  - **Paths resolve the exact same way `evalDeliveryStatement` resolves
+    them at runtime** (`internal/interpreter/delivery.go`: relative to
+    the delivering file's own directory) — since `listCrustFiles`
+    already scopes everything to one directory, a resolved target
+    either matches one of those files by base name or refers to
+    something outside the listing entirely, which is exactly the
+    distinction the usage count needs. A file delivering itself (a
+    corner case the interpreter's own already-delivered guard already
+    tolerates at runtime) is explicitly excluded from its own count —
+    "used by N *other* files" should mean exactly that.
+  - **Computed alongside `navFiles` in `refreshNavFiles`, not cached
+    across the session** — same reasoning `navFiles` itself already
+    documents: directory contents (including which files deliver
+    which) can change between visits to the tab, and re-parsing a
+    handful of small files on every tab switch is cheap enough that
+    there's nothing to gain from a staler cache.
+  - A parse failure in any one file (`deliveryTargets` returning nil)
+    doesn't stop every other file's usage hint from showing — the same
+    "one bad file shouldn't break the whole tab" posture
+    `listCrustFiles`'s own directory-read failure handling already
+    takes.
+  - Verified with table-driven Go tests (`deliveryTargets` against a
+    real multi-import file, no-imports, a parse error, and a missing
+    file; `computeDeliveryUsage` across several files including the
+    self-delivery exclusion; `refreshNavFiles` populating the new
+    field; `viewNav`'s rendered hint text, singular/plural wording, and
+    the no-hint case) and a real pty session driving `crust develop`
+    against a small `grid_utils.crust` + two importing day files,
+    confirming "(used by 2 other files)" renders exactly where expected
+    and files with no importers show no hint at all.
+
 ## 4. Key Design Trade-offs
 
 | Decision | Choice | Why |

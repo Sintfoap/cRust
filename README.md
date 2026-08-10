@@ -361,7 +361,11 @@ layout — ↑↓ to move, enter to switch straight to one without leaving
 keeps its own remembered store/input/run-all/bench-count settings, the
 same as reopening it fresh from the command line would; `n` starts a
 new file right there — type a name, enter creates it (`.crust`
-appended if you leave it off) and switches straight to it), and
+appended if you leave it off) and switches straight to it; a file at
+least one other file's own top-level `delivery "..."` targets shows
+"(used by N other files)" next to its name — the easy way to spot
+which shared helper is safe to edit without checking every day by
+hand, or which one is still worth keeping around), and
 **Live** (a genuinely *live* debugger, unlike the Stepper's
 after-the-fact recording: `b` toggles a breakpoint on the source line
 under the cursor, remembered per file the same as Bench's baseline;

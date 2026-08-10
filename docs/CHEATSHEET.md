@@ -232,6 +232,10 @@ On the Run tab: output taller than the panel scrolls with pgup/pgdn,
 showing "N more line(s) above/below" hints; a fresh run always
 resets the scroll back to the top.
 
+On the Files tab: a file at least one other file's top-level
+`delivery "..."` targets shows "(used by N other files)" — spot a
+shared helper at a glance instead of grepping every day for it.
+
 On the Live tab: a genuinely live, real interpreter you step through
 one statement at a time — not the Stepper's after-the-fact recording.
 `b` toggles a breakpoint on the source line under the cursor

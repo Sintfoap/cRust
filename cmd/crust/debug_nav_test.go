@@ -91,6 +91,132 @@ func TestIndexOfNavFileNotFoundDefaultsToZero(t *testing.T) {
 	}
 }
 
+// --- delivery-usage hints -------------------------------------------------
+
+func TestDeliveryTargetsFindsTopLevelDeliveryStatements(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", `delivery "grid_utils.crust"
+delivery "parsing.crust"
+deliver("hi")`)
+
+	got := deliveryTargets(day01)
+	want := []string{"grid_utils.crust", "parsing.crust"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got %v, want %v", got, want)
+			break
+		}
+	}
+}
+
+func TestDeliveryTargetsNoneReturnsNil(t *testing.T) {
+	path := writeDebugFile(t, `deliver("hi")`)
+	got := deliveryTargets(path)
+	if len(got) != 0 {
+		t.Errorf("got %v, want none", got)
+	}
+}
+
+func TestDeliveryTargetsParseErrorReturnsNil(t *testing.T) {
+	path := writeDebugFile(t, "x = (\n")
+	got := deliveryTargets(path)
+	if len(got) != 0 {
+		t.Errorf("got %v, want nil for an unparseable file", got)
+	}
+}
+
+func TestDeliveryTargetsMissingFileReturnsNil(t *testing.T) {
+	got := deliveryTargets("/no/such/file.crust")
+	if len(got) != 0 {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+func TestComputeDeliveryUsageCountsAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeCrustFileIn(t, dir, "grid_utils.crust", `recipe manhattan(a, b) { serve 0 }`)
+	day01 := writeCrustFileIn(t, dir, "day01.crust", `delivery "grid_utils.crust"`)
+	day02 := writeCrustFileIn(t, dir, "day02.crust", `delivery "grid_utils.crust"`)
+	day03 := writeCrustFileIn(t, dir, "day03.crust", `deliver("no imports here")`)
+
+	usage := computeDeliveryUsage([]string{day01, day02, day03, filepath.Join(dir, "grid_utils.crust")})
+	if usage["grid_utils.crust"] != 2 {
+		t.Errorf("usage[grid_utils.crust] = %d, want 2", usage["grid_utils.crust"])
+	}
+	if usage["day01.crust"] != 0 {
+		t.Errorf("usage[day01.crust] = %d, want 0 (nothing delivers it)", usage["day01.crust"])
+	}
+}
+
+func TestComputeDeliveryUsageExcludesSelfDelivery(t *testing.T) {
+	dir := t.TempDir()
+	self := writeCrustFileIn(t, dir, "weird.crust", `delivery "weird.crust"`)
+
+	usage := computeDeliveryUsage([]string{self})
+	if usage["weird.crust"] != 0 {
+		t.Errorf("usage[weird.crust] = %d, want 0 (a file delivering itself shouldn't count)", usage["weird.crust"])
+	}
+}
+
+func TestRefreshNavFilesPopulatesNavUsage(t *testing.T) {
+	dir := t.TempDir()
+	writeCrustFileIn(t, dir, "grid_utils.crust", "")
+	day01 := writeCrustFileIn(t, dir, "day01.crust", `delivery "grid_utils.crust"`)
+
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.refreshNavFiles()
+
+	if m.navUsage["grid_utils.crust"] != 1 {
+		t.Errorf("navUsage[grid_utils.crust] = %d, want 1", m.navUsage["grid_utils.crust"])
+	}
+}
+
+func TestViewNavShowsUsageHint(t *testing.T) {
+	dir := t.TempDir()
+	writeCrustFileIn(t, dir, "grid_utils.crust", "")
+	day01 := writeCrustFileIn(t, dir, "day01.crust", `delivery "grid_utils.crust"`)
+	writeCrustFileIn(t, dir, "day02.crust", `delivery "grid_utils.crust"`)
+
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.refreshNavFiles()
+	out := m.viewNav()
+
+	if !strings.Contains(out, "used by 2 other files") {
+		t.Errorf("viewNav() = %q, want a used-by-2 hint for grid_utils.crust", out)
+	}
+}
+
+func TestViewNavUsageHintSingularWording(t *testing.T) {
+	dir := t.TempDir()
+	writeCrustFileIn(t, dir, "grid_utils.crust", "")
+	day01 := writeCrustFileIn(t, dir, "day01.crust", `delivery "grid_utils.crust"`)
+
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.refreshNavFiles()
+	out := m.viewNav()
+
+	if !strings.Contains(out, "used by 1 other file)") {
+		t.Errorf("viewNav() = %q, want singular 'file' wording for a count of 1", out)
+	}
+}
+
+func TestViewNavNoUsageHintWhenNeverDelivered(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	writeCrustFileIn(t, dir, "day02.crust", "x = 2")
+
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.refreshNavFiles()
+	out := m.viewNav()
+
+	if strings.Contains(out, "used by") {
+		t.Errorf("viewNav() = %q, want no usage hint when nothing delivers anything", out)
+	}
+}
+
 func TestRefreshNavFilesPositionsCursorOnCurrentFile(t *testing.T) {
 	dir := t.TempDir()
 	writeCrustFileIn(t, dir, "day01.crust", "x = 1")

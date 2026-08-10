@@ -6,6 +6,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/Sintfoap/cRust/internal/ast"
 	"github.com/Sintfoap/cRust/internal/debugger"
+	"github.com/Sintfoap/cRust/internal/lexer"
+	"github.com/Sintfoap/cRust/internal/parser"
 )
 
 // listCrustFiles returns every *.crust file (including currentPath
@@ -63,6 +67,70 @@ func indexOfNavFile(files []string, current string) int {
 	return 0
 }
 
+// deliveryTargets parses path and returns the base filename every
+// top-level `delivery "..."` statement in it targets, resolved
+// relative to path's own directory the exact same way
+// evalDeliveryStatement resolves them at runtime
+// (internal/interpreter/delivery.go) — since listCrustFiles only ever
+// lists files from one directory, a resolved target either matches one
+// of those files by base name or refers to something outside this
+// listing entirely, which is exactly the distinction
+// computeDeliveryUsage needs. Only Program.Statements (the file's own
+// top level) is scanned, not every block nested inside a recipe/order/
+// bake — `delivery` is syntactically legal anywhere a statement is,
+// but every real use in this codebase (and SPEC.md §10's own examples)
+// puts it at top level, so a "used by" hint is exactly what a deeper
+// walk would buy here for real cRust code. A parse failure returns nil
+// rather than erroring — one unrelated file being unparseable
+// shouldn't stop every other file's usage hint from showing.
+func deliveryTargets(path string) []string {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	l := lexer.New(string(src))
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	var targets []string
+	for _, stmt := range program.Statements {
+		ds, ok := stmt.(*ast.DeliveryStatement)
+		if !ok {
+			continue
+		}
+		resolved := ds.Path
+		if !filepath.IsAbs(resolved) {
+			resolved = filepath.Join(dir, resolved)
+		}
+		targets = append(targets, filepath.Base(resolved))
+	}
+	return targets
+}
+
+// computeDeliveryUsage scans every file in files and counts, per
+// target base filename, how many of the *other* files in files deliver
+// it — the Files tab's own "(used by N other files)" hint. A file
+// delivering itself (a corner case `delivery`'s own already-delivered
+// guard already tolerates at runtime) never counts toward its own
+// usage, since "used by N other files" should mean exactly that.
+func computeDeliveryUsage(files []string) map[string]int {
+	usage := make(map[string]int)
+	for _, f := range files {
+		self := filepath.Base(f)
+		for _, target := range deliveryTargets(f) {
+			if target == self {
+				continue
+			}
+			usage[target]++
+		}
+	}
+	return usage
+}
+
 // refreshNavFiles rescans m.view.path's directory and repositions
 // navCursor onto whichever entry is the file currently open. Called
 // whenever a tab switch lands on Files (maybeRefreshNav) rather than
@@ -75,6 +143,7 @@ func indexOfNavFile(files []string, current string) int {
 func (m *debugModel) refreshNavFiles() {
 	m.navFiles = listCrustFiles(m.view.path)
 	m.navCursor = indexOfNavFile(m.navFiles, m.view.path)
+	m.navUsage = computeDeliveryUsage(m.navFiles)
 	m.navErr = ""
 }
 
@@ -289,10 +358,14 @@ func (m debugModel) createNavFile() (tea.Model, tea.Cmd) {
 // viewNav lists every file listCrustFiles found alongside the one
 // currently open, one per line: "> " marks navCursor (enter's target,
 // the same cursor-row convention the Stepper and Run tab's own
-// selector already use), and "(current)" marks whichever row is the
-// file actually open right now — worth telling apart from navCursor,
-// since they start in the same place but don't have to stay there. A
-// pending navErr renders above the list rather than in place of it —
+// selector already use), "(used by N other files)" marks a file at
+// least one other file in the listing delivers (computeDeliveryUsage —
+// the easy way to spot which day still needs a shared helper file kept
+// around, or which helper is safe to edit without checking every day
+// by hand), and "(current)" marks whichever row is the file actually
+// open right now — worth telling apart from navCursor, since they
+// start in the same place but don't have to stay there. A pending
+// navErr renders above the list rather than in place of it —
 // showing only the error and hiding every file would leave no way to
 // pick a different, working target after a failed switch attempt.
 //
@@ -334,8 +407,16 @@ func (m debugModel) viewNav() string {
 			marker = "> "
 			style = styleSelectedRow
 		}
-		label := filepath.Base(f)
-		if filepath.Base(f) == filepath.Base(m.view.path) {
+		base := filepath.Base(f)
+		label := base
+		if n := m.navUsage[base]; n > 0 {
+			noun := "files"
+			if n == 1 {
+				noun = "file"
+			}
+			label += fmt.Sprintf(" (used by %d other %s)", n, noun)
+		}
+		if base == filepath.Base(m.view.path) {
 			label += " (current)"
 		}
 		b.WriteString(marker + style.Render(label))

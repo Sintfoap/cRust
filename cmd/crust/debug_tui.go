@@ -160,6 +160,14 @@ type debugModel struct {
 	navCursor int
 	navErr    string
 
+	// navUsage backs each Files-tab row's "(used by N other files)"
+	// hint (debug_nav.go's computeDeliveryUsage): how many of the other
+	// files in navFiles have a top-level `delivery "..."` statement
+	// targeting this one, keyed by base filename. Rescanned alongside
+	// navFiles in refreshNavFiles, same reasoning — directory contents
+	// (including which files deliver which) can change between visits.
+	navUsage map[string]int
+
 	// navCreating/navNewName back the Files tab's "new file" prompt
 	// (debug_nav.go's createNavFile): navCreating switches the tab from
 	// the file list to a single text field for the new name, reusing

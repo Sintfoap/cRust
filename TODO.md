@@ -1917,3 +1917,15 @@ confirmed, not before.
       `cmd/crust` (flag parsing, stdin fallback, exit codes, dispatch
       wiring) layers — never against the real adventofcode.com, same
       posture `crust fetch`'s own tests already take.
+- [x] (Stretch) `crust develop`'s Files tab shows "(used by N other
+      files)" next to any file at least one other file's top-level
+      `delivery "..."` targets — the easy way to spot which shared
+      helper (`grid_utils.crust`, a parsing routine) is safe to edit
+      without checking every day file by hand. Reuses the real lexer/
+      parser rather than a text scan, resolves paths the exact same way
+      the interpreter's own `delivery` evaluation does, and recomputes
+      alongside the rest of the tab's listing on every visit rather
+      than caching. See docs/ARCHITECTURE.md's Phase 6 section for the
+      full design reasoning. Verified with table-driven Go tests and a
+      real pty session against a small helper-file-plus-two-importers
+      directory.
