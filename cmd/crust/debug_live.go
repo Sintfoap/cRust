@@ -376,11 +376,16 @@ const (
 // view itself: the status line, plus the variables panel while paused,
 // plus the output panel once the run has produced any — computed here
 // rather than duplicated inside viewLive, the same reasoning
-// stepperExtraLines already documents for the Stepper tab.
+// stepperExtraLines already documents for the Stepper tab. The watch
+// panel's own worst case is 3 lines beyond its name rows, not 2: a
+// title line plus, once scrolled to somewhere in the middle of a long
+// list, both an "N more above" *and* an "N more below" hint at once
+// (viewLiveWatch) — the plain "always start at the top" version this
+// replaced could only ever show one or the other.
 func (m debugModel) liveExtraLines() int {
 	extra := 2 // status line + blank
 	if m.livePaused {
-		extra += maxLiveWatchLines + 2
+		extra += maxLiveWatchLines + 3
 	}
 	if m.liveOutput != nil && m.liveOutput.String() != "" {
 		extra += maxLiveOutputLines + 2
@@ -444,37 +449,89 @@ func (m debugModel) renderLiveLine(i int) string {
 	}
 }
 
-// viewLiveWatch renders the variables visible at the current pause —
-// viewStepperWatch's own shape (sorted names, shortInspect values,
-// capped at maxLiveWatchLines), just reading m.liveEnv directly instead
-// of a selected row's Step.Env, since the Live tab has exactly one
-// "current" point in the program rather than a whole tree to pick a
-// row from.
-func (m debugModel) viewLiveWatch() string {
-	if len(m.liveEnv) == 0 {
-		return styleMuted.Render("(no variables visible yet)")
-	}
+// liveWatchNames returns m.liveEnv's names sorted — the shared list
+// both viewLiveWatch and moveLiveWatchCursor need, split out so
+// scrolling's own clamping logic and the panel's own rendering can't
+// silently disagree on what "the list" actually contains.
+func (m debugModel) liveWatchNames() []string {
 	names := make([]string, 0, len(m.liveEnv))
 	for name := range m.liveEnv {
 		names = append(names, name)
 	}
 	slices.Sort(names)
+	return names
+}
 
-	shown := names
-	truncated := 0
-	if len(shown) > maxLiveWatchLines {
-		truncated = len(shown) - maxLiveWatchLines
-		shown = shown[:maxLiveWatchLines]
+// moveLiveWatchCursor scrolls the watch panel by delta lines, clamped
+// so liveWatchTop never scrolls past the point where the last name
+// would leave the visible window early — the same "don't scroll past
+// the useful content" clamp moveLiveCursor's own scrollLiveToCursor
+// gives the source view, applied directly to an offset here since the
+// watch panel has no per-row cursor of its own to scroll toward, just
+// a window onto the sorted name list.
+func (m *debugModel) moveLiveWatchCursor(delta int) {
+	names := m.liveWatchNames()
+	maxTop := len(names) - maxLiveWatchLines
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	m.liveWatchTop += delta
+	if m.liveWatchTop < 0 {
+		m.liveWatchTop = 0
+	}
+	if m.liveWatchTop > maxTop {
+		m.liveWatchTop = maxTop
+	}
+}
+
+// viewLiveWatch renders the variables visible at the current pause —
+// viewStepperWatch's own shape (sorted names, shortInspect values),
+// just reading m.liveEnv directly instead of a selected row's
+// Step.Env, since the Live tab has exactly one "current" point in the
+// program rather than a whole tree to pick a row from. Scrollable via
+// 'w' + j/k (liveWatchFocus/liveWatchTop, debug_tui.go's handleKey) —
+// shows maxLiveWatchLines names starting at liveWatchTop, with a
+// position readout ("N-M of T") and faint above/below hints replacing
+// the old static "… and N more" tail once there's actually somewhere
+// to scroll to.
+func (m debugModel) viewLiveWatch() string {
+	if len(m.liveEnv) == 0 {
+		return styleMuted.Render("(no variables visible yet)")
+	}
+	names := m.liveWatchNames()
+
+	top := m.liveWatchTop
+	if top > len(names)-1 {
+		top = len(names) - 1
+	}
+	if top < 0 {
+		top = 0
+	}
+	end := top + maxLiveWatchLines
+	if end > len(names) {
+		end = len(names)
+	}
+	shown := names[top:end]
+
+	title := fmt.Sprintf("variables (%d)", len(names))
+	if len(names) > maxLiveWatchLines {
+		title = fmt.Sprintf("variables (%d-%d of %d)", top+1, end, len(names))
+		if m.liveWatchFocus {
+			title += " — scrolling"
+		}
 	}
 
 	var b strings.Builder
-	b.WriteString(styleTitle.Render(fmt.Sprintf("variables (%d)", len(names))))
+	b.WriteString(styleTitle.Render(title))
 	b.WriteByte('\n')
+	if top > 0 {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… %d more above\n", top)))
+	}
 	for _, name := range shown {
 		fmt.Fprintf(&b, "%s = %s\n", styleMuted.Render(name), shortInspect(m.liveEnv[name]))
 	}
-	if truncated > 0 {
-		b.WriteString(styleFaint.Render(fmt.Sprintf("… and %d more\n", truncated)))
+	if end < len(names) {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… %d more below\n", len(names)-end)))
 	}
 	return b.String()
 }

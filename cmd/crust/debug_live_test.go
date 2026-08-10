@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -353,6 +354,142 @@ func TestViewLiveShowsPausedLineAndWatchPanel(t *testing.T) {
 	out := m.viewLive()
 	if !strings.Contains(out, "paused at line 2") {
 		t.Errorf("viewLive() = %q, want the paused status line", out)
+	}
+}
+
+// manyVarsEnv builds an env with more names than maxLiveWatchLines,
+// numbered so their sorted order is predictable ("v00".."v09").
+func manyVarsEnv(n int) map[string]object.Object {
+	env := make(map[string]object.Object, n)
+	for i := 0; i < n; i++ {
+		env[fmt.Sprintf("v%02d", i)] = object.NewInteger(int64(i))
+	}
+	return env
+}
+
+func TestViewLiveWatchShowsAllWhenFewerThanMax(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.liveEnv = manyVarsEnv(3)
+	out := m.viewLiveWatch()
+	if !strings.Contains(out, "v00") || !strings.Contains(out, "v02") {
+		t.Errorf("viewLiveWatch() = %q, want every variable shown", out)
+	}
+	if strings.Contains(out, "more above") || strings.Contains(out, "more below") {
+		t.Errorf("viewLiveWatch() = %q, want no scroll hints when everything already fits", out)
+	}
+}
+
+func TestViewLiveWatchScrollsWithMoreBelow(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.liveEnv = manyVarsEnv(10) // > maxLiveWatchLines (6)
+	out := m.viewLiveWatch()
+	if !strings.Contains(out, "v00") {
+		t.Errorf("viewLiveWatch() = %q, want the first name visible at top=0", out)
+	}
+	if strings.Contains(out, "v09") {
+		t.Errorf("viewLiveWatch() = %q, want the last name NOT visible yet", out)
+	}
+	if !strings.Contains(out, "more below") {
+		t.Errorf("viewLiveWatch() = %q, want a \"more below\" hint", out)
+	}
+	if strings.Contains(out, "more above") {
+		t.Errorf("viewLiveWatch() = %q, want no \"more above\" hint at the very top", out)
+	}
+}
+
+func TestMoveLiveWatchCursorScrollsIntoView(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.liveEnv = manyVarsEnv(10)
+
+	m.moveLiveWatchCursor(2)
+	if m.liveWatchTop != 2 {
+		t.Fatalf("liveWatchTop = %d, want 2", m.liveWatchTop)
+	}
+	out := m.viewLiveWatch()
+	if strings.Contains(out, "v00") || strings.Contains(out, "v01") {
+		t.Errorf("viewLiveWatch() = %q, want v00/v01 scrolled out of view", out)
+	}
+	if !strings.Contains(out, "v02") {
+		t.Errorf("viewLiveWatch() = %q, want v02 now visible", out)
+	}
+	if !strings.Contains(out, "more above") || !strings.Contains(out, "more below") {
+		t.Errorf("viewLiveWatch() = %q, want both scroll hints while scrolled to the middle", out)
+	}
+}
+
+func TestMoveLiveWatchCursorClampsAtTopAndBottom(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.liveEnv = manyVarsEnv(10)
+
+	m.moveLiveWatchCursor(-5)
+	if m.liveWatchTop != 0 {
+		t.Errorf("liveWatchTop = %d, want 0 (clamped, can't scroll above the top)", m.liveWatchTop)
+	}
+
+	m.moveLiveWatchCursor(100)
+	wantMaxTop := 10 - maxLiveWatchLines
+	if m.liveWatchTop != wantMaxTop {
+		t.Errorf("liveWatchTop = %d, want %d (clamped at the bottom)", m.liveWatchTop, wantMaxTop)
+	}
+	out := m.viewLiveWatch()
+	if !strings.Contains(out, "v09") {
+		t.Errorf("viewLiveWatch() = %q, want the last name visible once scrolled to the bottom", out)
+	}
+	if strings.Contains(out, "more below") {
+		t.Errorf("viewLiveWatch() = %q, want no \"more below\" hint at the very bottom", out)
+	}
+}
+
+func TestMoveLiveWatchCursorNoopWhenFewerThanMax(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.liveEnv = manyVarsEnv(3)
+	m.moveLiveWatchCursor(5)
+	if m.liveWatchTop != 0 {
+		t.Errorf("liveWatchTop = %d, want 0 (nothing to scroll to)", m.liveWatchTop)
+	}
+}
+
+func TestHandleKeyLiveTabTogglesWatchFocusOnlyWhilePaused(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabLive
+
+	// Not paused yet: 'w' does nothing.
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	dm := m2.(debugModel)
+	if dm.liveWatchFocus {
+		t.Error("liveWatchFocus = true, want false — 'w' shouldn't do anything before a pause")
+	}
+
+	dm.livePaused = true
+	m3, _ := dm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	dm = m3.(debugModel)
+	if !dm.liveWatchFocus {
+		t.Error("liveWatchFocus = false, want true after 'w' while paused")
+	}
+
+	m4, _ := dm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	dm = m4.(debugModel)
+	if dm.liveWatchFocus {
+		t.Error("liveWatchFocus = true, want false — a second 'w' should toggle it back off")
+	}
+}
+
+func TestHandleKeyLiveTabWatchFocusRedirectsJK(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabLive
+	m.livePaused = true
+	m.liveWatchFocus = true
+	m.liveEnv = manyVarsEnv(10)
+	m.liveSource = []string{"a", "b", "c"}
+	startCursor := m.liveCursor
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	dm := m2.(debugModel)
+	if dm.liveWatchTop != 1 {
+		t.Errorf("liveWatchTop = %d, want 1 — j should scroll the watch panel while focused", dm.liveWatchTop)
+	}
+	if dm.liveCursor != startCursor {
+		t.Errorf("liveCursor = %d, want unchanged (%d) — j shouldn't move the source cursor while watch-focused", dm.liveCursor, startCursor)
 	}
 }
 

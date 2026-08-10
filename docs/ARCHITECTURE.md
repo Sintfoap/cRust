@@ -1981,6 +1981,55 @@ below). Phase 5's stdlib checklist is now fully complete.
     collection edge cases, wrong-type/wrong-arg-count errors, error
     propagation from a failing callback for the three that take one)
     and a real `crust run` subprocess exercising all eight together.
+- **Live tab watch-panel scrolling and Run tab output scrolling**, from
+  a direct "I need to be able to look through the variable watcher"
+  plus "add navigation... some sort of scrollable-ness on the output"
+  request. Two independent features, each following whichever of the
+  Live/Run tabs' own existing conventions already fit best rather than
+  inventing a third pattern:
+  - **Live tab (`m.liveWatchFocus`/`m.liveWatchTop`).** The watch panel
+    used to always start at index 0 and show a static "and N more"
+    tail — fine for a handful of variables, useless for browsing past
+    the first few. Up/Down/j/k were already claimed on this tab for
+    moving the source cursor, so a third state (rather than a fourth
+    modifier key) follows the Bench tab's own `benchInspect` precedent:
+    `w` toggles focus onto the watch panel, and while focused, the same
+    j/k/Up/Down that move the source cursor instead scroll the watch
+    list (`moveLiveWatchCursor`, clamped, mirroring the shape of every
+    other scroll helper in this file). The title shows a live
+    "(1-6 of 13)"-style position readout, and up to two hint lines
+    ("N more above"/"N more below") appear depending on scroll
+    position — both at once when scrolled to the middle of a long
+    list, which is why `liveExtraLines()`'s reserved budget grew from
+    `maxLiveWatchLines + 2` to `+ 3` (title + both hints, the new worst
+    case). `liveWatchFocus`/`liveWatchTop` reset at the same points
+    `liveEnv` itself already does — a fresh `r` run and a file switch
+    via the Nav tab — so scroll state never survives past the data it
+    was scrolled through.
+  - **Run tab (`m.runOutputTop`).** `handleRunTabKey` is a wholly
+    separate key handler from every other tab's, because its text-input
+    field needs to capture almost any keystroke including letters that
+    mean something everywhere else (`q`, `h`/`j`/`k`, ...) — a file
+    path can legitimately contain any of them. That ruled out reusing
+    a letter key for scrolling, and Up/Down already toggle between the
+    input field and the entry-point selector, so PageUp/PageDown (an
+    unclaimed pair, confirmed against the vendored bubbletea `key.go`
+    as `tea.KeyPgUp`/`tea.KeyPgDown`, mapped from `\x1b[5~`/`\x1b[6~`)
+    scroll the output instead — one page (`runOutputBodyHeight()`) at a
+    time via `moveRunOutputScroll`, with the same "N more line(s)
+    above/below (pgup/pgdn)" hint convention the Live tab's watch panel
+    uses. `runOutputTop` resets to 0 as the very first line of
+    `handleRunResult`, on both the success and failure paths, so a
+    fresh run — including a rerun of the same file — always starts
+    scrolled to the top rather than wherever the previous run's output
+    happened to leave it.
+  - Both verified with table-driven Go tests (scroll clamping at both
+    ends, focus/key-redirection, reset-on-rerun) and real pty sessions
+    driving `crust develop` end-to-end: stepping through a 12-variable
+    recipe and confirming `w` + j/k moves the watch window and its
+    "(N-M of T)" readout exactly as expected, and running a 60-line
+    `deliver()` loop on the Run tab and confirming PageDown/PageUp
+    scroll the output window and hints correctly.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

@@ -129,6 +129,10 @@ func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyUp, tea.KeyDown:
 		m.toggleRunFocus()
+	case tea.KeyPgUp:
+		m.moveRunOutputScroll(-m.runOutputBodyHeight())
+	case tea.KeyPgDown:
+		m.moveRunOutputScroll(m.runOutputBodyHeight())
 	case tea.KeyLeft:
 		if m.runEntryFocused {
 			m.cycleRunEntry(-1)
@@ -435,6 +439,7 @@ func (m debugModel) runAllStoresCmd() tea.Cmd {
 // still mid-interaction here, picking entry points and input files,
 // not asking to be taken to the dashboard.
 func (m debugModel) handleRunResult(msg runResultMsg) (tea.Model, tea.Cmd) {
+	m.runOutputTop = 0
 	if msg.err != nil {
 		m.runOutput = msg.err.Error()
 		m.runFailed = true
@@ -514,9 +519,99 @@ func (m debugModel) viewRun() string {
 		if m.runFailed {
 			style = styleError
 		}
-		b.WriteString(style.Render(m.runOutput))
+		b.WriteString(style.Render(m.scrolledRunOutput()))
 	}
 	return b.String()
+}
+
+// runOutputExtraLines is how many lines viewRun prints before the
+// output panel itself — the input-file field's own 3 lines (label,
+// field, blank) plus, only when the file actually has entry points to
+// choose from, the entry-point selector's own 5 (label, options row,
+// blank, run-all line, blank). The same "compute the fixed chrome
+// budget once so the body-height calculation can't drift out of sync
+// with what actually renders" reasoning stepperExtraLines/
+// liveExtraLines already established for their own tabs.
+func (m debugModel) runOutputExtraLines() int {
+	extra := 3
+	if len(m.runEntryOptions()) > 0 {
+		extra += 5
+	}
+	return extra
+}
+
+// runOutputBodyHeight is how many lines of runOutput fit on screen at
+// once — liveBodyHeight/stepperBodyHeight's own budget shape, applied
+// to the output panel. -2 is reserved unconditionally for the
+// scrolled-view's own "N more above"/"N more below" hint lines
+// (scrolledRunOutput) — the same worst-case-always-reserved trade-off
+// liveExtraLines makes for the Live tab's watch panel: simpler than
+// solving the fixed point of "does reserving space for hints change
+// whether hints are needed," at the cost of up to 2 lines of otherwise
+// visible output on the rare run that lands exactly on that boundary.
+func (m debugModel) runOutputBodyHeight() int {
+	h := m.height - 6 - m.runOutputExtraLines() - 2
+	if h < 3 {
+		h = 3
+	}
+	return h
+}
+
+// scrolledRunOutput returns the runOutputTop-scrolled window into
+// runOutput's own lines — the whole thing unchanged (no hints) when it
+// already fits, on direct request ("some sort of scrollable-ness on
+// the output") for output too tall to fit the terminal at once, the
+// same problem the Live tab's watch panel had before liveWatchTop.
+func (m debugModel) scrolledRunOutput() string {
+	lines := strings.Split(m.runOutput, "\n")
+	visible := m.runOutputBodyHeight()
+	if len(lines) <= visible {
+		return m.runOutput
+	}
+
+	top := m.runOutputTop
+	maxTop := len(lines) - visible
+	if top > maxTop {
+		top = maxTop
+	}
+	if top < 0 {
+		top = 0
+	}
+	end := top + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	var b strings.Builder
+	if top > 0 {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… %d more line(s) above (pgup)", top)))
+		b.WriteByte('\n')
+	}
+	b.WriteString(strings.Join(lines[top:end], "\n"))
+	if end < len(lines) {
+		b.WriteByte('\n')
+		b.WriteString(styleFaint.Render(fmt.Sprintf("… %d more line(s) below (pgdn)", len(lines)-end)))
+	}
+	return b.String()
+}
+
+// moveRunOutputScroll scrolls runOutputTop by delta lines, clamped the
+// same way moveLiveWatchCursor clamps liveWatchTop — never above 0,
+// never past the point where the last line would leave the window
+// early.
+func (m *debugModel) moveRunOutputScroll(delta int) {
+	lines := strings.Split(m.runOutput, "\n")
+	maxTop := len(lines) - m.runOutputBodyHeight()
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	m.runOutputTop += delta
+	if m.runOutputTop < 0 {
+		m.runOutputTop = 0
+	}
+	if m.runOutputTop > maxTop {
+		m.runOutputTop = maxTop
+	}
 }
 
 // renderEntryOptions draws the entry-point selector as a row of

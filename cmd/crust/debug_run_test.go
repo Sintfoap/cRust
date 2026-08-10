@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -392,6 +393,102 @@ func TestViewRunShowsOutputAfterARun(t *testing.T) {
 	out := m.viewRun()
 	if !strings.Contains(out, "hello") {
 		t.Errorf("viewRun() = %q, want the captured output", out)
+	}
+}
+
+// manyLineOutput builds output with n numbered lines ("line00".."lineNN"),
+// for scroll tests that need output taller than any reasonable terminal.
+func manyLineOutput(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "line%02d\n", i)
+	}
+	return b.String()
+}
+
+func TestViewRunShowsAllOutputWhenItFits(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 30
+	m.runOutput = manyLineOutput(3)
+	out := m.viewRun()
+	if !strings.Contains(out, "line00") || !strings.Contains(out, "line02") {
+		t.Errorf("viewRun() = %q, want every line shown when output fits", out)
+	}
+	if strings.Contains(out, "more line(s)") {
+		t.Errorf("viewRun() = %q, want no scroll hint when everything already fits", out)
+	}
+}
+
+func TestViewRunScrollsWhenOutputTallerThanScreen(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 15 // small terminal, forces scrolling
+	m.runOutput = manyLineOutput(50)
+	out := m.viewRun()
+	if !strings.Contains(out, "line00") {
+		t.Errorf("viewRun() = %q, want the first line visible at the top", out)
+	}
+	if strings.Contains(out, "line49") {
+		t.Errorf("viewRun() = %q, want the last line NOT visible yet", out)
+	}
+	if !strings.Contains(out, "more line(s) below") {
+		t.Errorf("viewRun() = %q, want a \"more below\" hint", out)
+	}
+}
+
+func TestMoveRunOutputScrollAdvancesAndClamps(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 15
+	m.runOutput = manyLineOutput(50)
+
+	visible := m.runOutputBodyHeight()
+	m.moveRunOutputScroll(visible)
+	if m.runOutputTop != visible {
+		t.Fatalf("runOutputTop = %d, want %d after one page down", m.runOutputTop, visible)
+	}
+	out := m.viewRun()
+	if !strings.Contains(out, "more line(s) above") {
+		t.Errorf("viewRun() = %q, want a \"more above\" hint after scrolling down", out)
+	}
+
+	m.moveRunOutputScroll(-1000)
+	if m.runOutputTop != 0 {
+		t.Errorf("runOutputTop = %d, want 0 (clamped at the top)", m.runOutputTop)
+	}
+
+	m.moveRunOutputScroll(1000)
+	lines := strings.Split(m.runOutput, "\n")
+	wantMaxTop := len(lines) - m.runOutputBodyHeight()
+	if m.runOutputTop != wantMaxTop {
+		t.Errorf("runOutputTop = %d, want %d (clamped at the bottom)", m.runOutputTop, wantMaxTop)
+	}
+}
+
+func TestHandleRunTabKeyPgUpPgDownScrollOutput(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 15
+	m.runOutput = manyLineOutput(50)
+
+	m2, _ := m.handleRunTabKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	dm := m2.(debugModel)
+	if dm.runOutputTop == 0 {
+		t.Error("runOutputTop unchanged after pgdown, want it to scroll forward")
+	}
+
+	m3, _ := dm.handleRunTabKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	dm = m3.(debugModel)
+	if dm.runOutputTop != 0 {
+		t.Errorf("runOutputTop = %d, want back to 0 after pgup undoes the pgdown", dm.runOutputTop)
+	}
+}
+
+func TestHandleRunResultResetsScrollPosition(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.width, m.height = 80, 15
+	m.runOutputTop = 5
+
+	next, _ := m.handleRunResult(runResultMsg{stdout: "fresh output\n"})
+	if next.(debugModel).runOutputTop != 0 {
+		t.Error("runOutputTop should reset to 0 on a new run result")
 	}
 }
 

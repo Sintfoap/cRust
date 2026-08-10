@@ -1862,3 +1862,18 @@ confirmed, not before.
       this batch as its own, bigger open design question. Verified
       with table-driven Go tests per builtin and a real `crust run`
       subprocess exercising all eight together.
+- [x] (Stretch) `crust develop` Live tab watch-panel scrolling and Run
+      tab output scrolling, from "flesh out navigation for the live
+      tab... look through the variable watcher" plus "add navigation
+      functionality to the output of the run tab... scrollable-ness on
+      the output." Live tab: `w` toggles focus onto the watch panel
+      when it has more variables than fit, then ↑↓/j/k scroll it
+      instead of moving the source cursor, with "N more above/below"
+      hints and a live "(1-6 of 13)" position readout in the title.
+      Run tab: output taller than the panel scrolls with pgup/pgdn one
+      page at a time, with the same above/below hint convention, and
+      always resets to the top on a fresh run. See
+      docs/ARCHITECTURE.md's Phase 5 section for why each tab picked
+      the specific keys it did. Verified with table-driven Go tests and
+      real pty sessions driving `crust develop` end-to-end for both
+      features.

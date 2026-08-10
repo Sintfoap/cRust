@@ -177,6 +177,8 @@ func (m debugModel) switchToFile(path string) debugModel {
 	m.liveLabel = ""
 	m.liveEnv = nil
 	m.liveStatus = ""
+	m.liveWatchFocus = false
+	m.liveWatchTop = 0
 	m.liveCursor, m.liveTop = 0, 0
 	m.liveBreakpoints = restoreLiveBreakpoints(path)
 	m.liveSource = readLiveSource(path)

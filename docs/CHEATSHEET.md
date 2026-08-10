@@ -211,13 +211,20 @@ On the Bench tab: `e` exports the current batch to `<file>.bench.csv`
 the current batch's average as a baseline; later batches show `vs
 baseline: ...` as a signed percentage until `b` is pressed again.
 
+On the Run tab: output taller than the panel scrolls with pgup/pgdn,
+showing "N more line(s) above/below" hints; a fresh run always
+resets the scroll back to the top.
+
 On the Live tab: a genuinely live, real interpreter you step through
 one statement at a time — not the Stepper's after-the-fact recording.
 `b` toggles a breakpoint on the source line under the cursor
 (persisted per file); `r` runs (or restarts) with the Run tab's
 current entry point and input file; once paused, `s` steps one
 statement, `c` continues to the next breakpoint (or the end), and `x`
-stops the run early.
+stops the run early. `w` toggles focus onto the watch panel when it
+has more variables than fit — ↑↓ then scroll through them instead of
+moving the source cursor, with "N more above/below" hints and a
+"(1-6 of 13)" position readout in the title.
 
 ## Puzzle input + timer (optional)
 

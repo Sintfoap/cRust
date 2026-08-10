@@ -302,7 +302,10 @@ and press enter to run the file with it as stdin, showing the raw
 output exactly like `crust run day01.crust < input.txt` would — no
 tracing, just the program's own stdout/stderr; if the file declares
 more than one `store`/`store_<name>` entry point, ↑↓ moves down to a
-selector row listing them and ←→ picks one before you hit enter),
+selector row listing them and ←→ picks one before you hit enter;
+output taller than the panel scrolls with pgup/pgdn, with "N more
+line(s) above/below" hints and the scroll position resetting to the
+top on every fresh run),
 **Bench** (type a run count and press enter to run the file that many
 times, back to back, with whichever entry point and input file the
 Run tab currently has selected — plain, untraced runs straight through
@@ -343,7 +346,12 @@ until the next breakpoint (or the program ends), and `x` stops the run
 early — even mid-flight between breakpoints, not only while actually
 paused. A watch panel below the source shows every variable in scope
 at the current pause, and an output panel shows the program's own
-`deliver()` output as it happens, not only at the end).
+`deliver()` output as it happens, not only at the end. `w` toggles
+focus onto the watch panel when there are more variables than fit —
+↑↓ then scroll through them instead of moving the source cursor,
+with "N more above/below" hints and a "(1-6 of 13)"-style position
+readout in the panel's title so browsing a large scope never leaves
+you guessing how much is left; `w` again returns focus to the source).
 Ctrl+R toggles running *every* entry point in sequence instead of just
 the selected one — each against the same input file, one full run
 apiece, output concatenated under a `=== part1 ===`-style heading per

@@ -115,6 +115,16 @@ type debugModel struct {
 	runOutput string
 	runFailed bool
 
+	// runOutputTop scrolls runOutput when it's taller than the space
+	// available for it (pgup/pgdown, debug_run.go's handleRunTabKey),
+	// on direct request ("scrollable-ness on the output") — a line
+	// offset into runOutput's own lines, the same "index of the first
+	// visible line" shape liveTop/liveWatchTop already use for their
+	// own scrollable panels. Reset to 0 every time a fresh run replaces
+	// runOutput (handleRunResult), so scrolling through one run's
+	// output never leaves the next run's output starting mid-scroll.
+	runOutputTop int
+
 	// runEntryIndex/runEntryFocused back the Run tab's entry-point
 	// selector: which of m.view.entryPoints() is picked, and whether
 	// up/down has moved focus to that row (false = the input-file
@@ -284,6 +294,23 @@ type debugModel struct {
 	liveEnv      map[string]object.Object
 	liveStatus   string
 
+	// liveWatchFocus/liveWatchTop back the watch panel's own scrolling,
+	// on direct request ("I need to be able to look through the
+	// variable watcher") — liveEnv can hold far more names than
+	// maxLiveWatchLines shows at once (deep in a nested call, or a loop
+	// with a lot of local state), and until this the panel only ever
+	// showed the first few names plus a static "… and N more" count
+	// with no way to actually see the rest. 'w' toggles liveWatchFocus,
+	// the same "toggle a mode, then reuse j/k for it" shape
+	// benchInspect (debug_bench.go) already established for the Bench
+	// tab's own cursor; while it's on, j/k/up/down scroll liveWatchTop
+	// (an index into the sorted name list, first line shown) instead of
+	// moving the source-line cursor. Both reset to zero/false whenever
+	// a fresh run starts ('r') or the debugged file changes, the same
+	// as every other per-run Live tab field.
+	liveWatchFocus bool
+	liveWatchTop   int
+
 	// liveGen is bumped every time a fresh live run starts (or the file
 	// being debugged changes out from under an existing one) and
 	// stamped onto every message that run produces (livePauseMsg/
@@ -437,6 +464,8 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveCursor(1)
 		} else if m.active == tabNav {
 			m.moveNavCursor(1)
+		} else if m.active == tabLive && m.liveWatchFocus {
+			m.moveLiveWatchCursor(1)
 		} else if m.active == tabLive {
 			m.moveLiveCursor(1)
 		}
@@ -445,6 +474,8 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveCursor(-1)
 		} else if m.active == tabNav {
 			m.moveNavCursor(-1)
+		} else if m.active == tabLive && m.liveWatchFocus {
+			m.moveLiveWatchCursor(-1)
 		} else if m.active == tabLive {
 			m.moveLiveCursor(-1)
 		}
@@ -498,6 +529,10 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.active == tabLive {
 			m.toggleLiveBreakpoint()
 		}
+	case "w":
+		if m.active == tabLive && m.livePaused {
+			m.liveWatchFocus = !m.liveWatchFocus
+		}
 	case "r":
 		if m.active == tabLive && !m.liveRunning {
 			m.liveGen++
@@ -506,6 +541,8 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.liveLabel = ""
 			m.livePausedAt = 0
 			m.livePaused = false
+			m.liveWatchFocus = false
+			m.liveWatchTop = 0
 			m.liveStatus = "starting…"
 			return m, m.startLiveCmd(m.liveGen)
 		}
@@ -906,13 +943,20 @@ func (m debugModel) helpText() string {
 	case tabEditor:
 		return "enter: reopen nvim   tab/←→: switch tab   q: quit"
 	case tabRun:
-		if len(m.runEntryOptions()) > 0 {
-			return "↑↓: field/entry point   ←→: move/change   enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		scroll := ""
+		if m.runOutput != "" {
+			scroll = "   pgup/pgdn: scroll output"
 		}
-		return "enter: run   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		if len(m.runEntryOptions()) > 0 {
+			return "↑↓: field/entry point   ←→: move/change   enter: run" + scroll + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
+		return "enter: run" + scroll + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabLive:
+		if m.liveRunning && m.livePaused && m.liveWatchFocus {
+			return "w: exit watch scroll   ↑↓: scroll variables   c: continue   s: step   x: stop   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		}
 		if m.liveRunning && m.livePaused {
-			return "c: continue   s: step   x: stop   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+			return "c: continue   s: step   x: stop   b: toggle breakpoint   w: scroll variables   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
 		if m.liveRunning {
 			return "x: stop   b: toggle breakpoint   ↑↓: move   tab/⇧tab: switch tab   ctrl+c/esc: quit"
