@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -256,29 +257,37 @@ func (m debugModel) switchToFile(path string) debugModel {
 	return m
 }
 
-// handleNavCreateKey routes keys while the Files tab's "new file"
-// prompt is up (m.navCreating) — reusing runInputModel's own key
-// handling (insert/backspace/left/right), the same field the Run tab's
-// input-file box already uses, plus the three keys the field itself
-// has no use for: Enter to actually create the file, Esc to back out
-// to the plain file list without creating anything, and Ctrl+C as the
-// same always-available hard quit every other tab keeps regardless of
-// what's mid-edit (the Run tab's own input field makes the identical
-// choice, and for the identical reason — see handleRunTabKey's doc
-// comment). Esc deliberately does *not* quit here, unlike the Run
-// tab's field: that field is a permanent fixture of its tab with
-// nothing to "cancel" back out of, while this one is a transient
-// prompt over the ordinary Files list, so Esc reads as "close this
-// prompt" the way it would for any other modal input.
+// handleNavCreateKey routes keys while either of the Files tab's
+// prompts is up — m.navCreating ('n', a blank file under an arbitrary
+// name) or m.navCreatingAoC (ctrl+n, a day number/optional year that
+// stamps the real AoC starter template via createNavAoCFile) — reusing
+// runInputModel's own key handling (insert/backspace/left/right), the
+// same field the Run tab's input-file box already uses, plus the three
+// keys the field itself has no use for: Enter to actually create the
+// file (routed to whichever of createNavFile/createNavAoCFile matches
+// which prompt is active), Esc to back out to the plain file list
+// without creating anything, and Ctrl+C as the same always-available
+// hard quit every other tab keeps regardless of what's mid-edit (the
+// Run tab's own input field makes the identical choice, and for the
+// identical reason — see handleRunTabKey's doc comment). Esc
+// deliberately does *not* quit here, unlike the Run tab's field: that
+// field is a permanent fixture of its tab with nothing to "cancel"
+// back out of, while this one is a transient prompt over the ordinary
+// Files list, so Esc reads as "close this prompt" the way it would for
+// any other modal input.
 func (m debugModel) handleNavCreateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.navCreating = false
+		m.navCreatingAoC = false
 		m.navNewName = runInputModel{}
 		m.navErr = ""
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEnter:
+		if m.navCreatingAoC {
+			return m.createNavAoCFile()
+		}
 		return m.createNavFile()
 	case tea.KeyLeft:
 		m.navNewName.left()
@@ -355,6 +364,82 @@ func (m debugModel) createNavFile() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// createNavAoCFile is ctrl+n's own version of createNavFile — the
+// interactive counterpart to the CLI's own `crust new <day>
+// [--year Y]` (new.go), reachable without leaving the session, on
+// direct request: "add manual options for the crust
+// login/fetch/submit/new in the develop tool." Parses what was typed
+// as one or two whitespace-separated fields — a day number, and
+// optionally a year ("7" or "7 2020") — stamps dayNN.crust from the
+// exact same dayFileTemplateFmt runNew itself uses (one starter shape
+// taught in one place, not a second copy that could drift out of
+// sync), and, if a year was given, persists it immediately
+// (saveYearBestEffort) the same way `crust new --year`/`crust develop
+// --year` already do — so the very next moment this file's open, its
+// auto-fetch/timer already know it. Existing-file and write-failure
+// handling mirrors createNavFile's own (O_CREATE|O_EXCL, navErr on
+// failure, prompt stays up to fix and retry).
+func (m debugModel) createNavAoCFile() (tea.Model, tea.Cmd) {
+	fields := strings.Fields(m.navNewName.String())
+	if len(fields) == 0 {
+		m.navErr = "type a day number first"
+		return m, nil
+	}
+	if len(fields) > 2 {
+		m.navErr = `type a day number and, optionally, a year: "7" or "7 2020"`
+		return m, nil
+	}
+	day, convErr := strconv.Atoi(fields[0])
+	if convErr != nil || day < 1 || day > 25 {
+		m.navErr = fmt.Sprintf("invalid day %q (want 1-25)", fields[0])
+		return m, nil
+	}
+	year := 0
+	if len(fields) == 2 {
+		y, convErr := strconv.Atoi(fields[1])
+		if convErr != nil {
+			m.navErr = fmt.Sprintf("invalid year %q", fields[1])
+			return m, nil
+		}
+		year = y
+	}
+
+	name := fmt.Sprintf("day%02d.crust", day)
+	path := filepath.Join(filepath.Dir(m.view.path), name)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			m.navErr = name + " already exists"
+		} else {
+			m.navErr = err.Error()
+		}
+		return m, nil
+	}
+	displayYear := year
+	if displayYear == 0 {
+		displayYear = defaultAoCYear
+	}
+	content := fmt.Sprintf(dayFileTemplateFmt, displayYear, day, day, day, day, day, day)
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		m.navErr = err.Error()
+		return m, nil
+	}
+	f.Close()
+	if year != 0 {
+		saveYearBestEffort(path, year)
+	}
+
+	m.navCreatingAoC = false
+	m.navNewName = runInputModel{}
+	m = m.switchToFile(path)
+	if m.aocTimerRunning() {
+		return m, aocTickCmd()
+	}
+	return m, nil
+}
+
 // viewNav lists every file listCrustFiles found alongside the one
 // currently open, one per line: "> " marks navCursor (enter's target,
 // the same cursor-row convention the Stepper and Run tab's own
@@ -375,9 +460,13 @@ func (m debugModel) createNavFile() (tea.Model, tea.Cmd) {
 // second file in an otherwise-empty directory is exactly the case this
 // exists for.
 func (m debugModel) viewNav() string {
-	if m.navCreating {
+	if m.navCreating || m.navCreatingAoC {
+		heading := "new file name (created alongside " + filepath.Base(m.view.path) + "):"
+		if m.navCreatingAoC {
+			heading = `new AoC day — day number, optionally a year (e.g. "7" or "7 2020"), created alongside ` + filepath.Base(m.view.path) + ":"
+		}
 		var b strings.Builder
-		b.WriteString(styleTitle.Render("new file name (created alongside " + filepath.Base(m.view.path) + "):"))
+		b.WriteString(styleTitle.Render(heading))
 		b.WriteByte('\n')
 		b.WriteString("  " + m.navNewName.render())
 		if m.navErr != "" {

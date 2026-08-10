@@ -234,11 +234,19 @@ the Run tab's entry point and run a fresh batch to see `compare: ...`
 
 On the Run tab: output taller than the panel scrolls with pgup/pgdn,
 showing "N more line(s) above/below" hints; a fresh run always
-resets the scroll back to the top.
+resets the scroll back to the top. `Ctrl+F` fetches this day's input
+on demand (or just adopts it if already on disk), wiring the result
+into the input-file field above; `Ctrl+S` submits the last run's own
+final output line as the answer, using the selected entry point for
+the part; `Ctrl+L` suspends into `crust login` (same hand-off as the
+Editor tab's nvim) and reports whether a session got saved.
 
 On the Files tab: a file at least one other file's top-level
 `delivery "..."` targets shows "(used by N other files)" — spot a
-shared helper at a glance instead of grepping every day for it.
+shared helper at a glance instead of grepping every day for it. `Ctrl+N`
+scaffolds a new AoC day right there — type a day number and optional
+year, enter creates `dayNN.crust` from the same template `crust new`
+uses and switches straight to it.
 
 On the Live tab: a genuinely live, real interpreter you step through
 one statement at a time — not the Stepper's after-the-fact recording.
@@ -278,4 +286,7 @@ YYYY: 3m12s (running)` in its header for as long as the timer's going.
 `--year` on `develop` (or `new`) is remembered per file — set it once
 and every later `crust develop dayNN.crust` already knows it, no
 `--year` required again. An explicit `--year` on a later invocation
-still overrides and re-remembers.
+still overrides and re-remembers. All four of `login`/`fetch`/`submit`/
+`new` are also reachable without leaving `crust develop`: `Ctrl+F`,
+`Ctrl+S`, and `Ctrl+L` on the Run tab, `Ctrl+N` on the Files tab (see
+"Debugging while you work" above).

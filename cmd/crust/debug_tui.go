@@ -176,6 +176,31 @@ type debugModel struct {
 	navCreating bool
 	navNewName  runInputModel
 
+	// navCreatingAoC is ctrl+n's own version of navCreating — same
+	// prompt-takes-over-the-tab shape and the same navNewName field for
+	// typing into, but Enter completes through createNavAoCFile
+	// (debug_nav.go) instead of createNavFile: a day number (and
+	// optional year) parsed out of what was typed, stamped from the
+	// real AoC starter template (new.go's dayFileTemplateFmt), rather
+	// than an empty file under an arbitrary name. Kept as a second bool
+	// alongside navCreating instead of folding both into one enum,
+	// specifically so every existing navCreating-only test/call site
+	// keeps working unchanged — the two are only ever set one at a
+	// time (pressing 'n' clears this one, ctrl+n clears the other).
+	navCreatingAoC bool
+
+	// aocActionStatus is the Run tab's one-line feedback for the last
+	// ctrl+f (fetch)/ctrl+s (submit)/ctrl+l (login) action — success or
+	// failure, always visible, never silent, the same shape
+	// benchExportStatus already established for the Bench tab's 'e'.
+	// One shared field rather than three separate ones (unlike Bench's
+	// export/baseline/compare, which can all be relevant at once): only
+	// one of fetch/submit/login is ever "the last thing that happened"
+	// at a time, so a single line is enough and keeps the Run tab from
+	// growing three status lines for features that are rarely used
+	// together.
+	aocActionStatus string
+
 	// benchCount/benchRuns/benchErr/benchShow back the Bench tab
 	// (debug_bench.go): benchCount is the "how many runs" text field
 	// (reusing runInputModel, digits only — see handleBenchTabKey),
@@ -446,6 +471,12 @@ func (m debugModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLivePause(msg)
 	case liveDoneMsg:
 		return m.handleLiveDone(msg)
+	case aocFetchMsg:
+		return m.handleAocFetchResult(msg)
+	case aocSubmitMsg:
+		return m.handleAocSubmitResult(msg)
+	case loginExitMsg:
+		return m.handleLoginExit(msg)
 	}
 	return m, nil
 }
@@ -469,7 +500,7 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// that mean something elsewhere, like q or j/k), so it gets its own
 	// handler the moment the prompt is up rather than a case threaded
 	// through the switch below.
-	if m.active == tabNav && m.navCreating {
+	if m.active == tabNav && (m.navCreating || m.navCreatingAoC) {
 		return m.handleNavCreateKey(msg)
 	}
 	// Same reasoning again: a search query can contain letters bound to
@@ -530,6 +561,12 @@ func (m debugModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.navErr = ""
 		} else if m.active == tabStepper {
 			m.repeatStepperSearch(true)
+		}
+	case "ctrl+n":
+		if m.active == tabNav {
+			m.navCreatingAoC = true
+			m.navNewName = runInputModel{}
+			m.navErr = ""
 		}
 	case "N":
 		if m.active == tabStepper {
@@ -979,10 +1016,11 @@ func (m debugModel) helpText() string {
 		if m.runOutput != "" {
 			scroll = "   pgup/pgdn: scroll output"
 		}
+		aoc := "   ctrl+f: fetch input   ctrl+s: submit answer   ctrl+l: login"
 		if len(m.runEntryOptions()) > 0 {
-			return "↑↓: field/entry point   ←→: move/change   enter: run" + scroll + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+			return "↑↓: field/entry point   ←→: move/change   enter: run" + scroll + aoc + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 		}
-		return "enter: run" + scroll + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
+		return "enter: run" + scroll + aoc + "   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabLive:
 		if m.liveRunning && m.livePaused && m.liveWatchFocus {
 			return "w: exit watch scroll   ↑↓: scroll variables   c: continue   s: step   x: stop   tab/⇧tab: switch tab   ctrl+c/esc: quit"
@@ -1000,10 +1038,10 @@ func (m debugModel) helpText() string {
 		}
 		return "enter: run N times   i: inspect a run   e: export CSV   b: save baseline   c: capture for compare   r/a/m/x/n: toggle a line   tab/⇧tab: switch tab   ctrl+c/esc: quit"
 	case tabNav:
-		if m.navCreating {
+		if m.navCreating || m.navCreatingAoC {
 			return "enter: create and switch to it   esc: cancel   ctrl+c: quit"
 		}
-		return "tab/←→: switch tab   ↑↓: move   enter: switch to this file   n: new file   q: quit"
+		return "tab/←→: switch tab   ↑↓: move   enter: switch to this file   n: new file   ctrl+n: new AoC day   q: quit"
 	default:
 		return "tab/←→: switch tab   q: quit"
 	}

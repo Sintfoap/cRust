@@ -4822,6 +4822,70 @@ code was written.
     opened with no session configured never even creates the config
     directory, proving the feature is fully inert by default rather
     than merely "looks inert in the cases tested."
+  - **Manual fetch/submit/login/new actions** (`cmd/crust/debug_aoc_actions.go`),
+    on direct request: auto-fetch only covers "open a file, its input
+    shows up" — a solver still needs a way to retry a failed
+    auto-fetch, submit an answer without leaving the TUI, or log in for
+    the first time from inside an already-open session, none of which
+    the passive auto-fetch path can do on its own. All three live on
+    the Run tab, bound to `Ctrl+F`/`Ctrl+S`/`Ctrl+L` — never bare
+    letters, since the Run tab's input-file field needs every printable
+    key for itself; `Ctrl+<letter>` is safe for the same reason
+    `Ctrl+R` ("run all stores") already is — a terminal in raw mode
+    never generates one from ordinary typing, confirmed by reading the
+    vendored `bubbletea` source rather than assuming. `aocFetchCmd`
+    resolves day/year the same way `maybeAutoFetchInput` does, adopts
+    an already-downloaded file without re-fetching (reported as a
+    successful no-op, not silence — pressing the key is an explicit
+    request, unlike auto-fetch's silent skip), and on either path calls
+    the new `saveInputPathBestEffort` (`debug_state.go`) to overwrite
+    the Run tab's remembered input path — the same "explicit action,
+    unconditional persistence" shape `--year`'s `saveYearBestEffort`
+    already established, and `handleAocFetchResult` applies the result
+    straight to `m.runInput` too, so the *very next* run already reads
+    the real puzzle input without retyping the path — this is also what
+    makes auto-fetch itself pre-populate the field, since
+    `maybeAutoFetchInput` calls the same save function on a successful
+    startup fetch. `aocSubmitCmd` submits the Run tab's own last output
+    line (`lastNonEmptyLine`) as the answer — the most direct stand-in
+    for "what a solver would read off the screen and paste into AoC's
+    website by hand" — refusing before ever making a request if nothing
+    has been run yet or the last run failed (its final line is far more
+    likely to be error text than an answer). The part comes from
+    `levelForEntry`, mapping the Run tab's selected entry point
+    (`"part2"` -> level 2, everything else -> level 1) to match every
+    file this session's own tooling generates. `loginCmd` reuses the
+    Editor tab's exact established pattern for handing the whole
+    terminal to another interactive program: self-exec's `os.Args[0]
+    login` (not a hardcoded `"crust"`, so this works identically for a
+    `go run` build, a locally built binary under any name, or an
+    installed one) via `tea.ExecProcess`, with `cmd.Stdin` preset to the
+    real `os.Stdin` ahead of time for the same reason `nvimCmd`'s own
+    doc comment already gives. `handleLoginExit` deliberately re-queries
+    `aoc.LoadSession()` itself afterward rather than trusting
+    `cmd.Run()`'s error, since a non-zero exit is also `runLogin`'s own
+    legitimate result for an empty typed cookie — checking the real,
+    current state directly is simpler than reverse-engineering that
+    distinction from an exit code. A fourth action, `Ctrl+N` on the
+    Files tab (`debug_nav.go`'s `createNavAoCFile`), scaffolds a new AoC
+    day without leaving `develop` to run `crust new` separately: a
+    second prompt-mode bool (`navCreatingAoC`) alongside the existing
+    blank-file `navCreating`, sharing one text field and one key
+    handler rather than a merged enum, specifically so every existing
+    `navCreating`-only test and call site keeps working unchanged — the
+    two are only ever set one at a time. It parses a day number and
+    optional year out of the typed text, stamps the file from
+    `new.go`'s own `dayFileTemplateFmt` (no drift between the two
+    creation paths), and persists a given year immediately via the
+    existing `saveYearBestEffort`. Verified with a real pty session
+    exercising all four keys in a real terminal: `Ctrl+F`/`Ctrl+S`'s
+    own "no session saved" error paths (deliberately not hitting the
+    real adventofcode.com from a verification script, this codebase's
+    established posture for AoC-network features), `Ctrl+L` genuinely
+    suspending into `crust login`'s real prompt text, and `Ctrl+N`
+    creating a real `dayNN.crust` from the AoC template, switching into
+    it, with the typed year stamped into the file and persisted to
+    `develop_state.json`.
 - `lexer_test.go` / `parser_test.go`: table-driven unit tests (input
   string in, expected tokens/AST shape out).
 - `interpreter_test.go`: evaluate a snippet, assert the resulting

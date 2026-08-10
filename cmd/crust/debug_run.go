@@ -105,9 +105,11 @@ func (in runInputModel) render() string {
 // any of them. Only the handful of keys a path could never need stay
 // reserved: Up/Down to move focus between the two rows, Tab/Shift+Tab
 // to switch tabs, Enter to run, Ctrl+R to toggle "run all stores"
-// (m.runAllStores — see its doc comment on debugModel), and Ctrl+C/Esc
-// as an always-available way out that doesn't depend on typing a bare
-// "q".
+// (m.runAllStores — see its doc comment on debugModel), Ctrl+F/Ctrl+S/
+// Ctrl+L for the manual AoC actions (debug_aoc_actions.go's own doc
+// comment explains why Ctrl+<letter> combos specifically are safe
+// here), and Ctrl+C/Esc as an always-available way out that doesn't
+// depend on typing a bare "q".
 func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyTab:
@@ -133,6 +135,12 @@ func (m debugModel) handleRunTabKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveRunOutputScroll(-m.runOutputBodyHeight())
 	case tea.KeyPgDown:
 		m.moveRunOutputScroll(m.runOutputBodyHeight())
+	case tea.KeyCtrlF:
+		return m, m.aocFetchCmd()
+	case tea.KeyCtrlS:
+		return m, m.aocSubmitCmd()
+	case tea.KeyCtrlL:
+		return m, loginCmd()
 	case tea.KeyLeft:
 		if m.runEntryFocused {
 			m.cycleRunEntry(-1)
@@ -504,6 +512,11 @@ func (m debugModel) viewRun() string {
 		b.WriteString("\n\n")
 	}
 
+	if m.aocActionStatus != "" {
+		b.WriteString("  " + styleMuted.Render(m.aocActionStatus))
+		b.WriteString("\n\n")
+	}
+
 	if m.runOutput == "" {
 		instructions := fmt.Sprintf(
 			"enter: run %s (with the path above as stdin, if any) and show its output here, like running it from the command line — also updates the Time/Memory/Stepper tabs to match this run",
@@ -528,14 +541,19 @@ func (m debugModel) viewRun() string {
 // output panel itself — the input-file field's own 3 lines (label,
 // field, blank) plus, only when the file actually has entry points to
 // choose from, the entry-point selector's own 5 (label, options row,
-// blank, run-all line, blank). The same "compute the fixed chrome
-// budget once so the body-height calculation can't drift out of sync
-// with what actually renders" reasoning stepperExtraLines/
-// liveExtraLines already established for their own tabs.
+// blank, run-all line, blank), plus 2 more whenever ctrl+f/ctrl+s/
+// ctrl+l last left a status message up (the line itself, plus the
+// blank line after it). The same "compute the fixed chrome budget once
+// so the body-height calculation can't drift out of sync with what
+// actually renders" reasoning stepperExtraLines/liveExtraLines already
+// established for their own tabs.
 func (m debugModel) runOutputExtraLines() int {
 	extra := 3
 	if len(m.runEntryOptions()) > 0 {
 		extra += 5
+	}
+	if m.aocActionStatus != "" {
+		extra += 2
 	}
 	return extra
 }

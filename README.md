@@ -386,7 +386,12 @@ layout — ↑↓ to move, enter to switch straight to one without leaving
 keeps its own remembered store/input/run-all/bench-count settings, the
 same as reopening it fresh from the command line would; `n` starts a
 new file right there — type a name, enter creates it (`.crust`
-appended if you leave it off) and switches straight to it; a file at
+appended if you leave it off) and switches straight to it; `Ctrl+N`
+does the same for a fresh AoC day specifically — type a day number
+and, optionally, a year (`7` or `7 2020`), enter creates
+`day07.crust` from the same starter template `crust new` writes and
+switches straight to it, without leaving `crust develop` to run a
+separate command; a file at
 least one other file's own top-level `delivery "..."` targets shows
 "(used by N other files)" next to its name — the easy way to spot
 which shared helper is safe to edit without checking every day by
@@ -415,6 +420,22 @@ store and their timing/debug info merged into one combined Time/
 Memory/Stepper recording — handy for checking part 1 and part 2 (or
 however many `store_<name>`s a file has) together without switching
 the selector and re-running by hand each time.
+The Run tab also has manual triggers for the AoC workflow itself,
+never bare letters (the input-file field needs every printable key for
+a real path), so they're all `Ctrl+<letter>`: `Ctrl+F` fetches this
+day's input on demand — a retry if auto-fetch failed, or the first
+fetch for a file `crust develop` created before a session was saved —
+and either downloads it or, if it's already on disk, just adopts it,
+either way wiring the result straight into the input-file field above
+so there's nothing left to type by hand; `Ctrl+S` submits the last
+run's own final output line as this file's answer (day/year from the
+filename, part from whichever entry point is selected) and shows AoC's
+verdict right there on the Run tab, refusing up front if nothing's
+been run yet or the last run failed; `Ctrl+L` suspends `crust develop`
+the same way the Editor tab hands off to nvim and runs `crust login`
+in its place, so a session can be started (or replaced) without ever
+leaving the debugger — once it exits, the Run tab reports whether a
+session actually got saved.
 Time/Memory/Stepper start out empty ("nothing recorded yet") rather
 than running the program immediately — that first, automatic run used
 to read real process stdin before the TUI had taken over the keyboard,
@@ -463,7 +484,11 @@ fetches its input (unless `dayNN_input.txt` already exists) and starts
 its timer — see "Starting a new day" above — using whichever year this
 file resolves to (2026, unless `--year` set something else for it),
 and the header shows a live-ticking `⏱ day N, YYYY: 3m12s (running)`
-for as long as that timer's going, whichever tab you're on.
+for as long as that timer's going, whichever tab you're on. Either
+way — auto-fetch at startup or a manual `Ctrl+F` later — a successful
+fetch always overwrites the Run tab's input-file field with the
+downloaded path, the same as typing it in and pressing enter would, so
+the very next run already reads the real puzzle input.
 
 ### Documentation site
 

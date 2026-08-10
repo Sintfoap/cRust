@@ -1961,3 +1961,29 @@ confirmed, not before.
       `crust develop day07.crust` (no `--year` on that invocation)
       confirming the header correctly read 2020 from the remembered
       state alone.
+- [x] (Stretch) Manual `crust login`/`fetch`/`submit`/`new` triggers
+      inside `crust develop` itself, on direct request — auto-fetch
+      only covers "open a file, its input shows up"; a solver still
+      needs to retry a failed fetch, submit an answer, or log in for
+      the first time without leaving the TUI. Scope narrowed via
+      `AskUserQuestion` to the `develop`-tool integration itself (a
+      separately-tracked set of other ideas — `crust status`, an
+      "already solved" answer cache, `crust fetch --all`, grid
+      visualization, session-expiry detection — was deliberately left
+      for later). `Ctrl+F`/`Ctrl+S`/`Ctrl+L` on the Run tab
+      (`cmd/crust/debug_aoc_actions.go`) fetch/submit/log-in without
+      leaving the TUI; `Ctrl+N` on the Files tab (`debug_nav.go`)
+      scaffolds a new AoC day from the same template `crust new` uses.
+      A fetch (auto or manual) now also pre-populates the Run tab's
+      input-file field with the downloaded path, on request ("if you
+      can pre-populate the run tab with the filename when we've
+      fetched the input that'd be great") — see docs/ARCHITECTURE.md's
+      AoC integration section for the full design (key-safety
+      reasoning, the login hand-off's self-exec + `tea.ExecProcess`
+      pattern reused from the Editor tab's nvim hand-off, and the
+      submit/level-from-entry-point mapping). Verified with table-driven
+      Go tests across every new function and a real pty session driving
+      the actual built binary: `Ctrl+F`/`Ctrl+S`'s own "no session"
+      error paths, `Ctrl+L` genuinely suspending into `crust login`'s
+      real prompt, and `Ctrl+N` creating a real `dayNN.crust` with a
+      typed year stamped in and persisted.

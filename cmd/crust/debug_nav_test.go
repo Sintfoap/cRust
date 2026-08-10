@@ -749,6 +749,241 @@ func TestHelpTextOnFilesTabWhileCreating(t *testing.T) {
 	}
 }
 
+// --- create-new-AoC-day (ctrl+n) ----------------------------------------
+
+func TestHandleKeyCtrlNStartsAoCCreating(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabNav
+
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlN})
+	got := next.(debugModel)
+	if !got.navCreatingAoC {
+		t.Error("expected navCreatingAoC to be true after pressing ctrl+n on the Files tab")
+	}
+	if got.navCreating {
+		t.Error("expected plain navCreating to stay false when starting the AoC-day prompt")
+	}
+}
+
+func TestHandleKeyCtrlNElsewhereIsNoOp(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabTime
+
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlN})
+	got := next.(debugModel)
+	if got.navCreatingAoC {
+		t.Error("expected ctrl+n to be a no-op off the Files tab")
+	}
+}
+
+func TestHandleNavCreateKeyEnterRoutesToAoCWhenNavCreatingAoC(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "7" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.handleNavCreateKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(debugModel)
+	wantPath := filepath.Join(dir, "day07.crust")
+	if got.view.path != wantPath {
+		t.Errorf("view.path = %q, want %q", got.view.path, wantPath)
+	}
+}
+
+func TestHandleNavCreateKeyEscClearsAoCCreating(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreatingAoC = true
+	m.navNewName.insert('7')
+	m.navErr = "stale"
+
+	next, _ := m.handleNavCreateKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(debugModel)
+	if got.navCreatingAoC {
+		t.Error("expected navCreatingAoC to be cleared by Esc")
+	}
+	if got.navNewName.String() != "" {
+		t.Errorf("navNewName = %q, want cleared", got.navNewName.String())
+	}
+}
+
+func TestCreateNavAoCFileDayOnly(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	m.active = tabNav
+	for _, r := range "9" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr != "" {
+		t.Fatalf("createNavAoCFile: %s", got.navErr)
+	}
+	wantPath := filepath.Join(dir, "day09.crust")
+	if got.view.path != wantPath {
+		t.Errorf("view.path = %q, want %q", got.view.path, wantPath)
+	}
+	if got.navCreatingAoC {
+		t.Error("expected navCreatingAoC cleared after a successful create")
+	}
+	if got.active != tabTime {
+		t.Errorf("active = %v, want tabTime after switching to the new file", got.active)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "store_part1") {
+		t.Errorf("created file = %q, want the AoC starter template (store_part1)", data)
+	}
+}
+
+func TestCreateNavAoCFileWithYear(t *testing.T) {
+	withTempDevelStateDir(t)
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "9 2022" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr != "" {
+		t.Fatalf("createNavAoCFile: %s", got.navErr)
+	}
+	wantPath := filepath.Join(dir, "day09.crust")
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "2022") {
+		t.Errorf("created file = %q, want the given year (2022) in the template", data)
+	}
+
+	all := loadDevelState()
+	abs, _ := filepath.Abs(wantPath)
+	if all[abs].Year != 2022 {
+		t.Errorf("persisted Year = %d, want 2022", all[abs].Year)
+	}
+}
+
+func TestCreateNavAoCFileInvalidDay(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "banana" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for a non-numeric day")
+	}
+	if !got.navCreatingAoC {
+		t.Error("expected navCreatingAoC to stay true so the prompt stays up")
+	}
+}
+
+func TestCreateNavAoCFileOutOfRangeDay(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "26" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for an out-of-range day (26)")
+	}
+}
+
+func TestCreateNavAoCFileTooManyFields(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "7 2020 extra" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for more than a day + year")
+	}
+}
+
+func TestCreateNavAoCFileEmptyIsError(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for an empty day field")
+	}
+}
+
+func TestCreateNavAoCFileAlreadyExistsIsError(t *testing.T) {
+	dir := t.TempDir()
+	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")
+	writeCrustFileIn(t, dir, "day09.crust", `deliver("already here")`)
+	m := newDebugModel(&debugView{path: day01, rec: viewFor(t, "x = 1").rec})
+	m.navCreatingAoC = true
+	for _, r := range "9" {
+		m.navNewName.insert(r)
+	}
+
+	next, _ := m.createNavAoCFile()
+	got := next.(debugModel)
+	if got.navErr == "" {
+		t.Error("expected navErr for a day file that already exists")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "day09.crust"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `deliver("already here")` {
+		t.Error("expected the existing file to be left untouched")
+	}
+}
+
+func TestViewNavShowsAoCPromptHeading(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.navCreatingAoC = true
+	m.navNewName.insert('7')
+
+	out := m.viewNav()
+	if !strings.Contains(out, "new AoC day") {
+		t.Errorf("viewNav() = %q, want the AoC-day create-prompt heading", out)
+	}
+	if !strings.Contains(out, "7") {
+		t.Errorf("viewNav() = %q, want the typed day shown", out)
+	}
+}
+
+func TestHelpTextOnFilesTabMentionsCtrlN(t *testing.T) {
+	m := newDebugModel(viewFor(t, "x = 1"))
+	m.active = tabNav
+	if !strings.Contains(m.helpText(), "ctrl+n") {
+		t.Errorf("helpText() = %q, want it to mention ctrl+n", m.helpText())
+	}
+}
+
 func TestViewRendersFilesTabWithoutPanicking(t *testing.T) {
 	dir := t.TempDir()
 	day01 := writeCrustFileIn(t, dir, "day01.crust", "x = 1")

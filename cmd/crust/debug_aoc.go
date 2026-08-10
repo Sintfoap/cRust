@@ -68,7 +68,11 @@ func aocInputPath(path string, day int) string {
 // `crust fetch` gives without --force). Any fetch failure (day not
 // unlocked yet, bad cookie, a network error) is reported but never
 // fatal to `crust develop` itself — the whole feature is a convenience
-// on top of a workflow that works fine without it.
+// on top of a workflow that works fine without it. A successful fetch
+// also wires the downloaded path into the Run tab's own input field
+// (saveInputPathBestEffort) — runDebugTUI's own restoreRunInput call
+// happens after this returns, so the very first screen already shows
+// it, with no path to type in by hand.
 func maybeAutoFetchInput(path string, year int, stderr io.Writer) {
 	day, ok := dayNumberFromPath(path)
 	if !ok {
@@ -94,6 +98,7 @@ func maybeAutoFetchInput(path string, year int, stderr io.Writer) {
 		return
 	}
 	_ = aoc.StartTimer(year, day)
+	saveInputPathBestEffort(path, inputPath)
 	fmt.Fprintf(stderr, "crust develop: fetched day %d, %d input to %s — timer started\n", day, year, inputPath)
 }
 

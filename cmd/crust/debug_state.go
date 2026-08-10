@@ -173,6 +173,27 @@ func saveYearBestEffort(path string, year int) {
 	_ = saveDevelState(abs, s)
 }
 
+// saveInputPathBestEffort persists path's new Run-tab input-file
+// setting, preserving whatever else was already remembered for it —
+// the same read-mutate-write shape saveYearBestEffort already uses.
+// Called the moment a fetch (auto, at startup, or manual, via the Run
+// tab's ctrl+f) actually downloads puzzle input, so the Run tab is
+// pre-wired to use it without typing the path in by hand. Deliberately
+// unconditional (unlike, say, applySavedOptions' "only fill in if
+// unset" rule for Store/Year) — a fetch that just happened is exactly
+// the moment a solver wants that file used as stdin, the same way
+// typing it in and pressing enter would set it.
+func saveInputPathBestEffort(path, inputPath string) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	all := loadDevelState()
+	s := all[abs]
+	s.Input = inputPath
+	_ = saveDevelState(abs, s)
+}
+
 // restoreRunInput returns a runInputModel pre-filled with path's
 // remembered input-file setting, cursor at the end — or the zero
 // value if nothing's been remembered yet, same as before this feature
