@@ -50,12 +50,19 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"map":         {Fn: mapFn(call)},
 		"filter":      {Fn: filterFn(call)},
 		"reduce":      {Fn: reduceFn(call)},
+		"any":         {Fn: anyFn(call)},
+		"all":         {Fn: allFn(call)},
 		"find":        {Fn: findFn},
 		"min":         {Fn: minMaxFn("min", func(cmp int) bool { return cmp < 0 })},
 		"max":         {Fn: minMaxFn("max", func(cmp int) bool { return cmp > 0 })},
+		"sum":         {Fn: sumFn},
+		"reverse":     {Fn: reverseFn},
 		"pizzasort":   {Fn: pizzasortFn},
+		"sortBy":      {Fn: sortByFn(call)},
+		"zip":         {Fn: zipFn},
 		"combos":      {Fn: combosFn},
 		"enumerate":   {Fn: enumerateFn},
+		"findInts":    {Fn: findIntsFn},
 		"grid":        {Fn: gridFn},
 		"newGrid":     {Fn: newGridFn},
 		"at":          {Fn: atFn},
@@ -63,6 +70,7 @@ func New(output io.Writer, stdin io.Reader, call Call) map[string]*object.Builti
 		"gridBounds":  {Fn: gridBoundsFn},
 		"neighbors4":  {Fn: neighborsFn("neighbors4", orthogonalOffsets)},
 		"neighbors8":  {Fn: neighborsFn("neighbors8", allOffsets)},
+		"manhattan":   {Fn: manhattanFn},
 		"idiv":        {Fn: idivFn},
 		"abs":         {Fn: absFn},
 		"pow":         {Fn: powFn},
@@ -575,6 +583,59 @@ func reduceFn(call Call) object.BuiltinFunction {
 	}
 }
 
+// anyFn is `any(iterable, fn)` (SPEC.md §7) — stuffed the moment fn
+// returns truthy for some element of a List, Tuple, or Set (short-
+// circuiting, same as `or` itself), thin if none do or iterable is
+// empty. Pairs with allFn below the same way `or`/`with` pair as
+// logical opposites.
+func anyFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("any", "2", len(args))
+		}
+		elements, ok := asElements(args[0])
+		if !ok {
+			return wrongArgType("any", 0, "a List, Tuple, or Set", args[0])
+		}
+		for _, elem := range elements {
+			result := call(args[1], []object.Object{elem})
+			if result.Type() == object.ERROR_OBJ {
+				return result
+			}
+			if object.IsTruthy(result) {
+				return object.TRUE
+			}
+		}
+		return object.FALSE
+	}
+}
+
+// allFn is `all(iterable, fn)` (SPEC.md §7) — thin the moment fn
+// returns falsy for some element (short-circuiting), stuffed if every
+// element passes or iterable is empty (vacuous truth — the standard
+// convention `all([])` follows in every language that has it).
+func allFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("all", "2", len(args))
+		}
+		elements, ok := asElements(args[0])
+		if !ok {
+			return wrongArgType("all", 0, "a List, Tuple, or Set", args[0])
+		}
+		for _, elem := range elements {
+			result := call(args[1], []object.Object{elem})
+			if result.Type() == object.ERROR_OBJ {
+				return result
+			}
+			if !object.IsTruthy(result) {
+				return object.FALSE
+			}
+		}
+		return object.TRUE
+	}
+}
+
 // numericValue reports v's value as a float64 if v is an Integer or
 // Float, mirroring internal/interpreter's own helper of the same name
 // (interpreter.go) so min/max order numbers exactly the way `<`/`>` do
@@ -670,6 +731,142 @@ func pizzasortFn(args ...object.Object) object.Object {
 		return cmp
 	})
 	return object.NewList(out)
+}
+
+// sortByFn is `sortBy(list, fn)` (SPEC.md §7) — pizzasort's
+// key-function counterpart, for sorting by something other than an
+// element's own natural order (a Tuple's second field, a String's
+// length, ...): fn is called once per element up front, and elements
+// are reordered by comparing fn's *results* the same way pizzasort
+// compares elements directly (numbers together, Strings together).
+// Stable (`slices.SortStableFunc`, unlike pizzasort's plain
+// `SortFunc`) deliberately: two elements can share a key even when
+// they aren't equal themselves (sorting (name, age) pairs by age alone
+// commonly ties), and preserving their original relative order in that
+// case is the behavior a key-function sort is expected to have
+// (Python's `sorted(key=...)` makes the same guarantee).
+func sortByFn(call Call) object.BuiltinFunction {
+	return func(args ...object.Object) object.Object {
+		if len(args) != 2 {
+			return wrongArgCount("sortBy", "2", len(args))
+		}
+		var elements []object.Object
+		switch v := args[0].(type) {
+		case *object.List:
+			elements = v.Elements
+		case *object.Tuple:
+			elements = v.Elements
+		default:
+			return wrongArgType("sortBy", 0, "a List or Tuple", args[0])
+		}
+
+		type keyed struct {
+			key  object.Object
+			elem object.Object
+		}
+		out := make([]keyed, len(elements))
+		for i, elem := range elements {
+			key := call(args[1], []object.Object{elem})
+			if key.Type() == object.ERROR_OBJ {
+				return key
+			}
+			out[i] = keyed{key: key, elem: elem}
+		}
+		for i := 1; i < len(out); i++ {
+			if _, errObj := compareTwo("sortBy", out[i].key, out[0].key); errObj != nil {
+				return errObj
+			}
+		}
+		slices.SortStableFunc(out, func(a, b keyed) int {
+			cmp, _ := compareTwo("sortBy", a.key, b.key)
+			return cmp
+		})
+
+		result := make([]object.Object, len(out))
+		for i, k := range out {
+			result[i] = k.elem
+		}
+		return object.NewList(result)
+	}
+}
+
+// reverseFn is `reverse(x)` (SPEC.md §7) — x's elements in reverse
+// order, as a new value; x itself is never mutated. A List or Tuple
+// reverses element-by-element, a String rune-by-rune (matching how
+// every other String builtin here — chars/slices/ints — already
+// counts in runes, not bytes, so multi-byte UTF-8 text reverses
+// correctly rather than corrupting). No Set case: a Set has no order
+// to begin with (SPEC.md §2.2), the same reason pizzasort/sortBy don't
+// accept one either.
+func reverseFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("reverse", "1", len(args))
+	}
+	switch v := args[0].(type) {
+	case *object.List:
+		out := make([]object.Object, len(v.Elements))
+		for i, e := range v.Elements {
+			out[len(out)-1-i] = e
+		}
+		return object.NewList(out)
+	case *object.Tuple:
+		out := make([]object.Object, len(v.Elements))
+		for i, e := range v.Elements {
+			out[len(out)-1-i] = e
+		}
+		return object.NewTuple(out)
+	case *object.String:
+		runes := []rune(v.Value)
+		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+			runes[i], runes[j] = runes[j], runes[i]
+		}
+		return &object.String{Value: string(runes)}
+	default:
+		return wrongArgType("reverse", 0, "a List, Tuple, or String", args[0])
+	}
+}
+
+// sumFn is `sum(x)` (SPEC.md §7) — the total of x's elements (a List,
+// Tuple, or Set of Integers/Floats). Widens to Float the moment any
+// element is a Float, same "widen only when you have to" rule `+`
+// itself already follows (SPEC.md §6); `sum([])` is `0`, an Integer,
+// not an error — an empty collection contributes nothing to add, the
+// same reasoning `reduce(xs, fn, 0)` already needs an explicit init
+// for.
+func sumFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("sum", "1", len(args))
+	}
+	elements, ok := asElements(args[0])
+	if !ok {
+		return wrongArgType("sum", 0, "a List, Tuple, or Set", args[0])
+	}
+
+	var intSum int64
+	var floatSum float64
+	isFloat := false
+	for _, elem := range elements {
+		switch v := elem.(type) {
+		case *object.Integer:
+			if isFloat {
+				floatSum += float64(v.Value)
+			} else {
+				intSum += v.Value
+			}
+		case *object.Float:
+			if !isFloat {
+				floatSum = float64(intSum)
+				isFloat = true
+			}
+			floatSum += v.Value
+		default:
+			return newError("sum: element of type %s is not an Integer or Float", elem.Type())
+		}
+	}
+	if isFloat {
+		return &object.Float{Value: floatSum}
+	}
+	return object.NewInteger(intSum)
 }
 
 // minMaxFn builds `min(...)` / `max(...)` (SPEC.md §7). Accepts either
@@ -830,6 +1027,51 @@ func enumerateFn(args ...object.Object) object.Object {
 	out := make([]object.Object, len(elements))
 	for i, e := range elements {
 		out[i] = object.NewTuple([]object.Object{&object.Integer{Value: int64(i)}, e})
+	}
+	return object.NewList(out)
+}
+
+// zipFn is `zip(a, b)` (SPEC.md §7) — pairs a and b (each a List or
+// Tuple) element-wise into a List of (a[i], b[i]) Tuples, truncating
+// to the shorter of the two rather than erroring on a length mismatch
+// — Python's zip() convention, and the more useful default for AoC's
+// usual "walk two parallel lists together" use (e.g. `zip(rows,
+// enumerate(rows))`-style pairings, where padding or erroring on an
+// uneven split would just get in the way).
+func zipFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("zip", "2", len(args))
+	}
+	var a, b []object.Object
+	switch v := args[0].(type) {
+	case *object.List:
+		a = v.Elements
+	case *object.Tuple:
+		a = v.Elements
+	default:
+		return wrongArgType("zip", 0, "a List or Tuple", args[0])
+	}
+	switch v := args[1].(type) {
+	case *object.List:
+		b = v.Elements
+	case *object.Tuple:
+		b = v.Elements
+	default:
+		return wrongArgType("zip", 1, "a List or Tuple", args[1])
+	}
+
+	n := min(len(a), len(b))
+	for i := 0; i < n; i++ {
+		if _, ok := a[i].(object.Hashable); !ok {
+			return newError("zip: unhashable element of type %s cannot go in a Tuple", a[i].Type())
+		}
+		if _, ok := b[i].(object.Hashable); !ok {
+			return newError("zip: unhashable element of type %s cannot go in a Tuple", b[i].Type())
+		}
+	}
+	out := make([]object.Object, n)
+	for i := 0; i < n; i++ {
+		out[i] = object.NewTuple([]object.Object{a[i], b[i]})
 	}
 	return object.NewList(out)
 }
@@ -1054,6 +1296,38 @@ func neighborsFn(name string, offsets [][2]int64) object.BuiltinFunction {
 	}
 }
 
+// manhattanFn is `manhattan(a, b)` (SPEC.md §7) — the taxicab/Manhattan
+// distance between two (row, col) Tuples, |a.row - b.row| + |a.col -
+// b.col|: pure coordinate arithmetic, no bounds checking against any
+// particular grid, the same posture neighbors4/neighbors8 already
+// take. The single most common distance metric AoC's own grid puzzles
+// reach for (pathfinding heuristics, "closest point," ...) — cheap
+// enough that hand-writing it inline every time it's needed would be
+// no real burden, but common enough that it earns a name the same way
+// neighbors4/8 did.
+func manhattanFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("manhattan", "2", len(args))
+	}
+	rowA, colA, errObj := gridPos("manhattan", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	rowB, colB, errObj := gridPos("manhattan", 1, args[1])
+	if errObj != nil {
+		return errObj
+	}
+	rowDiff := rowA - rowB
+	if rowDiff < 0 {
+		rowDiff = -rowDiff
+	}
+	colDiff := colA - colB
+	if colDiff < 0 {
+		colDiff = -colDiff
+	}
+	return object.NewInteger(rowDiff + colDiff)
+}
+
 // charsFn is `chars(s)` (SPEC.md §7) — splits a String into a List of
 // one-character (one-rune) Strings.
 func charsFn(args ...object.Object) object.Object {
@@ -1117,6 +1391,61 @@ func intsFn(args ...object.Object) object.Object {
 	default:
 		return wrongArgType("ints", 0, "a String or List", args[0])
 	}
+}
+
+// findIntsFn is `findInts(s)` (SPEC.md §7) — every integer embedded
+// anywhere in s, in order, as a List — the "extract the numbers from
+// this line" idiom a large fraction of AoC input parsing boils down to
+// (`ints(split(line))` already covers "the whole line is nothing but
+// digit-strings"; this is for the messier "target area: x=20..30,
+// y=-10..-5" case, digits mixed with punctuation and prose). A `-`
+// counts as a sign only when it directly precedes a digit *and* isn't
+// itself directly preceded by another digit — the second half of that
+// rule is what makes `findInts("1-3 a: abcde")` (AoC 2020 Day 2's own
+// password-policy line shape) come back `[1, 3]`, not `[1, -3]`: a
+// dash sitting between two digit runs reads as a range/list separator,
+// the far more common meaning in real puzzle input, while
+// `findInts("y=-10..-5")` still correctly reads both as negative,
+// since each `-` there is preceded by `=`/`.`, never a digit.
+func findIntsFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("findInts", "1", len(args))
+	}
+	s, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("findInts", 0, "a String", args[0])
+	}
+
+	isDigit := func(r rune) bool { return r >= '0' && r <= '9' }
+	runes := []rune(s.Value)
+	out := []object.Object{}
+	for i := 0; i < len(runes); {
+		neg := false
+		if runes[i] == '-' && i+1 < len(runes) && isDigit(runes[i+1]) && (i == 0 || !isDigit(runes[i-1])) {
+			neg = true
+			i++
+		}
+		start := i
+		for i < len(runes) && isDigit(runes[i]) {
+			i++
+		}
+		if i == start {
+			if !neg {
+				i++
+			}
+			continue
+		}
+		text := string(runes[start:i])
+		if neg {
+			text = "-" + text
+		}
+		n, err := strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return newError("findInts: %q overflows a 64-bit integer", text)
+		}
+		out = append(out, object.NewInteger(n))
+	}
+	return object.NewList(out)
 }
 
 // idivFn is `idiv(a, b)` (SPEC.md §6) — integer (floor) division,

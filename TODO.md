@@ -1844,3 +1844,21 @@ confirmed, not before.
       opened with no session configured never touches the config
       directory at all, confirming the feature is fully inert by
       default.
+- [x] (Stretch) Eight stdlib additions — `sum(x)`, `reverse(x)`,
+      `sortBy(list, fn)`, `any(iterable, fn)`, `all(iterable, fn)`,
+      `findInts(s)`, `zip(a, b)`, `manhattan(a, b)` — from a "look into
+      what might be missing from the stdlib" request, followed by "go
+      ahead with those" once a prioritized gap list came back. Each
+      reuses existing internal plumbing (`asElements`, `compareTwo`,
+      `gridPos`, the `object.Hashable` check `enumerate`/`tuple`/`set`
+      already established) rather than a new pattern per builtin — see
+      docs/ARCHITECTURE.md's Phase 5 section for the two design calls
+      worth knowing about: `sortBy` is stable (unlike `pizzasort`, on
+      purpose — a key function can tie without the elements themselves
+      being equal) and `findInts`'s `-`-as-sign rule specifically
+      avoids misreading a range like `"1-3"` as `[1, -3]`. A
+      priority-queue/heap type — the recurring "Dijkstra pathfinding"
+      AoC category — was named as a gap but deliberately left out of
+      this batch as its own, bigger open design question. Verified
+      with table-driven Go tests per builtin and a real `crust run`
+      subprocess exercising all eight together.

@@ -99,6 +99,14 @@ var builtinDocs = map[string]string{
 	"int":         "`int(x) -> Integer` — parses a String (base-10) or truncates a Float toward zero; an Integer passes through unchanged.",
 	"float":       "`float(x) -> Float` — parses a String or widens an Integer; a Float passes through unchanged.",
 	"bool":        "`bool(x) -> Boolean` — normalizes any value to a strict Boolean using cRust's truthiness rule (only `thin`/`nobox` are falsy).",
+	"sum":         "`sum(x) -> Integer | Float` — total of x's elements (a List, Tuple, or Set of numbers). sum([]) is 0.",
+	"reverse":     "`reverse(x) -> List | Tuple | String` — x's elements (or characters) in reverse order, as a new value; x itself is untouched.",
+	"sortBy":      "`sortBy(list, fn) -> List` — list's elements (a List or Tuple) sorted by comparing fn(element) instead of the elements themselves — pizzasort's key-function counterpart. Stable: elements with equal keys keep their original relative order.",
+	"any":         "`any(iterable, fn) -> Boolean` — stuffed the moment fn(element) is truthy for some element of a List, Tuple, or Set; thin if none are (or iterable is empty).",
+	"all":         "`all(iterable, fn) -> Boolean` — thin the moment fn(element) is falsy for some element; stuffed if every element passes (or iterable is empty).",
+	"findInts":    "`findInts(s) -> List` — every integer embedded anywhere in s, in order — \"extract the numbers from this line.\" A `-` counts as a sign only when it isn't itself preceded by a digit, so `findInts(\"1-3 a: abcde\")` is `[1, 3]` (a range, not a negative number) while `findInts(\"y=-10..-5\")` is `[-10, -5]`.",
+	"zip":         "`zip(a, b) -> List` — pairs a and b (each a List or Tuple) element-wise into a List of (a[i], b[i]) Tuples, truncating to the shorter of the two.",
+	"manhattan":   "`manhattan(a, b) -> Integer` — taxicab distance between two (row, col) Tuples: |a.row - b.row| + |a.col - b.col|. No bounds checking, same posture as neighbors4/neighbors8.",
 }
 
 // KeywordDocs returns every reserved word's hover doc, keyed by its

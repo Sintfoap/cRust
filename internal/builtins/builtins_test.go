@@ -1253,7 +1253,7 @@ func TestFilterWrongArgCount(t *testing.T) {
 	wantError(t, call(t, table, "filter"))
 }
 
-var sumFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+var addFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
 	acc := args[0].(*object.Integer).Value
 	elem := args[1].(*object.Integer).Value
 	return object.NewInteger(acc + elem)
@@ -1262,18 +1262,18 @@ var sumFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
 func TestReduceSumsAList(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
-	wantInteger(t, call(t, table, "reduce", list, sumFn, object.NewInteger(0)), 6)
+	wantInteger(t, call(t, table, "reduce", list, addFn, object.NewInteger(0)), 6)
 }
 
 func TestReduceOnTuple(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	tup := object.NewTuple([]object.Object{object.NewInteger(4), object.NewInteger(5)})
-	wantInteger(t, call(t, table, "reduce", tup, sumFn, object.NewInteger(1)), 10)
+	wantInteger(t, call(t, table, "reduce", tup, addFn, object.NewInteger(1)), 10)
 }
 
 func TestReduceEmptyListReturnsInit(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	wantInteger(t, call(t, table, "reduce", object.NewList(nil), sumFn, object.NewInteger(42)), 42)
+	wantInteger(t, call(t, table, "reduce", object.NewList(nil), addFn, object.NewInteger(42)), 42)
 }
 
 func TestReducePropagatesFnError(t *testing.T) {
@@ -1296,12 +1296,12 @@ func TestReduceNotCallableIsError(t *testing.T) {
 
 func TestReduceWrongCollectionType(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	wantError(t, call(t, table, "reduce", object.NewInteger(1), sumFn, object.NewInteger(0)))
+	wantError(t, call(t, table, "reduce", object.NewInteger(1), addFn, object.NewInteger(0)))
 }
 
 func TestReduceWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
-	wantError(t, call(t, table, "reduce", object.NewList(nil), sumFn))
+	wantError(t, call(t, table, "reduce", object.NewList(nil), addFn))
 	wantError(t, call(t, table, "reduce"))
 }
 
@@ -2712,4 +2712,406 @@ func TestPopWrongArgCount(t *testing.T) {
 	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
 	wantError(t, call(t, table, "pop"))
 	wantError(t, call(t, table, "pop", object.NewList(nil), object.NewInteger(0), object.NewInteger(0)))
+}
+
+// --- sum ----------------------------------------------------------------
+
+func TestSumOfIntegers(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantInteger(t, call(t, table, "sum", list), 6)
+}
+
+func TestSumWidensToFloatOnAnyFloatElement(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), &object.Float{Value: 2.5}})
+	wantFloat(t, call(t, table, "sum", list), 3.5)
+}
+
+func TestSumOfTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(4), object.NewInteger(5)})
+	wantInteger(t, call(t, table, "sum", tup), 9)
+}
+
+func TestSumOfSet(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(10))
+	set.Add(object.NewInteger(20))
+	wantInteger(t, call(t, table, "sum", set), 30)
+}
+
+func TestSumEmptyListIsZero(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantInteger(t, call(t, table, "sum", object.NewList(nil)), 0)
+}
+
+func TestSumNonNumericElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), &object.String{Value: "x"}})
+	wantError(t, call(t, table, "sum", list))
+}
+
+func TestSumWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sum", object.NewInteger(1)))
+}
+
+func TestSumWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sum"))
+	wantError(t, call(t, table, "sum", object.NewList(nil), object.NewList(nil)))
+}
+
+// --- reverse --------------------------------------------------------------
+
+func TestReverseList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantListOfInts(t, call(t, table, "reverse", list), 3, 2, 1)
+}
+
+func TestReverseDoesNotMutateOriginal(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	call(t, table, "reverse", list)
+	wantListOfInts(t, list, 1, 2)
+}
+
+func TestReverseTuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	tup := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	wantTupleOfInts(t, call(t, table, "reverse", tup), 3, 2, 1)
+}
+
+func TestReverseString(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantString(t, call(t, table, "reverse", &object.String{Value: "pizza"}), "azzip")
+}
+
+func TestReverseStringMultiByte(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantString(t, call(t, table, "reverse", &object.String{Value: "café"}), "éfac")
+}
+
+func TestReverseEmptyList(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got, ok := call(t, table, "reverse", object.NewList(nil)).(*object.List)
+	if !ok || len(got.Elements) != 0 {
+		t.Errorf("reverse([]) = %v, want an empty List", got)
+	}
+}
+
+func TestReverseWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "reverse", object.NewInteger(1)))
+	set := object.NewSet()
+	wantError(t, call(t, table, "reverse", set))
+}
+
+func TestReverseWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "reverse"))
+	wantError(t, call(t, table, "reverse", object.NewList(nil), object.NewList(nil)))
+}
+
+// --- sortBy -----------------------------------------------------------------
+
+// negateFn negates an Integer — used as a sortBy/any/all key/predicate
+// callback in tests below, the same "inline *object.Builtin closure"
+// shape TestReducePropagatesFnError already uses for a test-only
+// callback.
+var negateFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+	return object.NewInteger(-args[0].(*object.Integer).Value)
+}}
+
+func TestSortByKeyFunction(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(3), object.NewInteger(2)})
+	// Sorting by -x is descending order.
+	wantListOfInts(t, call(t, table, "sortBy", list, negateFn), 3, 2, 1)
+}
+
+func TestSortByIsStable(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	// Sort (label, key) tuples by key; ties should keep original order.
+	a := object.NewTuple([]object.Object{&object.String{Value: "a"}, object.NewInteger(1)})
+	b := object.NewTuple([]object.Object{&object.String{Value: "b"}, object.NewInteger(1)})
+	c := object.NewTuple([]object.Object{&object.String{Value: "c"}, object.NewInteger(0)})
+	list := object.NewList([]object.Object{a, b, c})
+	keyFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return args[0].(*object.Tuple).Elements[1]
+	}}
+	got, ok := call(t, table, "sortBy", list, keyFn).(*object.List)
+	if !ok || len(got.Elements) != 3 {
+		t.Fatalf("got %v, want a 3-element List", got)
+	}
+	wantString(t, got.Elements[0].(*object.Tuple).Elements[0], "c")
+	wantString(t, got.Elements[1].(*object.Tuple).Elements[0], "a")
+	wantString(t, got.Elements[2].(*object.Tuple).Elements[0], "b")
+}
+
+func TestSortByDoesNotMutateOriginal(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	call(t, table, "sortBy", list, negateFn)
+	wantListOfInts(t, list, 1, 2)
+}
+
+func TestSortByPropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "sortBy", list, failFn))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestSortByMismatchedKeyTypesIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	identityFn := &object.Builtin{Fn: func(args ...object.Object) object.Object { return args[0] }}
+	list := object.NewList([]object.Object{object.NewInteger(1), &object.String{Value: "x"}})
+	wantError(t, call(t, table, "sortBy", list, identityFn))
+}
+
+func TestSortByWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sortBy", object.NewInteger(1), negateFn))
+}
+
+func TestSortByWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "sortBy", object.NewList(nil)))
+}
+
+// --- any / all --------------------------------------------------------------
+
+var isPositiveFn = &object.Builtin{Fn: func(args ...object.Object) object.Object {
+	return object.NativeBoolToBooleanObject(args[0].(*object.Integer).Value > 0)
+}}
+
+func TestAnySomeMatch(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(-1), object.NewInteger(2)})
+	wantBoolean(t, call(t, table, "any", list, isPositiveFn), true)
+}
+
+func TestAnyNoneMatch(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(-1), object.NewInteger(-2)})
+	wantBoolean(t, call(t, table, "any", list, isPositiveFn), false)
+}
+
+func TestAnyEmptyIsFalse(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantBoolean(t, call(t, table, "any", object.NewList(nil), isPositiveFn), false)
+}
+
+func TestAnyOnSet(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	set := object.NewSet()
+	set.Add(object.NewInteger(5))
+	wantBoolean(t, call(t, table, "any", set, isPositiveFn), true)
+}
+
+func TestAnyPropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "any", list, failFn))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestAnyWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "any", object.NewInteger(1), isPositiveFn))
+}
+
+func TestAnyWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "any", object.NewList(nil)))
+}
+
+func TestAllEveryMatch(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	wantBoolean(t, call(t, table, "all", list, isPositiveFn), true)
+}
+
+func TestAllOneFails(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	list := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(-2)})
+	wantBoolean(t, call(t, table, "all", list, isPositiveFn), false)
+}
+
+func TestAllEmptyIsTrue(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantBoolean(t, call(t, table, "all", object.NewList(nil), isPositiveFn), true)
+}
+
+func TestAllPropagatesFnError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	failFn := &object.Builtin{Fn: func(args ...object.Object) object.Object {
+		return &object.Error{Message: "boom"}
+	}}
+	list := object.NewList([]object.Object{object.NewInteger(1)})
+	errObj := wantError(t, call(t, table, "all", list, failFn))
+	if errObj.Message != "boom" {
+		t.Errorf("Message = %q, want %q", errObj.Message, "boom")
+	}
+}
+
+func TestAllWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "all", object.NewInteger(1), isPositiveFn))
+}
+
+func TestAllWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "all", object.NewList(nil)))
+}
+
+// --- findInts -----------------------------------------------------------
+
+func TestFindIntsBasic(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "findInts", &object.String{Value: "3 apples and 12 oranges"})
+	wantListOfInts(t, got, 3, 12)
+}
+
+func TestFindIntsNegativeAfterNonDigit(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "findInts", &object.String{Value: "target area: x=20..30, y=-10..-5"})
+	wantListOfInts(t, got, 20, 30, -10, -5)
+}
+
+func TestFindIntsDashBetweenDigitsIsNotNegative(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	// AoC 2020 Day 2's password-policy line shape: "1-3 a: abcde".
+	got := call(t, table, "findInts", &object.String{Value: "1-3 a: abcde"})
+	wantListOfInts(t, got, 1, 3)
+}
+
+func TestFindIntsLeadingNegative(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got := call(t, table, "findInts", &object.String{Value: "-7 steps"})
+	wantListOfInts(t, got, -7)
+}
+
+func TestFindIntsNoDigits(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	got, ok := call(t, table, "findInts", &object.String{Value: "no numbers here"}).(*object.List)
+	if !ok || len(got.Elements) != 0 {
+		t.Errorf("findInts(no digits) = %v, want an empty List", got)
+	}
+}
+
+func TestFindIntsWrongType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "findInts", object.NewInteger(1)))
+}
+
+func TestFindIntsWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "findInts"))
+	wantError(t, call(t, table, "findInts", &object.String{Value: "1"}, &object.String{Value: "2"}))
+}
+
+// --- zip ----------------------------------------------------------------
+
+func TestZipEqualLength(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2)})
+	b := object.NewList([]object.Object{&object.String{Value: "x"}, &object.String{Value: "y"}})
+	got, ok := call(t, table, "zip", a, b).(*object.List)
+	if !ok || len(got.Elements) != 2 {
+		t.Fatalf("got %v, want a 2-element List", got)
+	}
+	pair0 := got.Elements[0].(*object.Tuple)
+	wantInteger(t, pair0.Elements[0], 1)
+	wantString(t, pair0.Elements[1], "x")
+	pair1 := got.Elements[1].(*object.Tuple)
+	wantInteger(t, pair1.Elements[0], 2)
+	wantString(t, pair1.Elements[1], "y")
+}
+
+func TestZipTruncatesToShorter(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewList([]object.Object{object.NewInteger(1), object.NewInteger(2), object.NewInteger(3)})
+	b := object.NewList([]object.Object{object.NewInteger(9)})
+	got, ok := call(t, table, "zip", a, b).(*object.List)
+	if !ok || len(got.Elements) != 1 {
+		t.Fatalf("got %v, want a 1-element List", got)
+	}
+}
+
+func TestZipOnTuples(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(1)})
+	b := object.NewTuple([]object.Object{object.NewInteger(2)})
+	got, ok := call(t, table, "zip", a, b).(*object.List)
+	if !ok || len(got.Elements) != 1 {
+		t.Fatalf("got %v, want a 1-element List", got)
+	}
+}
+
+func TestZipUnhashableElementIsError(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewList([]object.Object{object.NewList(nil)})
+	b := object.NewList([]object.Object{object.NewInteger(1)})
+	wantError(t, call(t, table, "zip", a, b))
+}
+
+func TestZipWrongCollectionType(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "zip", object.NewInteger(1), object.NewList(nil)))
+	wantError(t, call(t, table, "zip", object.NewList(nil), object.NewInteger(1)))
+}
+
+func TestZipWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	wantError(t, call(t, table, "zip", object.NewList(nil)))
+}
+
+// --- manhattan ------------------------------------------------------------
+
+func TestManhattanBasic(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	b := object.NewTuple([]object.Object{object.NewInteger(3), object.NewInteger(4)})
+	wantInteger(t, call(t, table, "manhattan", a, b), 7)
+}
+
+func TestManhattanNegativeCoordinates(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(-2), object.NewInteger(-3)})
+	b := object.NewTuple([]object.Object{object.NewInteger(1), object.NewInteger(1)})
+	wantInteger(t, call(t, table, "manhattan", a, b), 7)
+}
+
+func TestManhattanSamePoint(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(5), object.NewInteger(5)})
+	wantInteger(t, call(t, table, "manhattan", a, a), 0)
+}
+
+func TestManhattanNotATuple(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	wantError(t, call(t, table, "manhattan", object.NewInteger(1), a))
+	wantError(t, call(t, table, "manhattan", a, object.NewInteger(1)))
+}
+
+func TestManhattanWrongArgCount(t *testing.T) {
+	table := New(&bytes.Buffer{}, strings.NewReader(""), fakeCall)
+	a := object.NewTuple([]object.Object{object.NewInteger(0), object.NewInteger(0)})
+	wantError(t, call(t, table, "manhattan", a))
 }

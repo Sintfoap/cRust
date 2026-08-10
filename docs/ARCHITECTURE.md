@@ -1918,6 +1918,69 @@ below). Phase 5's stdlib checklist is now fully complete.
   number preserving its sign, out-of-range bases, an invalid digit for
   a base, wrong argument types/count) and a real `crust run`
   subprocess.
+- **`sum`/`reverse`/`sortBy`/`any`/`all`/`findInts`/`zip`/`manhattan`**,
+  eight additions from a direct "look into what's missing from the
+  stdlib" request followed by "go ahead with those" — chosen from a
+  larger candidate list by ranking for AoC-shaped value against
+  implementation cost, with a priority-queue/heap type (the recurring
+  "Dijkstra pathfinding" AoC category) deliberately left out as its own
+  open design question rather than folded in here. Every one reuses
+  existing internal plumbing rather than inventing new patterns:
+  `sum`/`any`/`all` share `asElements` (already backing
+  `list`/`tuple`/`set`/`freq`, List/Tuple/Set uniformly);
+  `sortBy`/`reverse`/`zip` deliberately *don't* — Set has no order to
+  sort/reverse/pair by, the same reasoning `pizzasort`/`enumerate`
+  already apply; `zip`/`sortBy` reuse `compareTwo`/the
+  `object.Hashable` check `enumerate`/`tuple`/`set` already established
+  for building result Tuples; `manhattan` reuses `gridPos`,
+  `neighbors4`/`neighbors8`'s own `(row, col)`-Tuple-argument helper.
+  - **`sortBy(list, fn)`** is `pizzasort`'s key-function counterpart —
+    call `fn` once per element up front, then sort by comparing the
+    *results* with the same `compareTwo` machinery `pizzasort` already
+    uses. Deliberately `slices.SortStableFunc`, not `pizzasort`'s own
+    plain `SortFunc`: a key function can produce ties between elements
+    that aren't equal themselves (sorting `(name, age)` pairs by `age`
+    alone), and preserving original relative order in that case is
+    what a key-function sort is expected to do (Python's
+    `sorted(key=...)` makes the same guarantee) — pizzasort itself has
+    no such case, since two elements comparing equal under natural
+    order really are interchangeable.
+  - **`findInts(s)`** hand-rolls a single-pass rune scanner rather than
+    reaching for Go's `regexp` package (a stdlib import, not a
+    third-party one — would've been fine under the zero-Go-dependency
+    policy) — the task is narrow enough (find digit runs, decide when
+    a leading `-` is a sign) that a regexp would add a dependency this
+    package doesn't otherwise have for no real simplicity win. The one
+    genuinely tricky design call: **a `-` is a sign only when it isn't
+    itself preceded by a digit**, not just "whenever a digit follows
+    it" — `-?\d+`'s naive regex equivalent would misparse
+    `findInts("1-3 a: abcde")` (AoC 2020 Day 2's own password-policy
+    line shape) as `[1, -3]` instead of the intended `[1, 3]`, since a
+    dash directly between two digit runs reads as a range/list
+    separator in real puzzle input far more often than it means
+    subtraction-as-a-number. `findInts("y=-10..-5")` still comes back
+    `[-10, -5]` correctly, since each `-` there is preceded by `=`/`.`,
+    never a digit — checked with a real test for exactly this AoC 2020
+    Day 2 shape, not just reasoned about.
+  - **`zip(a, b)` truncates to the shorter input** rather than erroring
+    on a length mismatch — Python's own convention, and the more
+    useful default for AoC's usual "walk two parallel lists together"
+    use, where padding or erroring on an uneven split would just get
+    in the way more often than it'd catch a real bug.
+  - A genuine (if narrow) test-writing hazard, not a production bug:
+    `builtins_test.go` already had a package-level `var sumFn =
+    &object.Builtin{...}` — a stand-in addition-reducer callback
+    `reduce`'s own tests pass around — that collided by name with the
+    new `sumFn` implementing the real `sum(x)` builtin once both lived
+    in the same package. Resolved by renaming the older, private test
+    fixture to `addFn` (more accurate anyway — it was never about
+    `sum()` specifically) rather than the production function, keeping
+    `sumFn` matching every other builtin's own `<name>Fn` convention
+    (`reduceFn`, `pizzasortFn`, ...).
+  - Verified with table-driven Go tests per builtin (happy path, empty-
+    collection edge cases, wrong-type/wrong-arg-count errors, error
+    propagation from a failing callback for the three that take one)
+    and a real `crust run` subprocess exercising all eight together.
 
 ### Phase 6 — Tooling (`cmd/crust`)
 - CLI has two modes: `crust run <file>` (parse + eval one file, exit,

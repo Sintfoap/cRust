@@ -89,16 +89,22 @@ delivery terminates rather than looping forever. See SPEC.md §10.
 
 **Type conversion** — `str(x)`, `int(x)`, `float(x)`, `bool(x)`
 
-**String** — `chars(s)`, `ints(s)`, `split(s)` / `split(s, delim)`,
-`join(list, sep)`, `trim(s)`, `replace(s, old, new)`, `upper(s)`,
-`lower(s)`, `find(s, sub)`, `contains(s, sub)`
+**String** — `chars(s)`, `ints(s)`, `findInts(s)` (every integer
+embedded anywhere in `s` — `-` only counts as a sign when it's not
+itself preceded by a digit, so `findInts("1-3 a: abcde")` is `[1, 3]`),
+`split(s)` / `split(s, delim)`, `join(list, sep)`, `trim(s)`,
+`replace(s, old, new)`, `upper(s)`, `lower(s)`, `find(s, sub)`,
+`contains(s, sub)`, `reverse(s)`
 
 **Collections (List/Tuple)** — `slices(x)`, `push(list, item)`,
 `pop(list)` / `pop(list, i)` (remove+return last / by index, no
 negative wrap — see `pop` in Map/Set below for the other two forms),
 `copy(value)`, `min(...)` / `min(list)`, `max(...)` / `max(list)`,
-`pizzasort(list)`, `combos(list, n)`, `enumerate(list)`,
-`map(iterable, fn)`, `filter(iterable, fn)`, `reduce(iterable, fn, init)`,
+`sum(x)`, `pizzasort(list)`, `sortBy(list, fn)` (sort by `fn(element)`
+instead of the element itself — stable), `reverse(x)`,
+`combos(list, n)`, `enumerate(list)`, `zip(a, b)` (pairs elementwise,
+truncating to the shorter), `map(iterable, fn)`, `filter(iterable, fn)`,
+`reduce(iterable, fn, init)`, `any(iterable, fn)`, `all(iterable, fn)`,
 `find(collection, value)`, `contains(collection, item)`,
 `wrap(collection, i)` (circular index — mods past-the-end/negative `i`
 back into range instead of erroring), `wrapSlice(collection, start, end)`
@@ -122,8 +128,8 @@ counts), `pop(map, key)` (remove+return) — a missing key reads as
 **Conversions between collections** — `list(x)`, `tuple(x)`, `set(x)`
 
 **Grid** — `grid(s)`, `newGrid()`, `at(g, pos)`, `setAt(g, pos, value)`,
-`gridBounds(g)`, `neighbors4(pos)`, `neighbors8(pos)` — `pos` is always
-a `(row, col)` Tuple
+`gridBounds(g)`, `neighbors4(pos)`, `neighbors8(pos)`, `manhattan(a, b)`
+(taxicab distance) — `pos`/`a`/`b` are always `(row, col)` Tuples
 
 **Math** — `idiv(a, b)` (floor div), `abs(x)`, `pow(base, exp)`,
 `sqrt(x)`, `gcd(a, b)`, `lcm(a, b)`
