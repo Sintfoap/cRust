@@ -234,14 +234,26 @@ errors on a `text` handle, which has none); `setCamera(x, y)` /
 `setCameraZoom(zoom)` pan/zoom the whole world (`setPos` itself always
 stays in world space); `loadTilemap(layout, tileSize, palette)` spawns
 a grid of `rect` tiles from a multi-line String and a character ->
-color Map, returning a List of handles; `sound(url)` /
-`playSound(handle)` / `stopSound(handle)` load and play/stop audio
-(overlapping plays never cut each other off); `keyDown(name)` polls
-the browser's own `KeyboardEvent.key` strings; `stageSize()` returns
-`(width, height)` (the viewport, unaffected by the camera); `onFrame(fn)`
-registers `fn(dt)` to run once per animation frame — top-level code
-doubles as setup here, since there's no `store`/`store_<name>` entry
-point to call; `random()` returns a Float in `[0, 1)`. See
+color Map, returning a List of handles; `tileAt(layout, tileSize, x, y)`
+is the pure-function counterpart — the character at world position
+`(x, y)` in a layout String of that shape (`""` past its edge), with no
+tile-solidity tracking of its own; `sound(url)` / `playSound(handle)` /
+`stopSound(handle)` load and play/stop audio (overlapping plays never
+cut each other off); `keyDown(name)` polls the browser's own
+`KeyboardEvent.key` strings; `mouseX()` / `mouseY()` return the
+pointer's (or a touch's) current position in world space; `mouseDown
+(button)` / `mouseClicked(button)` (`button` is `"left"`/`"right"`/
+`"middle"`) are held / edge-triggered checks, a tap counting as
+`"left"`; `setFrame(handle, col, row, frameW, frameH)` crops a `sprite`
+handle to one cell of a sprite sheet; `setLayer(handle, z)` sets draw
+order (higher `z` on top); `clearScene()` destroys every spawned
+handle at once, leaving `onFrame`'s callback/keys/camera alone;
+`emitParticles(x, y, count, color, speed, lifetime)` fires a handle-less
+burst of fading dots; `stageSize()` returns `(width, height)` (the
+viewport, unaffected by the camera); `onFrame(fn)` registers `fn(dt)`
+to run once per animation frame — top-level code doubles as setup
+here, since there's no `store`/`store_<name>` entry point to call;
+`random()` returns a Float in `[0, 1)`. See
 [`examples/game/game_survivors.crust`](../examples/game/game_survivors.crust)
 (`crust game examples/game/game_survivors.crust`) for the original
 core of these used together — a tiny Vampire Survivors-alike in

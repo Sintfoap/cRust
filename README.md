@@ -569,6 +569,13 @@ WASM build (never in the plain CLI interpreter):
 | `loadTilemap(layout, tileSize, palette)` | spawn a grid of `rect` tiles from a multi-line String (one character per tile) and a `palette` Map from character to hex color — returns a List of the spawned handles |
 | `sound(url)` / `playSound(handle)` / `stopSound(handle)` | load an audio file, play it (overlapping plays never cut each other off), stop it |
 | `keyDown(name)` | `true` while a key is held — the browser's own `KeyboardEvent.key` strings (`"ArrowLeft"`, `"a"`, `" "`, ...) |
+| `mouseX()` / `mouseY()` | the pointer's current position, in world space (camera-aware, like `setPos`) — a touch's position reports through these too |
+| `mouseDown(button)` / `mouseClicked(button)` | `true` while `button` (`"left"`/`"right"`/`"middle"`) is held / `true` only on the frame the press started — a tap reports as `"left"` |
+| `setFrame(handle, col, row, frameW, frameH)` | crop a `sprite()` handle to one `frameW`x`frameH` cell of its source image, at column `col`, row `row` — the sprite-sheet animation trick |
+| `setLayer(handle, z)` | draw order — higher `z` draws on top of lower `z`; every handle starts at `z` 0 |
+| `clearScene()` | destroy every spawned handle at once (a level transition, a "restart this wave") — leaves `onFrame`'s callback, key state, and the camera untouched |
+| `tileAt(layout, tileSize, x, y)` | the character at world position `(x, y)` in a `loadTilemap`-shaped layout String — a pure lookup, no engine-side tile-solidity tracking; `""` past the map's edge |
+| `emitParticles(x, y, count, color, speed, lifetime)` | a fire-and-forget burst of `count` dots flying outward at up to `speed` px/s, fading out over `lifetime` seconds — no handle, nothing to `setPos`/`destroy` afterward |
 | `stageSize()` | `(width, height)` in pixels — the viewport, unaffected by the camera |
 | `onFrame(fn)` | register `fn`, called with `dt` (elapsed seconds) once per animation frame |
 | `random()` | a Float in `[0, 1)` |
@@ -612,9 +619,10 @@ placeholder until the real file finishes loading, then swapping in
 place — there's no separate "wait for it" step or callback to write.
 
 Still a few real gaps, worth knowing about rather than discovering the
-hard way: `keyDown` polling only (no click/touch input), collision is
-axis-aligned only (no rotated-hitbox precision), and no sprite-sheet/
-frame animation or particle helpers yet.
+hard way: collision is axis-aligned only (no rotated-hitbox precision),
+`clearScene()` is a flat "destroy everything" primitive rather than a
+scene stack/graph, and `tileAt` hands back a raw character rather than
+tracking tile solidity itself — the game decides what counts as solid.
 
 [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
 (`crust game examples/game/game_survivors.crust`) puts the original

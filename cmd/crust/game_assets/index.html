@@ -230,15 +230,40 @@
   var world = null;
   var objects = new Map(); // id -> PIXI.DisplayObject (Graphics/Sprite/Text)
   var sounds = new Map(); // id -> HTMLAudioElement (never in `objects` -- see soundCreate)
+  var particles = []; // {gfx, vx, vy, life, maxLife} -- see emitParticles/updateParticles
   var cameraX = 0, cameraY = 0, cameraZoom = 1;
 
   function initApp() {
     app = new PIXI.Application();
     return app.init({ width: 640, height: 480, background: "#ffffff", antialias: true }).then(function () {
       world = new PIXI.Container();
+      // setLayer (below) sets zIndex on individual children -- without
+      // sortableChildren, PixiJS ignores zIndex entirely and just draws
+      // in spawn order, so this has to be on before any setLayer call
+      // can do anything.
+      world.sortableChildren = true;
       app.stage.addChild(world);
       stageWrap.appendChild(app.canvas);
     });
+  }
+
+  // screenToWorld converts a client-space (mouse/touch event) coordinate
+  // into the same world-space coordinates setPos/setCamera already use,
+  // by inverting exactly the transform applyCamera applies to `world`
+  // -- so a click lines up with whatever's actually drawn there, panned
+  // or zoomed camera or not, without every game having to redo that
+  // math for itself.
+  function screenToWorld(clientX, clientY) {
+    if (!app || !world) return { x: 0, y: 0 };
+    var rect = app.canvas.getBoundingClientRect();
+    var scaleX = app.renderer.width / rect.width;
+    var scaleY = app.renderer.height / rect.height;
+    var canvasX = (clientX - rect.left) * scaleX;
+    var canvasY = (clientY - rect.top) * scaleY;
+    return {
+      x: (canvasX - world.x) / cameraZoom,
+      y: (canvasY - world.y) / cameraZoom
+    };
   }
 
   function applyCamera() {
@@ -251,6 +276,110 @@
     var s = String(hex).replace(/^#/, "");
     var n = parseInt(s, 16);
     return isNaN(n) ? 0x000000 : n;
+  }
+
+  // applySpriteFrame crops sprite s to a single frameW x frameH cell of
+  // its currently-loaded base texture, the standard sprite-sheet trick:
+  // one image loaded once, a different sub-rectangle of it shown each
+  // animation frame. Reads s.texture.source rather than the original
+  // full texture object directly, so calling this again after an
+  // earlier setFrame (already-cropped s.texture) still crops relative
+  // to the same underlying image instead of relative to the previous
+  // crop.
+  function applySpriteFrame(s, f) {
+    var rect = new PIXI.Rectangle(f.col * f.frameW, f.row * f.frameH, f.frameW, f.frameH);
+    s.texture = new PIXI.Texture({ source: s.texture.source, frame: rect });
+  }
+
+  // --- mouse / touch input ---------------------------------------------
+  // mouseWorldX/Y, mouseButtonsDown, and mouseClickedThisFrame are the
+  // entirety of the input state mouseX/mouseY/mouseDown/mouseClicked
+  // (builtins.go) read -- Go tracks none of this itself, the same
+  // "host owns real state, Go just relays" split every other host
+  // method here already follows.
+  var buttonNames = { 0: "left", 1: "middle", 2: "right" };
+  var mouseWorldX = 0, mouseWorldY = 0;
+  var mouseButtonsDown = {};
+  var mouseClickedThisFrame = {};
+
+  stageWrap.addEventListener("pointerdown", function (e) {
+    var pos = screenToWorld(e.clientX, e.clientY);
+    mouseWorldX = pos.x; mouseWorldY = pos.y;
+    var btn = buttonNames[e.button] || "left";
+    mouseButtonsDown[btn] = true;
+    mouseClickedThisFrame[btn] = true;
+    stageWrap.focus();
+  });
+  stageWrap.addEventListener("pointerup", function (e) {
+    mouseButtonsDown[buttonNames[e.button] || "left"] = false;
+  });
+  stageWrap.addEventListener("pointermove", function (e) {
+    var pos = screenToWorld(e.clientX, e.clientY);
+    mouseWorldX = pos.x; mouseWorldY = pos.y;
+  });
+  stageWrap.addEventListener("pointerleave", function () {
+    // A button released off-stage never fires pointerup here -- there's
+    // no way to know for sure it's been let go, but treating it as
+    // released is the safer default over a button stuck "down" forever.
+    mouseButtonsDown = {};
+  });
+  stageWrap.addEventListener("touchstart", function (e) {
+    if (e.touches.length === 0) return;
+    var pos = screenToWorld(e.touches[0].clientX, e.touches[0].clientY);
+    mouseWorldX = pos.x; mouseWorldY = pos.y;
+    mouseButtonsDown.left = true;
+    mouseClickedThisFrame.left = true;
+    stageWrap.focus();
+    e.preventDefault();
+  }, { passive: false });
+  stageWrap.addEventListener("touchmove", function (e) {
+    if (e.touches.length === 0) return;
+    var pos = screenToWorld(e.touches[0].clientX, e.touches[0].clientY);
+    mouseWorldX = pos.x; mouseWorldY = pos.y;
+    e.preventDefault();
+  }, { passive: false });
+  stageWrap.addEventListener("touchend", function (e) {
+    mouseButtonsDown.left = false;
+    e.preventDefault();
+  }, { passive: false });
+
+  // --- particles ---------------------------------------------------------
+  // Fire-and-forget: emitParticles hands back no handle (see
+  // emitParticlesFn's own doc comment), so nothing outside this file
+  // ever needs to look a particle up again -- spawnParticles/
+  // updateParticles own the whole lifecycle themselves, ticked from the
+  // same frame(ts) rAF loop that already drives onFrame.
+  function spawnParticles(x, y, count, color, speed, lifetime) {
+    var colorNum = hexToNumber(color);
+    for (var i = 0; i < count; i++) {
+      var angle = Math.random() * Math.PI * 2;
+      var mag = Math.random() * speed;
+      var g = new PIXI.Graphics().circle(0, 0, 3).fill(colorNum);
+      g.x = x; g.y = y;
+      world.addChild(g);
+      particles.push({
+        gfx: g,
+        vx: Math.cos(angle) * mag,
+        vy: Math.sin(angle) * mag,
+        life: lifetime,
+        maxLife: lifetime
+      });
+    }
+  }
+
+  function updateParticles(dt) {
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.gfx.destroy();
+        particles.splice(i, 1);
+        continue;
+      }
+      p.gfx.x += p.vx * dt;
+      p.gfx.y += p.vy * dt;
+      p.gfx.alpha = Math.max(0, p.life / p.maxLife);
+    }
   }
 
   window.__crustGameHost = {
@@ -277,7 +406,15 @@
       world.addChild(s);
       objects.set(id, s);
       PIXI.Assets.load(url).then(function (texture) {
-        if (objects.get(id) === s) s.texture = texture;
+        if (objects.get(id) !== s) return;
+        s.texture = texture;
+        // setFrame may have been called before the base image finished
+        // loading -- s._pendingFrame (set by setFrame below) remembers
+        // that request so it's applied now instead of being lost.
+        if (s._pendingFrame) {
+          applySpriteFrame(s, s._pendingFrame);
+          s._pendingFrame = null;
+        }
       }).catch(function (err) {
         console.error("crust game: failed to load sprite", url, err);
       });
@@ -339,14 +476,51 @@
     stopSound: function (id) {
       var a = sounds.get(id);
       if (a) { a.pause(); a.currentTime = 0; }
+    },
+    mouseX: function () { return mouseWorldX; },
+    mouseY: function () { return mouseWorldY; },
+    mouseDown: function (button) { return !!mouseButtonsDown[button]; },
+    mouseClicked: function (button) { return !!mouseClickedThisFrame[button]; },
+    setFrame: function (id, col, row, frameW, frameH) {
+      var o = objects.get(id);
+      if (!o || !(o instanceof PIXI.Sprite)) return;
+      var f = { col: col, row: row, frameW: frameW, frameH: frameH };
+      if (o.texture && o.texture !== PIXI.Texture.EMPTY) {
+        applySpriteFrame(o, f);
+      } else {
+        // Base image hasn't finished loading yet -- spriteCreate's own
+        // .then() applies this once the real texture is in place.
+        o._pendingFrame = f;
+      }
+    },
+    setLayer: function (id, z) {
+      var o = objects.get(id);
+      if (o) o.zIndex = z;
+    },
+    clearScene: function () {
+      destroyAllObjects();
+    },
+    emitParticles: function (x, y, count, color, speed, lifetime) {
+      spawnParticles(x, y, count, color, speed, lifetime);
     }
   };
 
-  function clearStage() {
+  // destroyAllObjects removes every spawned handle (rect/circle/sprite/
+  // text/sound/particle alike) from the world -- the shared guts behind
+  // both clearScene (leaves the camera and everything else alone) and
+  // clearStage (also resets the camera, used when a whole new program
+  // starts running).
+  function destroyAllObjects() {
     objects.forEach(function (o) { o.destroy(); });
     objects.clear();
     sounds.clear();
+    particles.forEach(function (p) { p.gfx.destroy(); });
+    particles.length = 0;
     if (world) { world.removeChildren(); }
+  }
+
+  function clearStage() {
+    destroyAllObjects();
     cameraX = 0; cameraY = 0; cameraZoom = 1;
     if (app) applyCamera();
   }
@@ -395,7 +569,12 @@
     if (lastTick === null) lastTick = ts;
     var dt = Math.min((ts - lastTick) / 1000, 0.1); // clamp a tab-switch stall to one frame's worth
     lastTick = ts;
+    updateParticles(dt);
     var res = crustGameFrame(dt);
+    // mouseClicked() is only true for the one wasm frame that observes
+    // it -- see mouseClickedFn's own doc comment (builtins.go) for why
+    // this is an edge trigger and mouseDown isn't.
+    mouseClickedThisFrame = {};
     if (res.error) {
       log(res.error, true);
       running = false;

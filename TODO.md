@@ -2117,3 +2117,42 @@ confirmed, not before.
       on-stage `text()` label updating live from held-spacebar input —
       plus new Go tests for the asset-directory fallback and its
       embedded-assets-win-on-collision guarantee.
+- [x] (Stretch) Added six more `crust game` engine features, from "what
+      else do I need to make it a well rounded game engine thing" —
+      answered with six named gaps, approved wholesale with "all of
+      those are good": mouse/touch input (`mouseX`/`mouseY`/`mouseDown`/
+      `mouseClicked`, entirely host-side relays, a touch tap folding
+      into the same `"left"` button so no game has to branch on input
+      device), sprite-sheet animation (`setFrame(handle, col, row,
+      frameW, frameH)`, reusing the exact synchronous-placeholder/
+      swap-in-place split `sprite()` already established for a still-
+      loading base image), z-ordering (`setLayer(handle, z)`, plain
+      PixiJS `zIndex` plus `world.sortableChildren = true`), scene
+      management (`clearScene()`, a deliberately flat "destroy every
+      handle" primitive — not a scene stack/graph — that leaves
+      `onFrame`'s callback/keys/camera untouched), tilemap collision
+      queries (`tileAt(layout, tileSize, x, y)`, a pure function that
+      re-parses the same layout String `loadTilemap` takes rather than
+      tracking tile solidity engine-side — `""` past the map's edge),
+      and particles (`emitParticles(x, y, count, color, speed,
+      lifetime)`, the one spawning builtin in this whole engine that
+      hands back no handle at all, since nothing ever needs to `setPos`/
+      `destroy` a spark after launching it — ticked from the same
+      `frame(ts)` rAF loop that already drives `onFrame`). See
+      docs/ARCHITECTURE.md's own section for the full design reasoning,
+      including a real gap `screenToWorld` testing surfaced (a test's
+      stale, once-captured bounding box drifting out of sync with
+      `#stage-wrap`'s own scrolling — the conversion itself was already
+      correct). Verified with real Playwright-driven headless
+      verification (temporary debug hooks into the page's own object/
+      particle/world state, removed before the final build) against a
+      purpose-built program: `tileAt` including its out-of-range `""`
+      case, `setLayer`'s zIndex actually reordering draw order,
+      `setFrame` cropping a real generated sprite-sheet PNG to the
+      expected sub-rectangle, `emitParticles` spawning and then fully
+      decaying a burst, three real clicks each firing `mouseClicked`
+      exactly once at the correct world coordinate, a held press
+      producing many held-frames of `mouseDown`, a real touch tap (a
+      separate `hasTouch: true` browser context) behaving identically
+      to a click, and `clearScene()` dropping the live object count to
+      zero without disturbing the still-running `onFrame` callback.

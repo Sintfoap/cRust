@@ -126,6 +126,15 @@ func gameBuiltins() map[string]*object.Builtin {
 		"sound":         {Fn: soundFn},
 		"playSound":     {Fn: playSoundFn},
 		"stopSound":     {Fn: stopSoundFn},
+		"mouseX":        {Fn: mouseXFn},
+		"mouseY":        {Fn: mouseYFn},
+		"mouseDown":     {Fn: mouseDownFn},
+		"mouseClicked":  {Fn: mouseClickedFn},
+		"setFrame":      {Fn: setFrameFn},
+		"setLayer":      {Fn: setLayerFn},
+		"clearScene":    {Fn: clearSceneFn},
+		"tileAt":        {Fn: tileAtFn},
+		"emitParticles": {Fn: emitParticlesFn},
 	}
 }
 
@@ -651,5 +660,225 @@ func stopSoundFn(args ...object.Object) object.Object {
 		return errObj
 	}
 	host().Call("stopSound", id)
+	return object.NULL
+}
+
+// mouseX()/mouseY() -> the pointer's current position in world space
+// (i.e. already run through the same camera-aware conversion setPos's
+// own coordinates live in -- a click at a given world (x, y) lines up
+// with whatever's actually drawn there, panned/zoomed camera or not,
+// rather than forcing every game to redo that math itself). Touch
+// input reports through the same two calls -- the host tracks the most
+// recent touch point as the mouse position, so a game never has to
+// branch on input device.
+func mouseXFn(args ...object.Object) object.Object {
+	if len(args) != 0 {
+		return wrongArgCount("mouseX", "0", len(args))
+	}
+	return &object.Float{Value: host().Call("mouseX").Float()}
+}
+
+func mouseYFn(args ...object.Object) object.Object {
+	if len(args) != 0 {
+		return wrongArgCount("mouseY", "0", len(args))
+	}
+	return &object.Float{Value: host().Call("mouseY").Float()}
+}
+
+// mouseDown(button) -> bool. Level-triggered, same as keyDown -- true
+// for every frame the button is physically held, from the real
+// pointerdown/pointerup pair the browser gives us (no per-tick
+// redefinition needed here the way crust studio's terminal-only keyDown
+// required, since a browser mouse genuinely has a release event).
+// button is "left", "right", or "middle" -- named the way a game
+// script reads naturally, rather than the DOM's own 0/1/2 button
+// index.
+func mouseDownFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("mouseDown", "1", len(args))
+	}
+	button, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("mouseDown", 0, "a String", args[0])
+	}
+	return object.NativeBoolToBooleanObject(host().Call("mouseDown", button.Value).Bool())
+}
+
+// mouseClicked(button) -> bool. Edge-triggered -- true only during the
+// frame a press started, then false again, the "GetMouseButtonDown"
+// half of the usual down/held/clicked trio (mouseDown above is the
+// "held" half). A touch tap fires this the same way a click does.
+func mouseClickedFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("mouseClicked", "1", len(args))
+	}
+	button, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("mouseClicked", 0, "a String", args[0])
+	}
+	return object.NativeBoolToBooleanObject(host().Call("mouseClicked", button.Value).Bool())
+}
+
+// setFrame(handle, col, row, frameW, frameH) -- crops a sprite() handle
+// to a single frameW x frameH cell out of its source image, at column
+// col, row row (both 0-based), the standard sprite-sheet convention:
+// draw one big image once, then just change which rectangle of it is
+// visible each animation frame instead of loading a separate image per
+// frame. Only meaningful on a sprite() handle -- the host silently
+// no-ops on anything else, the same "the host just won't find a
+// matching case" posture destroy() already documented for a stale
+// handle.
+func setFrameFn(args ...object.Object) object.Object {
+	if len(args) != 5 {
+		return wrongArgCount("setFrame", "5", len(args))
+	}
+	id, errObj := handleArg("setFrame", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	col, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("setFrame", 1, "a number", args[1])
+	}
+	row, ok := numericValue(args[2])
+	if !ok {
+		return wrongArgType("setFrame", 2, "a number", args[2])
+	}
+	frameW, ok := numericValue(args[3])
+	if !ok {
+		return wrongArgType("setFrame", 3, "a number", args[3])
+	}
+	frameH, ok := numericValue(args[4])
+	if !ok {
+		return wrongArgType("setFrame", 4, "a number", args[4])
+	}
+	host().Call("setFrame", id, col, row, frameW, frameH)
+	return object.NULL
+}
+
+// setLayer(handle, z) -- controls draw order within the world: higher z
+// draws on top of lower z, ties broken by spawn order (PixiJS's own
+// default). Every handle starts at z 0 (spawn order alone decides
+// overlap until this is called), so a game that never needs layering
+// never has to think about it.
+func setLayerFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("setLayer", "2", len(args))
+	}
+	id, errObj := handleArg("setLayer", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	z, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("setLayer", 1, "a number", args[1])
+	}
+	host().Call("setLayer", id, z)
+	return object.NULL
+}
+
+// clearScene() destroys every handle spawned so far (rect/circle/
+// sprite/text/sound alike) in one call -- the minimal primitive a
+// level transition or "restart this wave" needs, deliberately not a
+// full scene-graph/stack: onFrame's own registered callback, key
+// state, and the camera are all left exactly as they are, since a new
+// scene usually still wants the same input handler and often the same
+// camera position it already had. A full run restart (pressing "Run"
+// again) still goes through resetGameState, which clears those too.
+func clearSceneFn(args ...object.Object) object.Object {
+	if len(args) != 0 {
+		return wrongArgCount("clearScene", "0", len(args))
+	}
+	entities = map[int64]*gameEntity{}
+	host().Call("clearScene")
+	return object.NULL
+}
+
+// tileAt(layout, tileSize, x, y) -> String. Pure function -- recomputes
+// the answer from the same layout String loadTilemap was given rather
+// than tracking tile solidity engine-side, so it works even against a
+// map that was never passed to loadTilemap at all (or a second map
+// layered on top of the first, or one that changes at runtime). Which
+// characters count as "solid" is left entirely to the caller, e.g.
+// tileAt(layout, tileSize, x, y) == "#" -- the same reasoning
+// loadTilemap's own palette argument already leans on: cRust doesn't
+// get to decide what a map's symbols mean. Returns "" for a world
+// position outside the layout's rows/columns (or past the end of a
+// short row) -- querying past a map's edge is normal, not an error.
+func tileAtFn(args ...object.Object) object.Object {
+	if len(args) != 4 {
+		return wrongArgCount("tileAt", "4", len(args))
+	}
+	layout, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("tileAt", 0, "a String (rows separated by newlines)", args[0])
+	}
+	tileSize, ok := numericValue(args[1])
+	if !ok || tileSize <= 0 {
+		return wrongArgType("tileAt", 1, "a positive number", args[1])
+	}
+	x, ok := numericValue(args[2])
+	if !ok {
+		return wrongArgType("tileAt", 2, "a number", args[2])
+	}
+	y, ok := numericValue(args[3])
+	if !ok {
+		return wrongArgType("tileAt", 3, "a number", args[3])
+	}
+
+	col := int(x / tileSize)
+	row := int(y / tileSize)
+	if col < 0 || row < 0 {
+		return &object.String{Value: ""}
+	}
+	rows := strings.Split(layout.Value, "\n")
+	if row >= len(rows) {
+		return &object.String{Value: ""}
+	}
+	runes := []rune(rows[row])
+	if col >= len(runes) {
+		return &object.String{Value: ""}
+	}
+	return &object.String{Value: string(runes[col])}
+}
+
+// emitParticles(x, y, count, color, speed, lifetime) -- a fire-and-
+// forget burst of count small dots at (x, y), each flying off in a
+// random direction at up to speed pixels/second and fading out over
+// lifetime seconds. Deliberately has no handle -- a hit spark or a
+// death poof isn't a thing a game script ever needs to setPos or
+// destroy again once it's launched, so there's nothing to hand back
+// (unlike every other spawning builtin here). The host owns and
+// animates the particles entirely on its own, ticked from the same
+// frame(ts) rAF loop that already drives onFrame.
+func emitParticlesFn(args ...object.Object) object.Object {
+	if len(args) != 6 {
+		return wrongArgCount("emitParticles", "6", len(args))
+	}
+	x, ok := numericValue(args[0])
+	if !ok {
+		return wrongArgType("emitParticles", 0, "a number", args[0])
+	}
+	y, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("emitParticles", 1, "a number", args[1])
+	}
+	count, ok := numericValue(args[2])
+	if !ok {
+		return wrongArgType("emitParticles", 2, "a number", args[2])
+	}
+	color, ok := args[3].(*object.String)
+	if !ok {
+		return wrongArgType("emitParticles", 3, `a String hex color (e.g. "#ff6a3d")`, args[3])
+	}
+	speed, ok := numericValue(args[4])
+	if !ok {
+		return wrongArgType("emitParticles", 4, "a number", args[4])
+	}
+	lifetime, ok := numericValue(args[5])
+	if !ok {
+		return wrongArgType("emitParticles", 5, "a number (seconds)", args[5])
+	}
+	host().Call("emitParticles", x, y, count, color.Value, speed, lifetime)
 	return object.NULL
 }

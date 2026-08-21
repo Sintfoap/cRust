@@ -4835,6 +4835,109 @@ code was written.
       covered by new Go tests for the asset-directory fallback
       (`TestGameHandlerServesAssetDirFallback`,
       `TestGameHandlerEmbeddedAssetsTakePriorityOverAssetDir`).
+  - **Six more engine features** (`cmd/wasmgame/builtins.go`,
+    `cmd/crust/game_assets/index.html`), on direct follow-up request —
+    asked "what else do I need to make it a well rounded game engine
+    thing," six gaps were named (mouse/touch input, sprite-sheet
+    animation, z-ordering, scene management, tilemap collision queries,
+    particles), and the reply "all of those are good" approved building
+    all six rather than picking a subset.
+    - **Mouse/touch input is entirely host-side, no new Go state.**
+      `mouseX`/`mouseY`/`mouseDown`/`mouseClicked` are pure `host()`
+      relays, same as `keyDown`; `index.html` tracks `mouseWorldX`/
+      `mouseWorldY`/`mouseButtonsDown`/`mouseClickedThisFrame` itself
+      from `pointerdown`/`pointerup`/`pointermove`/`pointerleave` and
+      `touchstart`/`touchmove`/`touchend` listeners on `stageWrap` — a
+      touch tap is folded into the same `"left"` button rather than
+      inventing a separate touch vocabulary, so a game never has to
+      branch on input device. `mouseDown` is level-triggered off real
+      pointerdown/pointerup pairs (a browser mouse genuinely has a
+      release event, unlike `crust studio`'s terminal `keyDown`);
+      `mouseClicked` is edge-triggered by clearing
+      `mouseClickedThisFrame` at the end of every `frame(ts)` tick, the
+      "true for exactly one wasm frame" shape Unity's own
+      `GetMouseButtonDown` uses. `screenToWorld` converts a raw
+      client-space event coordinate into the same world-space
+      `setPos`/camera coordinates everything else uses, by inverting
+      `applyCamera`'s own transform — verified against a genuine gap:
+      an early test clicked a bounding box captured once up front and
+      saw the reported world position drift between clicks, which
+      turned out to be `#stage-wrap`'s own horizontal/vertical
+      scrolling (the canvas is fixed at 640x480, wider/taller than the
+      split-pane test viewport) shifting the canvas's real on-screen
+      position between clicks — `screenToWorld` re-reads
+      `getBoundingClientRect()` fresh every call, so it was already
+      correct; the fix was re-measuring the canvas's box before each
+      simulated click in the test, not a code change.
+    - **`setFrame` reuses the exact async-loading split `sprite`/`sound`
+      already established**, rather than needing a new one: cropping a
+      loaded texture to one sprite-sheet cell is `new PIXI.Texture({
+      source: baseTexture.source, frame: new PIXI.Rectangle(...) })`
+      (verified empirically in Playwright the same way the original
+      PixiJS v8 Graphics/Application API was — the constructor shape
+      isn't obvious from v6/v7-era docs); if `setFrame` is called before
+      a sprite's base image has finished loading, the request is
+      stashed on the sprite object itself (`_pendingFrame`) and applied
+      by `spriteCreate`'s own `PIXI.Assets.load(...).then()` once the
+      real texture is in place, instead of being silently dropped.
+    - **`setLayer` is `zIndex` plus one flag.** `world.sortableChildren
+      = true` (set once, in `initApp`) is the only reason `zIndex` does
+      anything in PixiJS at all — without it draw order stays spawn
+      order regardless of what `zIndex` is set to, so this had to be
+      turned on up front rather than lazily on first `setLayer` call.
+    - **`clearScene()` is deliberately a flat primitive, not a
+      scene-graph/stack.** It destroys every handle (`destroyAllObjects`,
+      factored out of what `clearStage`'s full run-reset already did)
+      but leaves `onFrame`'s registered callback, key state, and the
+      camera exactly where they were — a level transition or "restart
+      this wave" usually wants to keep all three, and a full run restart
+      (pressing "Run" again) already goes through `resetGameState` for
+      the cases that don't.
+    - **`tileAt` is a pure function, deliberately stateless.** It
+      re-parses the same layout String `loadTilemap` would have been
+      given rather than the engine tracking which tiles are solid —
+      `loadTilemap` and `tileAt` don't even have to be called against
+      the same map, or any map at all that was ever spawned. Which
+      characters count as "solid" is left entirely to the caller
+      (`tileAt(...) == "#"`), the same "cRust doesn't get to decide what
+      a map's symbols mean" reasoning `loadTilemap`'s own `palette`
+      argument already leans on. Returns `""` past a layout's edge
+      rather than erroring — querying past a map's edge is normal, not
+      exceptional.
+    - **`emitParticles` hands back no handle, unlike every other
+      spawning builtin here** — a hit spark or a death poof isn't a
+      thing a game script ever needs to `setPos`/`destroy` again once
+      launched, so there's nothing honest to return. The host owns
+      `particles` (an array of `{gfx, vx, vy, life, maxLife}`) entirely
+      on its own and ticks it (`updateParticles(dt)`) from the same
+      `frame(ts)` rAF loop that already drives `onFrame`, before calling
+      into wasm each frame — so particles keep animating smoothly
+      whether or not the game script's own `onFrame` callback does
+      anything with them.
+    - Verified with real Playwright-driven headless verification (with
+      a temporary `window.__debugGame` hook exposing `objects`/
+      `particles`/`world` for direct inspection, removed again before
+      the final build) against a purpose-built program exercising all
+      six additions: `tileAt` against a real 2x2 layout including an
+      out-of-range `""` case; two overlapping handles with `setLayer`
+      set to opposite z-order than spawn order, confirmed via the
+      rendered `zIndex` values and `sortableChildren`; a `sprite()`
+      loaded from a real generated 2x2-color-quadrant sheet PNG with
+      `setFrame(s, 1, 0, 32, 32)`, confirmed by reading the resulting
+      texture's own `frame` rectangle back (`{x:32, y:0, w:32, h:32}`);
+      `emitParticles` confirmed spawning 12 particles that fully decay
+      to 0 after their lifetime elapses; three real mouse clicks
+      (aimed at the canvas element's own freshly-measured center each
+      time, not a stale container box) each firing `mouseClicked`
+      exactly once with `mouseX()`/`mouseY()` reading back `(0, 0)` —
+      the world origin, matching an untouched camera — and a fourth,
+      held press producing many "mouse held" lines from `mouseDown`
+      across real animation frames rather than one; a real touch tap
+      (a separate browser context with `hasTouch: true`) confirmed
+      registering identically to a mouse click; `clearScene()` after
+      the third click confirmed dropping the live object count to 0
+      while the `onFrame` callback kept running afterward rather than
+      crashing.
 - **`crust studio`** (`cmd/crust/studio.go`, `studio_tui.go`,
   `studio_builtins.go`), on direct follow-up request — "what about
   something like the develop tool: a bubbletea application that I can
