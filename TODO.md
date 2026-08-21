@@ -2042,3 +2042,41 @@ confirmed, not before.
       reasoning (entities as mutable Maps, why removal needs a rebuilt
       list but a field update doesn't, the no-on-stage-text HUD
       choices).
+- [x] (Stretch) `crust studio <file.crust>` — a terminal-native
+      counterpart to `crust game`, from "what about something like the
+      develop tool: a bubbletea application that I can use as a game
+      dev studio," followed by "go ahead and make the MVP." Same
+      persistent-interpreter-plus-`onFrame`-callback idea as `crust
+      game`, rendered directly in the terminal with the exact
+      bubbletea/lipgloss stack `crust develop` already uses — no WASM,
+      no browser, no PixiJS, no second binary at all. A different
+      builtin vocabulary (`cell(char, color)` instead of `rect`/
+      `circle` — a terminal cell is the drawing primitive itself here)
+      but the same `setPos`/`destroy`/`keyDown`/`stageSize`/`onFrame`/
+      `random` names. `keyDown` is honestly redefined for a medium with
+      no key-release event at all: true if pressed since the
+      *previous* tick, not a guessed timeout pretending to be
+      level-triggered. `q` quits, `r` restarts (re-reading the file
+      fresh). `examples/game/snake.crust` is the real example —
+      growing on food, ending on a wall or your own tail, the natural
+      fit for a character grid. See docs/ARCHITECTURE.md's own section
+      for the full design reasoning (no package-level vars needed,
+      unlike cmd/wasmgame; `term.GetSize` called before the Program
+      starts rather than waiting on `WindowSizeMsg`; a
+      `studioMinCols`/`studioMinRows` clamp found by the verification
+      pass itself, not reasoned out in advance; why the initial load
+      and an `r` restart deliberately handle a bad file differently).
+      Verified two ways: ordinary Go tests for every builtin and the
+      model's `Update`/restart logic (no terminal needed for any of
+      it), plus a real pty session — upgraded mid-verification from a
+      naive raw-byte-accumulation capture (which cmd/wasmgame's own
+      Playwright-driven checks never needed, but which produces
+      unreadable interleaved garbage against a TUI that partially
+      redraws itself dozens of times a second) to `pyte`, a real
+      terminal emulator library, confirming the snake's own on-screen
+      position genuinely advances between reads, restart/quit both
+      work, and a parse error surfaces correctly in both the
+      initial-load (exits) and mid-session-restart (stays open) cases
+      — catching a real bug along the way (a missing newline
+      concatenating the help bar onto the stage's last line) that a
+      flat-text check had already been fooled by.

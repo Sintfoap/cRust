@@ -216,6 +216,7 @@ crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place
 crust bake playground              # in-browser sandbox, runs client-side via WASM
 crust game [file.crust]            # in-browser game sandbox (PixiJS), one call per animation frame
+crust studio <file.crust>          # terminal-native game sandbox, rendered live in this TUI
 ```
 
 `crust game`'s own builtins (real only inside that WASM build, never
@@ -231,6 +232,20 @@ returns a Float in `[0, 1)`. See
 [`examples/game/game_survivors.crust`](../examples/game/game_survivors.crust)
 (`crust game examples/game/game_survivors.crust`) for all of these used
 together — a tiny Vampire Survivors-alike in circles.
+
+`crust studio`'s own builtins (real only inside that terminal
+runtime): `cell(char, color)` spawns a one-character glyph (`color` a
+`"#rrggbb"` string) and returns a handle; `setPos(handle, col, row)` /
+`setChar(handle, char)` / `setColor(handle, color)` / `destroy(handle)`
+act on one; `keyDown(name)` is `true` if `name` (bubbletea's own key
+spelling — `"up"`, `"a"`, `" "`, ...) was pressed since the *previous*
+`onFrame` call — a terminal has no key-release event, so this can't be
+level-triggered the way `crust game`'s browser-based `keyDown` is;
+`stageSize()` returns `(cols, rows)`; `onFrame(fn)` runs `fn(dt)` once
+per tick (15Hz); `random()` returns a Float in `[0, 1)`. `q` quits,
+`r` restarts (re-reading the file fresh), both reserved. See
+[`examples/game/snake.crust`](../examples/game/snake.crust)
+(`crust studio examples/game/snake.crust`).
 
 On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
 forward/backward), `f`/`F` jump straight to the next/previous failed

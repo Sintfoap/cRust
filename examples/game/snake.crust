@@ -1,0 +1,129 @@
+// Snake, for `crust studio` -- a terminal-native counterpart to
+// examples/game/game_survivors.crust (which needs `crust game`'s
+// pixel/PixiJS builtins instead). NOT runnable through `crust run`/
+// `crust develop` -- cell/setPos/keyDown/onFrame/random only exist
+// inside `crust studio`'s own builtin table (docs/CHEATSHEET.md has
+// the list). Try it with:
+//
+//   crust studio examples/game/snake.crust
+//
+// Move with WASD or the arrow keys (can't reverse directly into
+// yourself -- the usual Snake rule). Eat `*` to grow and score; hit a
+// wall or your own tail and it's over. `r` restarts, `q` quits.
+
+w, h = stageSize()
+
+moveInterval = 0.15
+moveTimer = 0.0
+dirX = 1
+dirY = 0
+nextDirX = 1
+nextDirY = 0
+score = 0
+gameOver = thin
+
+deliver("Move: WASD / arrow keys. Eat * to grow. r: restart, q: quit.")
+
+// --- border, purely decorative but marks the actual play area, which
+// is one cell smaller than the full stage on every side ---
+knead (x = 0; x < w; x++) {
+    top = cell("-", "#7a6a55")
+    setPos(top, x, 0)
+    bottom = cell("-", "#7a6a55")
+    setPos(bottom, x, h - 1)
+}
+knead (y = 0; y < h; y++) {
+    left = cell("|", "#7a6a55")
+    setPos(left, 0, y)
+    right = cell("|", "#7a6a55")
+    setPos(right, w - 1, y)
+}
+
+recipe spawnSegment(x, y) {
+    handle = cell("#", "#2f7a4f")
+    setPos(handle, x, y)
+    serve {"x": x, "y": y, "handle": handle}
+}
+
+// snake: List of {"x", "y", "handle"} Maps, head at index 0.
+snake = []
+startX = idiv(w, 2)
+startY = idiv(h, 2)
+push(snake, spawnSegment(startX, startY))
+push(snake, spawnSegment(startX - 1, startY))
+push(snake, spawnSegment(startX - 2, startY))
+
+recipe occupiesSnake(x, y) {
+    knead seg in snake {
+        order (seg["x"] == x with seg["y"] == y) { serve stuffed }
+    }
+    serve thin
+}
+
+foodX = 0
+foodY = 0
+foodHandle = nobox
+
+recipe placeFood() {
+    order (foodHandle != nobox) { destroy(foodHandle) }
+    bake (stuffed) {
+        x = 1 + int(random() * (w - 2))
+        y = 1 + int(random() * (h - 2))
+        order (hold occupiesSnake(x, y)) {
+            foodX = x
+            foodY = y
+            burnt
+        }
+    }
+    foodHandle = cell("*", "#f4c430")
+    setPos(foodHandle, foodX, foodY)
+}
+placeFood()
+
+recipe onTick(dt) {
+    order (gameOver) { serve nobox }
+
+    order ((keyDown("up") or keyDown("w")) with dirY == 0) { nextDirX = 0; nextDirY = -1 }
+    order ((keyDown("down") or keyDown("s")) with dirY == 0) { nextDirX = 0; nextDirY = 1 }
+    order ((keyDown("left") or keyDown("a")) with dirX == 0) { nextDirX = -1; nextDirY = 0 }
+    order ((keyDown("right") or keyDown("d")) with dirX == 0) { nextDirX = 1; nextDirY = 0 }
+
+    moveTimer = moveTimer + dt
+    order (moveTimer < moveInterval) { serve nobox }
+    moveTimer = 0.0
+
+    dirX = nextDirX
+    dirY = nextDirY
+
+    head = snake[0]
+    newX = head["x"] + dirX
+    newY = head["y"] + dirY
+
+    order (newX <= 0 or newX >= w - 1 or newY <= 0 or newY >= h - 1 or occupiesSnake(newX, newY)) {
+        gameOver = stuffed
+        deliver("Game over! Score:", score, "  press r to try again")
+        serve nobox
+    }
+
+    ate = newX == foodX with newY == foodY
+    newHead = spawnSegment(newX, newY)
+    newSnake = [newHead]
+
+    order (ate) {
+        score = score + 1
+        knead seg in snake {
+            push(newSnake, seg)
+        }
+        snake = newSnake
+        placeFood()
+    } special {
+        knead (i = 0; i < slices(snake) - 1; i++) {
+            push(newSnake, snake[i])
+        }
+        tail = snake[slices(snake) - 1]
+        destroy(tail["handle"])
+        snake = newSnake
+    }
+}
+
+onFrame(onTick)

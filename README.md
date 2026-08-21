@@ -76,9 +76,10 @@ once (`crust run examples/the_works.crust` and friends all work today).
 complete two-part solutions to AoC 2020 days 1–5, each verified against
 the puzzle's own documented example answers — `crust run
 examples/aoc2020/day01.crust --store=part1 < examples/aoc2020/day01_input.txt`
-and friends. [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
-is a different kind of example — a `crust game`-only file, not
-`crust run`-able — see [Game sandbox](#game-sandbox) below.
+and friends. [`examples/game/`](./examples/game) holds a different kind
+of example — `crust game`/`crust studio`-only files, not `crust
+run`-able — see [Game sandbox](#game-sandbox) and [Terminal game
+studio](#terminal-game-studio) below.
 
 ## Building
 
@@ -602,6 +603,45 @@ auto-firing basic attack that targets whichever enemy is nearest,
 enemies that spawn faster the longer you last, and a 5-minute survival
 timer shown as a shrinking bar (no on-stage text yet — see above — so
 score and status print to the console panel instead).
+
+### Terminal game studio
+
+```
+crust studio snake.crust    # run a game right in the terminal, no browser at all
+```
+
+A terminal-native counterpart to the game sandbox above — same idea
+(a persistent interpreter, a per-frame callback, spawn/move/destroy
+handles), rendered directly into the terminal with the same
+bubbletea/lipgloss stack `crust develop` already uses instead of a
+browser tab. No WASM, no PixiJS, no server: it's an ordinary part of
+the `crust` binary. Since a terminal cell — one character glyph per
+grid position — is the drawing primitive here rather than a shape to
+fill, the builtins are a different, cell-shaped vocabulary:
+
+| builtin | does |
+|---|---|
+| `cell(char, color)` | spawn a one-character glyph, `color` a CSS hex string like `"#c0392b"` — returns a handle |
+| `setPos(handle, col, row)` | move it — `(0, 0)` is the stage's top-left cell |
+| `setChar(handle, char)` / `setColor(handle, color)` | change its glyph/color in place |
+| `destroy(handle)` | remove it from the stage |
+| `keyDown(name)` | `true` if `name` was pressed since the *previous* `onFrame` call — a terminal has no key-release event at all, so this can't be genuinely level-triggered the way the browser's `keyDown` is; `name` is bubbletea's own key spelling (`"up"`, `"a"`, `" "`, ...), not the browser's |
+| `stageSize()` | `(cols, rows)` — the usable grid, header/help bar already excluded |
+| `onFrame(fn)` | register `fn`, called with `dt` once per tick (15Hz, not 60fps — a full-screen terminal repaint's own "smooth enough" bar is a lot lower than a browser canvas's) |
+| `random()` | a Float in `[0, 1)` |
+
+`q` quits and `r` restarts (re-reading the file fresh — edit it in
+another window, press `r`, see the change) — both reserved, so a game
+can't repurpose either as a game key. `deliver()` output shows on the
+help bar (just the most recent line — there's no separate console
+panel the way the browser page has room for).
+
+[`examples/game/snake.crust`](./examples/game/snake.crust)
+(`crust studio examples/game/snake.crust`) is the real example — WASD/
+arrow-key movement, growing on food, ending on a wall or your own
+tail — the same shape a terminal roguelike's own movement already has,
+which is the more natural fit for a character grid than smooth pixel
+physics.
 
 ### With Nix
 

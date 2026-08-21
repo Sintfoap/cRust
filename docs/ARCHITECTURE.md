@@ -4713,6 +4713,150 @@ code was written.
     the console log over ~25s, not just "no errors were logged") rather
     than only confirming the game-over path a real player would
     normally trigger by moving badly.
+- **`crust studio`** (`cmd/crust/studio.go`, `studio_tui.go`,
+  `studio_builtins.go`), on direct follow-up request — "what about
+  something like the develop tool: a bubbletea application that I can
+  use as a game dev studio," resolved (after a short design exchange
+  about resolution/architecture) into a terminal-native counterpart to
+  `crust game`: same persistent-interpreter-plus-per-frame-callback
+  idea, rendered directly into the terminal via the exact
+  bubbletea/lipgloss stack `crust develop` already uses instead of a
+  browser tab.
+  - **No WASM boundary at all, unlike `crust game`.** This is the one
+    genuine architectural simplification the terminal host buys: since
+    there's no browser process to cross into, the game builtin table
+    (`studioBuiltins`) is ordinary Go code inside the normal `crust`
+    binary — no `js && wasm` build tag, no `syscall/js`, no second
+    binary, no JS bridge object for Go to call out to. `studioState`
+    (entities map, pressed-keys map, `onFrame` callback, current
+    `cols`/`rows`) is held as a `*studioState` field on `studioModel`
+    rather than the package-level vars `cmd/wasmgame/builtins.go`
+    needs — bubbletea's own "`Update` returns a (possibly copied)
+    model" convention would make package-level vars pointless *and*
+    unnecessary here, since a pointer field's target, and the maps it
+    points at, share their backing storage across however many times
+    the containing `Model` value gets copied around; builtin closures
+    just capture that one `*studioState` and every mutation is visible
+    to whatever `View()` renders next, no extra plumbing required.
+  - **A different builtin vocabulary on purpose, same handle
+    lifecycle.** `cell(char, color)` instead of `rect`/`circle` — a
+    terminal cell is the drawing primitive here, one glyph per grid
+    position, not a shape to be filled — but `setPos`/`destroy`/
+    `keyDown`/`stageSize`/`onFrame`/`random` keep the exact same names
+    as `crust game`'s own table (see `studio_builtins.go`'s own
+    package doc comment), so anyone who's used one tool already knows
+    most of the other's shape, without pretending the two ever share
+    source code (they don't — different vocabularies, different hosts,
+    never loaded into the same interpreter).
+  - **`keyDown` can't be level-triggered here, and says so.** A
+    terminal has no key-release escape sequence at all — raw-mode
+    keypresses report only that a key was struck, never that it was
+    let go — so faithfully porting the browser's "true while held"
+    semantic is impossible, not just harder. Rather than fake it with
+    an arbitrary timeout window (considered and rejected: real
+    terminal OS-level key-repeat has its own initial-delay-then-fast-
+    repeat rhythm, typically a 300-500ms pause before repeating starts,
+    which a short timeout would misread as "key released" mid-hold),
+    `keyDown(name)` is honestly defined as "was `name` pressed at any
+    point since the *previous* `onFrame` call" — `tea.KeyMsg` sets
+    `state.pressed[name] = true`, and the tick handler clears the
+    whole map right after each `onFrame` call. Holding a key still
+    reads as roughly "held" in practice, riding on the terminal's own
+    key-repeat, but a single tap reads `true` for exactly one tick, not
+    fading out over a guessed timeout — a per-frame-boundary contract
+    is simpler to reason about and to document accurately than a
+    magic-number window would have been.
+  - **`term.GetSize` before the `Program` ever starts, not
+    `WindowSizeMsg`.** A game's top-level code runs immediately (there
+    being no `store`/`store_<name>` entry point to defer to, same as
+    `crust game`) and very likely calls `stageSize()` right away to
+    size everything against — but bubbletea only delivers
+    `WindowSizeMsg` through its own `Update` loop, which doesn't start
+    until *after* `Init()` returns, so evaluating the program inside
+    `Init()` would see a still-zero stage. `runStudio` instead calls
+    `github.com/charmbracelet/x/term`'s `GetSize` directly against
+    `stdout`'s fd, synchronously, before `loadStudioProgram` (and
+    therefore the program's own top-level code) ever runs — the same
+    already-vendored package `debug_tui.go`'s own resize handling
+    uses, just called once up front here instead of only reactively.
+  - **`studioMinCols`/`studioMinRows` clamp a degenerate reported
+    size**, found by the feature's own pty verification pass rather
+    than reasoned out in advance: a raw pty that never receives a
+    `TIOCSWINSZ` call reports a 0x0 (or near-zero) window, which
+    `term.GetSize` dutifully returns — and an ordinary game (a border
+    drawn at the stage's own edges, movement bounds-checked against
+    `stageSize()`) would fail its own first bounds check on the very
+    first tick against a 0x0 stage, ending instantly with no visible
+    cause. Clamping to a floor (20 cols, 8 rows) regardless of what the
+    terminal claims turns "looks completely broken" into "renders
+    correctly, just clipped, in a pathologically small or
+    misconfigured terminal" — worth guarding explicitly rather than
+    trusting every real-world terminal negotiates a sane size, the
+    same defensive instinct as `debug_tui.go`'s own `clampHeight`.
+  - **Loading is shared between the initial run and every `r` restart**
+    (`loadStudioProgram`: lex, parse, build a fresh interpreter with
+    `studioBuiltins` merged in, `Eval` top-level code) but their
+    *failure handling* deliberately differs. A bad file on the initial
+    `crust studio file.crust` fails before the `Program` ever starts —
+    prints the error, exits 1, the same "fail before handing over the
+    screen" posture `emptyDebugView` already has for `crust develop` —
+    since there's no already-running session to protect. A bad file
+    reached via `r` (edited in another window while `crust studio` was
+    already open) instead leaves the *previous*, still-working
+    `interp`/`state` in place and only sets `m.err`. Verified as two
+    distinct, deliberately different test cases
+    (`TestStudioModelRestartOnBrokenFileShowsErrorAndKeepsRunning`
+    alongside a plain `runStudio`-on-a-bad-file test), not one
+    "handles errors" test standing in for both.
+  - **`deliver()` output is one line, not a scrollback** — a
+    `studioLogWriter` (wrapping `interpreter.New`'s own `output`
+    parameter, same mechanism `crust game`'s `consoleWriter` uses for
+    `console.log`) keeps only the most recent line in
+    `state.lastLog`, shown on the help bar. There's no browser-page
+    two-pane layout to spare a console panel's worth of terminal real
+    estate for here — a full-screen game already claims the whole
+    frame, and a one-line "what did it last print" is enough to debug
+    a value while iterating without turning the help bar into a log
+    viewer.
+  - **A verification bug the pty pass itself caught**: `View()`
+    originally concatenated the help bar directly onto `renderStage`'s
+    own output with no separating newline between them — invisible in
+    a naive flat-text capture of the raw byte stream, but glaringly
+    obvious once verification switched to `pyte` (a real terminal
+    emulator reconstructing actual on-screen state) after the initial
+    naive capture produced results that couldn't be explained by
+    "wrong terminal size" alone: the help bar's text was landing on the
+    *same row* as the stage's last line, past the terminal's own
+    width, rather than on its own line beneath it. The naive
+    accumulate-every-byte-ever-seen approach (fine for `crust game`'s
+    own pty checks, which only ever needed a handful of full initial
+    repaints) breaks down for a TUI that redraws the same region
+    dozens of times a second with bubbletea's own line-diffing — later
+    frames only retransmit *changed* lines, so a flat concatenation of
+    raw bytes across many ticks interleaves fragments from different
+    moments in time rather than reflecting any single coherent screen.
+    `pyte`'s `Stream`/`Screen` replay the exact same escape sequences a
+    real terminal would interpret, correctly reconstructing "what's
+    actually on screen right now" regardless of which lines a given
+    frame did or didn't retransmit — the same category of "verify
+    against the real thing, not a text-log approximation of it"
+    upgrade the project's own Playwright-over-`curl` precedent already
+    established for the browser-side features.
+  - Verified with two layers: ordinary Go tests
+    (`studio_builtins_test.go`, `studio_test.go`) covering every
+    builtin's argument validation and entity mutation, `loadStudioProgram`'s
+    parse/runtime/success paths, `studioModel.Update`'s key-recording/
+    quit/tick/error-freezing behavior, and both restart outcomes
+    directly — no pty needed for any of this, since none of it depends
+    on a real terminal; and a real pty session (`pyte`-backed, as
+    above) driving the actual built binary through
+    `examples/game/snake.crust`: header/border/snake/food all render,
+    the snake's own `###` head genuinely advances between two real
+    reads a couple of seconds apart (not just "no crash"), `r`
+    restarts cleanly, `q` exits the process, an initial bad file exits
+    with a parse error shown, and editing the file to something broken
+    then pressing `r` mid-session shows the error inline while leaving
+    the tool itself running.
 - **Live breakpoint / step-through debugging** (`crust develop`'s new
   Live tab, `internal/debugger/live.go` + `cmd/crust/debug_live.go`),
   on direct request — "go ahead" to the last of the original six
