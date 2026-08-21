@@ -226,7 +226,11 @@ handle; `setPos(handle, x, y)` / `setRotation(handle, radians)` /
 polls the browser's own `KeyboardEvent.key` strings; `stageSize()`
 returns `(width, height)`; `onFrame(fn)` registers `fn(dt)` to run once
 per animation frame — top-level code doubles as setup here, since
-there's no `store`/`store_<name>` entry point to call.
+there's no `store`/`store_<name>` entry point to call; `random()`
+returns a Float in `[0, 1)`. See
+[`examples/game/game_survivors.crust`](../examples/game/game_survivors.crust)
+(`crust game examples/game/game_survivors.crust`) for all of these used
+together — a tiny Vampire Survivors-alike in circles.
 
 On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
 forward/backward), `f`/`F` jump straight to the next/previous failed

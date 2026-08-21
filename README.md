@@ -76,7 +76,9 @@ once (`crust run examples/the_works.crust` and friends all work today).
 complete two-part solutions to AoC 2020 days 1–5, each verified against
 the puzzle's own documented example answers — `crust run
 examples/aoc2020/day01.crust --store=part1 < examples/aoc2020/day01_input.txt`
-and friends.
+and friends. [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
+is a different kind of example — a `crust game`-only file, not
+`crust run`-able — see [Game sandbox](#game-sandbox) below.
 
 ## Building
 
@@ -562,6 +564,7 @@ WASM build (never in the plain CLI interpreter):
 | `keyDown(name)` | `true` while a key is held — the browser's own `KeyboardEvent.key` strings (`"ArrowLeft"`, `"a"`, `" "`, ...) |
 | `stageSize()` | `(width, height)` in pixels |
 | `onFrame(fn)` | register `fn`, called with `dt` (elapsed seconds) once per animation frame |
+| `random()` | a Float in `[0, 1)` |
 
 ```
 w, h = stageSize()
@@ -591,6 +594,14 @@ browser's own async texture loading doesn't fit a synchronous
 interpreter call cleanly yet), `keyDown` polling only (no click/touch
 input), and no collision/audio/scene-graph helpers beyond what's
 listed above. Ctrl+C stops the server.
+
+[`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
+(`crust game examples/game/game_survivors.crust`) puts all of it together —
+a tiny Vampire Survivors-alike: WASD/arrow-key movement, an
+auto-firing basic attack that targets whichever enemy is nearest,
+enemies that spawn faster the longer you last, and a 5-minute survival
+timer shown as a shrinking bar (no on-stage text yet — see above — so
+score and status print to the console panel instead).
 
 ### With Nix
 

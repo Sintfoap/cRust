@@ -1,0 +1,215 @@
+// A tiny Vampire Survivors-alike, entirely in circles -- a `crust
+// game` example, NOT runnable through `crust run`/`crust develop`
+// (rect/circle/setPos/keyDown/onFrame/random only exist inside that
+// WASM build's own builtin table -- see docs/CHEATSHEET.md's own
+// section on it). Try it with:
+//
+//   crust game examples/game/game_survivors.crust
+//
+// Move with WASD or the arrow keys. Every 0.5s you auto-fire a shot
+// at the nearest enemy (no aiming needed, same as Vampire Survivors'
+// own starting weapon); enemies walk straight at you and spawn faster
+// the longer you survive. One hit ends the run. Survive all 5 minutes
+// and you win. Score and status print to the console panel -- there's
+// no on-stage text yet (see README.md's "Game sandbox" section for
+// why), so the bar at the top shrinking to nothing is the clock.
+
+w, h = stageSize()
+
+playerRadius = 14
+playerSpeed = 220
+enemyRadius = 12
+enemySpeed = 70
+projectileRadius = 5
+projectileSpeed = 480
+projectileLifetime = 2.0
+attackCooldown = 0.5
+gameDuration = 300.0 // 5 minutes
+
+px = w / 2
+py = h / 2
+player = circle(playerRadius, "#2f7a4f")
+setPos(player, px, py)
+
+timerBar = rect(300, 10, "#e8d9b5")
+setPos(timerBar, w / 2, 18)
+
+enemies = []     // Maps: {"handle", "x", "y"}
+projectiles = [] // Maps: {"handle", "x", "y", "vx", "vy", "age", "hit"}
+
+elapsed = 0.0
+spawnTimer = 0.0
+attackTimer = 0.0
+lastHeartbeat = 0.0
+score = 0
+gameOver = thin
+won = thin
+
+deliver("Move: WASD / arrow keys. Survive 5 minutes!")
+
+recipe distance(ax, ay, bx, by) {
+    dx = ax - bx
+    dy = ay - by
+    serve sqrt(dx * dx + dy * dy)
+}
+
+// spawnEnemy places a new enemy just outside a random edge of the
+// stage, so it visibly walks in rather than popping into view.
+recipe spawnEnemy() {
+    edge = random()
+    order (edge < 0.25) {
+        ex = random() * w
+        ey = -20
+    } combo (edge < 0.5) {
+        ex = random() * w
+        ey = h + 20
+    } combo (edge < 0.75) {
+        ex = -20
+        ey = random() * h
+    } special {
+        ex = w + 20
+        ey = random() * h
+    }
+    handle = circle(enemyRadius, "#c0392b")
+    setPos(handle, ex, ey)
+    push(enemies, {"handle": handle, "x": ex, "y": ey})
+}
+
+// fireAttack aims one shot at whichever enemy is currently closest --
+// a straight shot at its position right now, not a homing missile, the
+// same as Vampire Survivors' own Magic Wand.
+recipe fireAttack() {
+    order (slices(enemies) == 0) { serve nobox }
+    nearest = nobox
+    nearestDist = 0.0
+    knead e in enemies {
+        d = distance(px, py, e["x"], e["y"])
+        order (nearest == nobox or d < nearestDist) {
+            nearest = e
+            nearestDist = d
+        }
+    }
+    dx = nearest["x"] - px
+    dy = nearest["y"] - py
+    dist = sqrt(dx * dx + dy * dy)
+    order (dist == 0) { serve nobox }
+    vx = dx / dist * projectileSpeed
+    vy = dy / dist * projectileSpeed
+    handle = circle(projectileRadius, "#f4c430")
+    setPos(handle, px, py)
+    push(projectiles, {"handle": handle, "x": px, "y": py, "vx": vx, "vy": vy, "age": 0.0})
+}
+
+recipe onTick(dt) {
+    order (gameOver or won) { serve nobox }
+
+    elapsed = elapsed + dt
+    setScale(timerBar, max(0, (gameDuration - elapsed) / gameDuration), 1)
+
+    order (elapsed >= gameDuration) {
+        won = stuffed
+        deliver("You survived the full 5 minutes! Final score:", score)
+        serve nobox
+    }
+
+    // --- movement ---
+    dx = 0
+    dy = 0
+    order (keyDown("ArrowLeft") or keyDown("a") or keyDown("A")) { dx = dx - 1 }
+    order (keyDown("ArrowRight") or keyDown("d") or keyDown("D")) { dx = dx + 1 }
+    order (keyDown("ArrowUp") or keyDown("w") or keyDown("W")) { dy = dy - 1 }
+    order (keyDown("ArrowDown") or keyDown("s") or keyDown("S")) { dy = dy + 1 }
+    order (dx != 0 or dy != 0) {
+        mag = sqrt(dx * dx + dy * dy)
+        px = px + (dx / mag) * playerSpeed * dt
+        py = py + (dy / mag) * playerSpeed * dt
+        px = max(playerRadius, min(px, w - playerRadius))
+        py = max(playerRadius, min(py, h - playerRadius))
+        setPos(player, px, py)
+    }
+
+    // --- spawning: faster the longer the run goes, floor at 0.4s ---
+    spawnTimer = spawnTimer + dt
+    spawnInterval = max(0.4, 1.6 - elapsed * 0.004)
+    order (spawnTimer >= spawnInterval) {
+        spawnTimer = 0.0
+        spawnEnemy()
+    }
+
+    // --- basic attack ---
+    attackTimer = attackTimer + dt
+    order (attackTimer >= attackCooldown) {
+        attackTimer = 0.0
+        fireAttack()
+    }
+
+    // --- enemies walk toward the player; one touch ends the run ---
+    knead e in enemies {
+        d = distance(px, py, e["x"], e["y"])
+        order (d < playerRadius + enemyRadius) {
+            gameOver = stuffed
+        }
+        ex = px - e["x"]
+        ey = py - e["y"]
+        m = sqrt(ex * ex + ey * ey)
+        order (m > 0) {
+            e["x"] = e["x"] + (ex / m) * enemySpeed * dt
+            e["y"] = e["y"] + (ey / m) * enemySpeed * dt
+            setPos(e["handle"], e["x"], e["y"])
+        }
+    }
+    order (gameOver) {
+        deliver("Hit! Game over. Final score:", score, "  time survived:", int(elapsed), "s")
+        serve nobox
+    }
+
+    // --- projectiles fly straight, expire, and check enemy hits ---
+    knead p in projectiles {
+        p["age"] = p["age"] + dt
+        p["x"] = p["x"] + p["vx"] * dt
+        p["y"] = p["y"] + p["vy"] * dt
+        setPos(p["handle"], p["x"], p["y"])
+    }
+
+    hitEnemies = toppings{}
+    knead p in projectiles {
+        knead e in enemies {
+            order (contains(hitEnemies, e["handle"])) { flip }
+            d = distance(p["x"], p["y"], e["x"], e["y"])
+            order (d < projectileRadius + enemyRadius) {
+                sprinkle(hitEnemies, e["handle"])
+                score = score + 1
+                destroy(p["handle"])
+                destroy(e["handle"])
+                p["hit"] = stuffed
+                burnt
+            }
+        }
+    }
+
+    remainingProjectiles = []
+    knead p in projectiles {
+        order (p["hit"] == stuffed) { flip }
+        order (p["age"] > projectileLifetime) {
+            destroy(p["handle"])
+            flip
+        }
+        push(remainingProjectiles, p)
+    }
+    projectiles = remainingProjectiles
+
+    remainingEnemies = []
+    knead e in enemies {
+        order (contains(hitEnemies, e["handle"])) { flip }
+        push(remainingEnemies, e)
+    }
+    enemies = remainingEnemies
+
+    // --- heartbeat, every ~10s ---
+    order (elapsed - lastHeartbeat >= 10) {
+        lastHeartbeat = elapsed
+        deliver("t=", int(elapsed), "s  score=", score, "  enemies=", slices(enemies))
+    }
+}
+
+onFrame(onTick)

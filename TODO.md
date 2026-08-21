@@ -2022,3 +2022,23 @@ confirmed, not before.
       within one frame of releasing the key, and confirmed both
       `deliver()` output and real parse errors reach the on-page
       console panel.
+- [x] (Stretch) `examples/game/game_survivors.crust` — a tiny Vampire
+      Survivors-alike in circles, on direct request: "add an example
+      game... basic attack, a five minute limit, and just circles
+      instead of sprites." WASD/arrow movement, an auto-firing
+      nearest-enemy attack (no aiming, no trigonometry needed — a
+      `dx, dy` difference normalized by `sqrt`, the same shape grid
+      code elsewhere already uses), enemies that spawn faster the
+      longer the run goes, one hit ends it, 5 minutes survives it. One
+      new game builtin, `random()` (`[0, 1)`, `cmd/wasmgame`) — the one
+      real gap the existing nine had for this; every other builtin in
+      this codebase is deterministic on purpose (AoC puzzles have one
+      correct answer), but spawn points/timing have no business being.
+      Verified with real Playwright-driven headless verification (an
+      untouched player, ~25s: 46 shapes spawned, 44 destroyed, `t=20s
+      score=12 enemies=0` in the console log — spawning, auto-attack,
+      and scoring all genuinely firing, not just "no errors logged").
+      See docs/ARCHITECTURE.md's own section for the full design
+      reasoning (entities as mutable Maps, why removal needs a rebuilt
+      list but a field update doesn't, the no-on-stage-text HUD
+      choices).

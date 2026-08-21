@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"syscall/js"
 
 	"github.com/Sintfoap/cRust/internal/object"
@@ -95,6 +96,7 @@ func gameBuiltins() map[string]*object.Builtin {
 		"keyDown":     {Fn: keyDownFn},
 		"stageSize":   {Fn: stageSizeFn},
 		"onFrame":     {Fn: onFrameFn_},
+		"random":      {Fn: randomFn},
 	}
 }
 
@@ -272,4 +274,18 @@ func onFrameFn_(args ...object.Object) object.Object {
 	}
 	onFrameFn = args[0]
 	return object.NULL
+}
+
+// random() -> a Float in [0, 1) -- games need enemy spawn points, wait
+// times, drop chances, exactly the kind of thing that has no business
+// being deterministic, unlike the rest of cRust's stdlib (which never
+// needed randomness at all: AoC puzzles have one correct answer, and
+// every builtin up to this one is a pure function of its arguments).
+// Go's global math/rand source has been auto-seeded from a real
+// entropy source since Go 1.20, so no explicit seeding here.
+func randomFn(args ...object.Object) object.Object {
+	if len(args) != 0 {
+		return wrongArgCount("random", "0", len(args))
+	}
+	return &object.Float{Value: rand.Float64()}
 }

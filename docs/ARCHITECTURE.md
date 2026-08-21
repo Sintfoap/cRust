@@ -4669,6 +4669,50 @@ code was written.
     `order (...)`, cRust's own keyword — see SPEC.md §4) is exactly the
     kind of mistake this verification pass exists to catch rather than
     ship unnoticed in the one program most people will paste first.
+  - **`examples/game/game_survivors.crust`**, on direct follow-up request —
+    "add an example game... vampire survivors but just with a basic
+    attack, a five minute limit, and just circles instead of sprites."
+    Added one tenth builtin, `random()` (`math/rand.Float64()`, no
+    explicit seeding needed — Go's global source has been auto-seeded
+    from real entropy since 1.20): the one genuine gap the nine
+    existing game builtins had for this — every other builtin in this
+    codebase is a pure function of its arguments (AoC puzzles have one
+    correct answer), but enemy spawn points and wait times have no
+    business being deterministic, and hand-rolling an LCG in cRust
+    itself for one example program would be solving the wrong problem.
+    Kept in `cmd/wasmgame`, not `internal/builtins`, same reasoning as
+    the other nine. Design choices worth calling out: entities
+    (enemies, projectiles) are Maps (`{"handle": ..., "x": ..., "y":
+    ...}`), not a new type — cRust's `List`/`Map`/`Set` are reference
+    types (see the "Committed to now" performance section above), so
+    mutating `e["x"] = ...` inside a `knead` loop updates the same Map
+    stored in the enclosing list in place, no rebuild-and-reassign
+    needed for simple field updates; only actual *removal* (a dead
+    enemy, an expired or spent projectile) rebuilds the list via
+    `filter`-shaped `knead`-and-`push`, since cRust lists have no
+    in-place "remove while iterating" primitive. The basic attack
+    always targets whichever enemy is nearest at the moment it fires (a
+    straight shot at that position, not a homing missile) — the same
+    "Magic Wand"-style no-aim-required weapon Vampire Survivors itself
+    starts every run with, and it needs no trigonometry (no `sin`/`cos`
+    builtin exists yet): both "walk toward the player" and "fly toward
+    a fixed point" are just a `dx, dy` difference normalized by
+    `sqrt(dx*dx + dy*dy)`, the exact same shape `manhattan`-adjacent
+    grid code already uses elsewhere in this codebase, just with a real
+    (not taxicab) distance. No on-stage text builtin exists yet (see
+    the "shapes only for this first cut" note above), so the 5-minute
+    clock is a `rect` whose `setScale` shrinks toward zero each frame
+    (`(gameDuration - elapsed) / gameDuration`) rather than a countdown
+    number, and score/status is a periodic `deliver()` heartbeat (every
+    ~10s) into the console panel instead of an on-screen HUD. Verified
+    the same way as the runtime itself: real Playwright-driven
+    headless verification, `crust game examples/game/game_survivors.crust`
+    with an untouched (never-moved) player — long enough to prove
+    spawning/attacking/collision/scoring all actually fire (46
+    `circleCreate`/44 `destroy` calls and `t=20s score=12 enemies=0` in
+    the console log over ~25s, not just "no errors were logged") rather
+    than only confirming the game-over path a real player would
+    normally trigger by moving badly.
 - **Live breakpoint / step-through debugging** (`crust develop`'s new
   Live tab, `internal/debugger/live.go` + `cmd/crust/debug_live.go`),
   on direct request — "go ahead" to the last of the original six
