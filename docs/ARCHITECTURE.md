@@ -4540,6 +4540,135 @@ code was written.
     `1:7: division by zero` with no path prefix (the `msgPrefix=""`,
     `path=""` case) — all three outcomes matching what the identical
     source produces through `crust run` itself.
+- **`crust game`** (`cmd/wasmgame`, `cmd/crust/game.go`,
+  `cmd/crust/game_assets/`), on direct request — "how hard would it be
+  to add a game dev library" followed by "what if I wanted it to
+  develop for pixijs so I could use it in the browser," resolved (after
+  sketching the bridge/API design in conversation first) into: reuse
+  the web playground's WASM-in-the-browser approach rather than build a
+  second cRust-to-TypeScript compiler backend from scratch, since
+  `crust bake playground` already proved the WASM path works and a
+  transpiler would mean a whole new codegen target plus a parallel JS
+  reimplementation of every stdlib builtin.
+  - **A genuinely different execution model from the playground, not a
+    reskin of it.** `crustRun` (`cmd/wasm`) runs a whole program to
+    completion once per call — exactly right for "paste code, see
+    output," exactly wrong for a game, which has to keep running with
+    its own state (positions, score, anything declared at the top
+    level) surviving between many short calls, one per browser
+    animation frame. So this is a second WASM binary
+    (`cmd/wasmgame`, `js && wasm`-build-tagged the same way
+    `cmd/wasm/main.go` is) with three exports instead of one:
+    `crustGameInit(source)` parses and evaluates top-level code once
+    against a persistent `*interpreter.Interpreter`/`*object.Environment`
+    pair held in package-level vars (there's only ever one game running
+    in a given WASM instance — one browser tab, one page — the same
+    "only one of these exists" reasoning `cmd/wasm/main.go`'s own
+    single `crustRun` export already relies on); `crustGameFrame(dt)`
+    calls whatever `onFrame(fn)` registered, once per
+    `requestAnimationFrame` tick the page drives; `crustGameKey(name,
+    down)` updates the pressed-keys set `keyDown()` reads, from the
+    page's own keydown/keyup listeners. There's no `store`/
+    `store_<name>` entry-point resolution at all here — a game has no
+    one-shot "answer" to compute, so top-level code (spawn shapes,
+    call `onFrame`) doubles as setup instead, the same "top-level code
+    runs first" every cRust program already has (SPEC.md §9).
+  - **New builtins live only in `cmd/wasmgame`, never in
+    `internal/builtins`.** `rect`/`circle`/`setPos`/`setRotation`/
+    `setScale`/`destroy`/`keyDown`/`stageSize`/`onFrame`
+    (`cmd/wasmgame/builtins.go`) are a second table, merged into a
+    fresh `interpreter.New(...)`'s own `.Builtins` map (a plain
+    exported field) right after construction, rather than folded into
+    `internal/builtins.New` itself — that package is imported by the
+    ordinary CLI interpreter too, which has no `__crustGameHost` to
+    call out to and would gain nine builtins meaningless outside a
+    browser tab. `onFrame(fn)` doesn't type-check that `fn` is actually
+    callable up front, the same posture `map`/`filter`/`reduce`'s own
+    injected `call` parameter already takes — an uncallable value
+    surfaces as an ordinary cRust runtime error the moment
+    `crustGameFrame` first tries to call it, not a special case here.
+  - **Handles are opaque `Integer` IDs, not a new `object.Object`
+    type.** Go allocates them (a package-level counter) and calls out
+    to the page's own `__crustGameHost.rectCreate(id, ...)`; the JS
+    side owns the real `PIXI.Graphics` object, keyed by that same ID in
+    a `Map`. Neither side ever holds a live reference into the other's
+    world across a call boundary — `setPos(handle, x, y)` is a thin
+    relay (`host().Call("setPos", id, x, y)`), not a wrapped `js.Value`
+    living inside an `object.Object`, which would need its own
+    `Type()`/`Inspect()`/GC-lifetime story for one browser-only feature.
+    Calling a builtin on a `destroy`ed handle is a silent host-side
+    no-op (JS just won't find the ID), not a cRust runtime error — kept
+    out of the interpreter loop on purpose, the same "the host owns the
+    real object, and objects don't need cRust guarding what a JS `Map`
+    already guards for free" trade every handle-based builtin here
+    makes.
+  - **PixiJS is vendored, not CDN-loaded** (`cmd/crust/game_assets/pixi.min.js`,
+    `third_party/pixijs/NOTICE.md`) — pulled from the `pixi.js` npm
+    package (`registry.npmjs.org` sits outside this environment's own
+    outbound-proxy restrictions, unlike arbitrary CDN hosts, which is
+    what actually made vendoring practical here) rather than a
+    `<script src="https://...">` tag, so `crust game` keeps the same
+    "nothing fetched at request time" offline posture `crust bake
+    playground` already has for `crust.wasm`/`wasm_exec.js`. PixiJS 8's
+    `Application.init()` is async, but every `__crustGameHost` method
+    is called *synchronously* from Go (`syscall/js` has no way to await
+    a call out to JS), so `index.html` creates and awaits the one
+    `PIXI.Application` up front, alongside the WASM instantiation
+    (`Promise.all([...])`), and keeps the Run button disabled until
+    both resolve — by the time any game builtin can possibly run, the
+    app is already a real, ready object, never a pending promise.
+  - **Shapes only for this first cut, not textures.** `rect`/`circle`
+    draw with `PIXI.Graphics` (`.rect(...).fill(color)`/
+    `.circle(...).fill(color)`, PixiJS 8's chained API — it replaced
+    v6/v7's `beginFill`/`drawRect`/`endFill`), no image/sprite-sheet
+    loading. Deliberate scope cut: browser texture loading is
+    inherently async (`Assets.load` returns a promise), and the
+    interpreter's own call-out mechanism is synchronous end to end —
+    supporting it would mean either blocking `crustGameInit` until
+    everything's preloaded (fine for a fixed startup asset list, a
+    real constraint for anything loaded mid-game) or inventing a
+    "some builtin calls need a callback" exception to every other
+    builtin's synchronous contract. Punted rather than half-solved for
+    an MVP explicitly scoped to ship fast and iterate from user
+    feedback.
+  - **`crust game [file.crust] [-p PORT]`** (`cmd/crust/game.go`)
+    mirrors `crust bake playground` almost exactly —
+    `parseGameArgs`/`runGame`/`serveGame` split the same way
+    `parsePlaygroundArgs`/`runBakePlayground`/`servePlayground` already
+    are, `game_assets` embedded and re-rooted with `fs.Sub` the same
+    way, `defaultGamePort` (4749) sitting one above the playground's
+    own default — with one addition: an optional file argument, read
+    server-side and served back through a small `/source.json`
+    endpoint (`{"source": "..."}`) that `index.html`'s own JS fetches
+    to preload the editor. A separate endpoint rather than templating
+    the source into `index.html` itself specifically avoids writing
+    (and testing) HTML/JS-escaping logic for arbitrary user source —
+    `encoding/json` already escapes a string correctly for embedding
+    in a script-fetched response, so there's nothing bespoke to get
+    wrong.
+  - Verified with Go tests mirroring `playground_test.go`'s own
+    conventions (`parseGameArgs`' table, real HTTP fetches of all three
+    embedded assets over an ephemeral-port listener, `/source.json`
+    both with and without a preloaded file, listen-failure and
+    missing-file error paths, the subcommand dispatch's own bad-port
+    and too-many-files cases) and, since this is a second genuinely
+    browser-side feature, real Playwright-driven verification against
+    the pre-installed Chromium: loaded the page, waited for `#status`
+    to flip to `ready` (confirming both the WASM instantiation *and*
+    the PixiJS `Application.init()` promise resolved), clicked Run on
+    the default arrow-key demo, wrapped `__crustGameHost.setPos` from
+    the test's own side to record every position call made, held
+    `ArrowRight` for 500ms and confirmed the tracked sprite's x moved
+    from ~324 to ~434 — a ~110px delta matching the demo's own `speed =
+    220`px/s at 0.5s almost exactly — and confirmed it stopped moving
+    within one frame of releasing the key; separately confirmed
+    `deliver("hello from cRust")` reaches the on-page console panel,
+    and that a deliberately malformed program (bare `if` instead of
+    `order (...)`) reports real parse errors there rather than failing
+    silently. An initial demo written with a bare `if` (not
+    `order (...)`, cRust's own keyword — see SPEC.md §4) is exactly the
+    kind of mistake this verification pass exists to catch rather than
+    ship unnoticed in the one program most people will paste first.
 - **Live breakpoint / step-through debugging** (`crust develop`'s new
   Live tab, `internal/debugger/live.go` + `cmd/crust/debug_live.go`),
   on direct request — "go ahead" to the last of the original six

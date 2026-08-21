@@ -215,7 +215,18 @@ crust develop day01.crust --plain  # same recording, printed as text (pipeable)
 crust repl                         # scratch REPL, persistent state across lines
 crust fmt -w day01.crust           # canonical formatting, in place
 crust bake playground              # in-browser sandbox, runs client-side via WASM
+crust game [file.crust]            # in-browser game sandbox (PixiJS), one call per animation frame
 ```
+
+`crust game`'s own builtins (real only inside that WASM build, never
+in the plain CLI interpreter): `rect(w, h, color)` / `circle(r,
+color)` spawn a shape (`color` a `"#rrggbb"` string) and return a
+handle; `setPos(handle, x, y)` / `setRotation(handle, radians)` /
+`setScale(handle, sx, sy)` / `destroy(handle)` act on one; `keyDown(name)`
+polls the browser's own `KeyboardEvent.key` strings; `stageSize()`
+returns `(width, height)`; `onFrame(fn)` registers `fn(dt)` to run once
+per animation frame — top-level code doubles as setup here, since
+there's no `store`/`store_<name>` entry point to call.
 
 On the Stepper tab: `/query` searches the tree (`n`/`N` repeats it
 forward/backward), `f`/`F` jump straight to the next/previous failed

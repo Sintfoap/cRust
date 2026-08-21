@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cRust Game</title>
+<style>
+  :root {
+    --bg: #fdf6e3;
+    --bg-alt: #f7ecd0;
+    --bg-card: #fffaf0;
+    --text: #3b2a1a;
+    --text-muted: #7a6a55;
+    --border: #e8d9b5;
+    --accent: #c0392b;
+    --accent-soft: #fbe0da;
+    --accent-text: #9c2c1f;
+    --basil: #2f7a4f;
+    --shadow: 0 8px 30px rgba(120, 72, 24, 0.15);
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1410;
+      --bg-alt: #241a14;
+      --bg-card: #241a14;
+      --text: #f1e4d0;
+      --text-muted: #b8a48a;
+      --border: #3a2c22;
+      --accent: #e2624c;
+      --accent-soft: #3a201a;
+      --accent-text: #ff8a70;
+      --basil: #6fbf7d;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-alt);
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.15rem; margin: 0; }
+  header h1 .pizza { margin-right: 0.35rem; }
+  header .sub { color: var(--text-muted); font-size: 0.85rem; }
+  #status { margin-left: auto; font-size: 0.85rem; color: var(--text-muted); }
+  #status.ready { color: var(--basil); }
+  #status.error { color: var(--accent-text); }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .pane { background: var(--bg); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .pane-header {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  textarea {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    padding: 0.85rem;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    background: var(--bg-card);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  #right { display: flex; flex-direction: column; }
+  #stage-row { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #stage-wrap {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card);
+  }
+  #stage-wrap canvas { display: block; box-shadow: var(--shadow); }
+  #log-row { flex: 0 0 auto; max-height: 8rem; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+  #log {
+    flex: 1;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 0.5rem 0.85rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    background: var(--bg-card);
+    color: var(--text);
+  }
+  #log .err { color: var(--accent-text); }
+  button {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.3rem 0.9rem;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff8ee;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:not(:disabled):hover { filter: brightness(1.08); }
+  .hint { color: var(--text-muted); font-size: 0.78rem; }
+  kbd {
+    font-family: var(--mono);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.78rem;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="pizza">🍕</span>cRust Game</h1>
+  <span class="sub">rect/circle/setPos/keyDown/onFrame, rendered live with PixiJS — click the stage to give it keyboard focus</span>
+  <span id="status">loading crust-game.wasm…</span>
+</header>
+<main>
+  <div class="pane" id="left">
+    <div class="pane-header">
+      <span>source.crust</span>
+      <button id="run" style="margin-left:auto" disabled>Run <kbd>⌘/Ctrl+Enter</kbd></button>
+    </div>
+    <textarea id="source" spellcheck="false"></textarea>
+  </div>
+  <div class="pane" id="right">
+    <div id="stage-row">
+      <div class="pane-header">stage</div>
+      <div id="stage-wrap" tabindex="0"></div>
+    </div>
+    <div id="log-row">
+      <div class="pane-header">console (deliver() + errors)</div>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+<script src="pixi.min.js"></script>
+<script src="wasm_exec.js"></script>
+<script>
+(function () {
+  var statusEl = document.getElementById("status");
+  var runBtn = document.getElementById("run");
+  var sourceEl = document.getElementById("source");
+  var stageWrap = document.getElementById("stage-wrap");
+  var logEl = document.getElementById("log");
+
+  var DEFAULT_SOURCE = [
+    'w, h = stageSize()',
+    'x = w / 2',
+    'y = h / 2',
+    'speed = 220',
+    'player = rect(40, 40, "#c0392b")',
+    'setPos(player, x, y)',
+    '',
+    'recipe onTick(dt) {',
+    '    order (keyDown("ArrowLeft")) { x = x - speed * dt }',
+    '    order (keyDown("ArrowRight")) { x = x + speed * dt }',
+    '    order (keyDown("ArrowUp")) { y = y - speed * dt }',
+    '    order (keyDown("ArrowDown")) { y = y + speed * dt }',
+    '    setPos(player, x, y)',
+    '}',
+    'onFrame(onTick)',
+    ''
+  ].join("\n");
+  sourceEl.value = DEFAULT_SOURCE;
+
+  // --- log panel -----------------------------------------------------
+  function log(text, isErr) {
+    var line = document.createElement("div");
+    if (isErr) line.className = "err";
+    line.textContent = text;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.console._crustLog = console.log.bind(console);
+
+  // --- PixiJS host bridge ---------------------------------------------
+  // __crustGameHost is what crust-game.wasm's game builtins (rect,
+  // circle, setPos, ...) call into via syscall/js -- see
+  // cmd/wasmgame/builtins.go's own doc comments for the Go side of
+  // each of these. Go owns handle-ID allocation; this object owns the
+  // actual PixiJS DisplayObjects, keyed by that same ID, so neither
+  // side has to hold a reference into the other's world across calls.
+  //
+  // PixiJS v8's Application.init() is async, but every host method
+  // below is called synchronously from Go (syscall/js has no awaiting
+  // a call out to JS), so the app is created and initialized once, up
+  // front (see initApp below), and the Run button stays disabled until
+  // that finishes -- by the time any game builtin can possibly run,
+  // `app` is already a real, ready PIXI.Application, not a promise.
+  var app = null;
+  var objects = new Map();
+
+  function initApp() {
+    app = new PIXI.Application();
+    return app.init({ width: 640, height: 480, background: "#ffffff", antialias: true }).then(function () {
+      stageWrap.appendChild(app.canvas);
+    });
+  }
+
+  function hexToNumber(hex) {
+    var s = String(hex).replace(/^#/, "");
+    var n = parseInt(s, 16);
+    return isNaN(n) ? 0x000000 : n;
+  }
+
+  window.__crustGameHost = {
+    rectCreate: function (id, w, h, color) {
+      var g = new PIXI.Graphics().rect(-w / 2, -h / 2, w, h).fill(hexToNumber(color));
+      app.stage.addChild(g);
+      objects.set(id, g);
+    },
+    circleCreate: function (id, r, color) {
+      var g = new PIXI.Graphics().circle(0, 0, r).fill(hexToNumber(color));
+      app.stage.addChild(g);
+      objects.set(id, g);
+    },
+    setPos: function (id, x, y) {
+      var o = objects.get(id);
+      if (o) { o.x = x; o.y = y; }
+    },
+    setRotation: function (id, angle) {
+      var o = objects.get(id);
+      if (o) o.rotation = angle;
+    },
+    setScale: function (id, sx, sy) {
+      var o = objects.get(id);
+      if (o) { o.scale.x = sx; o.scale.y = sy; }
+    },
+    destroy: function (id) {
+      var o = objects.get(id);
+      if (o) { o.destroy(); objects.delete(id); }
+    },
+    stageSize: function () {
+      return [app.renderer.width, app.renderer.height];
+    }
+  };
+
+  function clearStage() {
+    objects.forEach(function (o) { o.destroy(); });
+    objects.clear();
+    if (app) { app.stage.removeChildren(); }
+  }
+
+  // --- keyboard --------------------------------------------------------
+  // crustGameKey forwards the browser's own KeyboardEvent.key strings
+  // straight through -- keyDown() in cRust reads exactly what's typed
+  // here ("ArrowLeft", "a", " ", ...), no translation table to keep in
+  // sync on either side.
+  stageWrap.addEventListener("keydown", function (e) {
+    if (typeof crustGameKey === "function") crustGameKey(e.key, true);
+    e.preventDefault();
+  });
+  stageWrap.addEventListener("keyup", function (e) {
+    if (typeof crustGameKey === "function") crustGameKey(e.key, false);
+    e.preventDefault();
+  });
+  stageWrap.addEventListener("click", function () { stageWrap.focus(); });
+
+  // --- wasm load + run loop --------------------------------------------
+  var go = new Go();
+  var running = false;
+
+  Promise.all([
+    WebAssembly.instantiateStreaming(fetch("crust-game.wasm"), go.importObject).then(function (result) {
+      go.run(result.instance);
+    }),
+    initApp()
+  ])
+    .then(function () {
+      statusEl.textContent = "ready";
+      statusEl.className = "ready";
+      runBtn.disabled = false;
+      fetch("source.json").then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.source) sourceEl.value = d.source;
+      }).catch(function () {});
+    })
+    .catch(function (err) {
+      statusEl.textContent = "failed to load: " + err;
+      statusEl.className = "error";
+    });
+
+  var lastTick = null;
+  function frame(ts) {
+    if (!running) return;
+    if (lastTick === null) lastTick = ts;
+    var dt = Math.min((ts - lastTick) / 1000, 0.1); // clamp a tab-switch stall to one frame's worth
+    lastTick = ts;
+    var res = crustGameFrame(dt);
+    if (res.error) {
+      log(res.error, true);
+      running = false;
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function run() {
+    if (typeof crustGameInit !== "function") return;
+    logEl.textContent = "";
+    clearStage();
+    var res = crustGameInit(sourceEl.value);
+    if (res.error) {
+      log(res.error, true);
+      return;
+    }
+    stageWrap.focus();
+    running = true;
+    lastTick = null;
+    requestAnimationFrame(frame);
+  }
+
+  runBtn.addEventListener("click", run);
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  });
+
+  // deliver() output arrives via console.log (cmd/wasmgame/main.go's
+  // consoleWriter) -- mirror it into the on-page log too, since a
+  // served `crust game` session has no guarantee anyone has devtools
+  // open.
+  console.log = function () {
+    var parts = Array.prototype.slice.call(arguments).map(String);
+    log(parts.join(" "));
+    window.console._crustLog.apply(console, arguments);
+  };
+})();
+</script>
+</body>
+</html>

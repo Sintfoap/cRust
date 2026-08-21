@@ -1987,3 +1987,38 @@ confirmed, not before.
       error paths, `Ctrl+L` genuinely suspending into `crust login`'s
       real prompt, and `Ctrl+N` creating a real `dayNN.crust` with a
       typed year stamped in and persisted.
+- [x] (Stretch) `crust game` — a live, in-browser game runtime, from
+      "how hard would it be to add a game dev library" -> "what if I
+      wanted it to develop for pixijs so I could use it in the
+      browser" -> a bridge/API sketched in conversation first, then "go
+      ahead, make an mvp." A second WASM build (`cmd/wasmgame`,
+      `crust-game.wasm`) alongside `crust bake playground`'s own
+      `cmd/wasm` — a genuinely different execution model, not a reskin:
+      `crustGameInit(source)` parses and runs top-level code once
+      against a persistent interpreter, `crustGameFrame(dt)` calls
+      whatever `onFrame(fn)` registered once per browser animation
+      frame, `crustGameKey(name, down)` feeds `keyDown()` from the
+      page's own keyboard listeners. Nine new builtins real only inside
+      that WASM build (`rect`/`circle`/`setPos`/`setRotation`/
+      `setScale`/`destroy`/`keyDown`/`stageSize`/`onFrame`) render
+      through real PixiJS, vendored into the binary
+      (`cmd/crust/game_assets/pixi.min.js`) rather than CDN-loaded, so
+      it stays fully offline like the rest of the site. `crust game
+      [file.crust] [-p PORT]` mirrors `crust bake playground` almost
+      exactly, plus an optional file argument preloaded into the editor
+      via a small `/source.json` endpoint. Shapes only for this first
+      cut (no image/sprite-sheet textures — browser texture loading is
+      async, the interpreter's call-out mechanism isn't, and forcing
+      that mismatch didn't fit an MVP scoped to ship fast and iterate).
+      See docs/ARCHITECTURE.md's own section for the full design
+      reasoning (handle representation, why builtins live outside
+      `internal/builtins`, the PixiJS-v8-is-async-but-calls-are-sync
+      resolution). Verified with Go tests mirroring
+      `playground_test.go`'s own conventions, plus real Playwright-
+      driven verification against the pre-installed Chromium: loaded
+      the page, ran the default arrow-key demo, held `ArrowRight` for
+      500ms and confirmed the tracked sprite actually moved ~110px
+      (matching the demo's own speed at that duration) and stopped
+      within one frame of releasing the key, and confirmed both
+      `deliver()` output and real parse errors reach the on-page
+      console panel.

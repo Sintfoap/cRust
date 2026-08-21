@@ -26,6 +26,7 @@ const usageBody = `Usage:
   crust fmt <file.crust> [-w]                 print (or write, with -w) canonically formatted source
   crust bake documentation [-p <port>]        serve the docs site, open a browser
   crust bake playground [-p <port>]           serve an in-browser cRust sandbox (WASM)
+  crust game [file.crust] [-p <port>]         serve an in-browser game sandbox (WASM + PixiJS)
   crust lsp                                   start a language server on stdin/stdout
   crust login                                 save your adventofcode.com session cookie
   crust fetch <day> [--year Y] [--force]      download that day's puzzle input, start its timer
@@ -64,6 +65,8 @@ Examples:
   crust fmt -w day01.crust          reformat the file in place
   crust bake documentation          open the docs site in a browser
   crust bake playground             open the in-browser sandbox (nothing sent anywhere)
+  crust game                        open the in-browser game sandbox, arrow-key demo preloaded
+  crust game snake.crust            open it with snake.crust preloaded into the editor
   crust lsp                         debug: run the language server by hand
   crust login                       save your adventofcode.com session cookie
   crust fetch 1                     download day 1's input, start its timer
@@ -210,6 +213,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, colorDefault 
 			fmt.Fprintln(stderr, `crust bake: expected "documentation" or "playground" (crust bake documentation|playground [-p <port>])`)
 			return 2
 		}
+	case "game":
+		path, port, err := parseGameArgs(rest[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "crust game: %s\n", err)
+			return 2
+		}
+		return runGame(path, port, stdout, stderr)
 	case "lsp":
 		return runLSP(stdin, stdout, stderr)
 	case "login":

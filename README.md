@@ -530,6 +530,68 @@ synchronously in the browser's main thread: a program with an infinite
 loop hangs the tab until reloaded, same as pasting one into any other
 in-browser code sandbox. Ctrl+C stops the server.
 
+### Game sandbox
+
+```
+crust game                     # serve on http://localhost:4749, arrow-key demo preloaded
+crust game snake.crust         # preload snake.crust's content into the editor instead
+crust game -p 8080             # pick a different port
+```
+
+A live, in-browser cRust game runtime — an editor pane, a PixiJS-drawn
+stage, and a Run button (or Ctrl/Cmd+Enter), the same shape as the
+[Web playground](#web-playground) but with a genuinely different
+execution model underneath: the playground runs a whole program to
+completion once per click, which is exactly wrong for a game that has
+to keep running, one call per browser animation frame, with its own
+state (positions, score, whatever it declared at the top level)
+persisting between frames. So `crust game` ships a second WASM build
+(`cmd/wasmgame`, built to `crust-game.wasm` by
+`scripts/build-wasm-game.sh`) with a different entry point: parse
+and run the program's top-level code once (there's no `store`/
+`store_<name>` entry point here — top-level code doubles as setup:
+spawn shapes, register the per-frame callback), then call that
+callback once per frame from here on. New builtins, real only in this
+WASM build (never in the plain CLI interpreter):
+
+| builtin | does |
+|---|---|
+| `rect(w, h, color)` / `circle(r, color)` | spawn a shape, `color` a CSS hex string like `"#c0392b"` — returns a handle |
+| `setPos(handle, x, y)` / `setRotation(handle, radians)` / `setScale(handle, sx, sy)` | move/rotate/scale a shape — `(0, 0)` is the stage's top-left corner |
+| `destroy(handle)` | remove a shape from the stage |
+| `keyDown(name)` | `true` while a key is held — the browser's own `KeyboardEvent.key` strings (`"ArrowLeft"`, `"a"`, `" "`, ...) |
+| `stageSize()` | `(width, height)` in pixels |
+| `onFrame(fn)` | register `fn`, called with `dt` (elapsed seconds) once per animation frame |
+
+```
+w, h = stageSize()
+player = rect(40, 40, "#c0392b")
+setPos(player, w / 2, h / 2)
+
+recipe onTick(dt) {
+    order (keyDown("ArrowRight")) { setPos(player, w / 2 + 50, h / 2) }
+}
+onFrame(onTick)
+```
+
+Rendering is real PixiJS (vendored into the binary — `pixi.min.js`
+under `cmd/crust/game_assets/`, `third_party/pixijs/NOTICE.md` has the
+provenance/update instructions — so this works fully offline like the
+rest of the site, nothing fetched from a CDN at request time). Handles
+are opaque IDs, not a new cRust value type: Go allocates them, the
+page's own JS owns the actual PixiJS objects they refer to, so
+`setPos`/`destroy`/etc. are thin relays across the WASM boundary rather
+than the interpreter holding a live reference into the DOM. `deliver()`
+still works exactly as everywhere else — output goes to the browser's
+devtools console and mirrors onto the page's own console panel, handy
+for debugging a running game without alt-tabbing.
+
+This is a first cut: shapes only (no image/sprite-sheet textures — the
+browser's own async texture loading doesn't fit a synchronous
+interpreter call cleanly yet), `keyDown` polling only (no click/touch
+input), and no collision/audio/scene-graph helpers beyond what's
+listed above. Ctrl+C stops the server.
+
 ### With Nix
 
 ```
