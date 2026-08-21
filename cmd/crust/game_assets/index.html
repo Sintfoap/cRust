@@ -143,7 +143,7 @@
 <body>
 <header>
   <h1><span class="pizza">🍕</span>cRust Game</h1>
-  <span class="sub">rect/circle/setPos/keyDown/onFrame, rendered live with PixiJS — click the stage to give it keyboard focus</span>
+  <span class="sub">rect/circle/sprite/text/setPos/keyDown/onFrame, rendered live with PixiJS — click the stage to give it keyboard focus</span>
   <span id="status">loading crust-game.wasm…</span>
 </header>
 <main>
@@ -207,7 +207,7 @@
 
   // --- PixiJS host bridge ---------------------------------------------
   // __crustGameHost is what crust-game.wasm's game builtins (rect,
-  // circle, setPos, ...) call into via syscall/js -- see
+  // circle, sprite, text, setPos, ...) call into via syscall/js -- see
   // cmd/wasmgame/builtins.go's own doc comments for the Go side of
   // each of these. Go owns handle-ID allocation; this object owns the
   // actual PixiJS DisplayObjects, keyed by that same ID, so neither
@@ -219,14 +219,32 @@
   // front (see initApp below), and the Run button stays disabled until
   // that finishes -- by the time any game builtin can possibly run,
   // `app` is already a real, ready PIXI.Application, not a promise.
+  //
+  // Every spawned object is added to `world`, one Container sitting
+  // between the stage and everything a program spawns, rather than
+  // directly to app.stage -- setCamera/setCameraZoom move and scale
+  // that one Container, so "the camera" is nothing more than "where
+  // world itself is currently positioned," with no per-object camera
+  // math needed anywhere else.
   var app = null;
-  var objects = new Map();
+  var world = null;
+  var objects = new Map(); // id -> PIXI.DisplayObject (Graphics/Sprite/Text)
+  var sounds = new Map(); // id -> HTMLAudioElement (never in `objects` -- see soundCreate)
+  var cameraX = 0, cameraY = 0, cameraZoom = 1;
 
   function initApp() {
     app = new PIXI.Application();
     return app.init({ width: 640, height: 480, background: "#ffffff", antialias: true }).then(function () {
+      world = new PIXI.Container();
+      app.stage.addChild(world);
       stageWrap.appendChild(app.canvas);
     });
+  }
+
+  function applyCamera() {
+    world.scale.set(cameraZoom);
+    world.x = app.renderer.width / 2 - cameraX * cameraZoom;
+    world.y = app.renderer.height / 2 - cameraY * cameraZoom;
   }
 
   function hexToNumber(hex) {
@@ -238,13 +256,44 @@
   window.__crustGameHost = {
     rectCreate: function (id, w, h, color) {
       var g = new PIXI.Graphics().rect(-w / 2, -h / 2, w, h).fill(hexToNumber(color));
-      app.stage.addChild(g);
+      world.addChild(g);
       objects.set(id, g);
     },
     circleCreate: function (id, r, color) {
       var g = new PIXI.Graphics().circle(0, 0, r).fill(hexToNumber(color));
-      app.stage.addChild(g);
+      world.addChild(g);
       objects.set(id, g);
+    },
+    spriteCreate: function (id, url, w, h) {
+      // A blank placeholder exists (and is positionable/rotatable/
+      // scalable) immediately -- the handle cRust gets back doesn't
+      // wait on the network. The real texture swaps in, in place,
+      // whenever PIXI.Assets.load resolves; see spriteFn's own doc
+      // comment (builtins.go) for why that split matters.
+      var s = new PIXI.Sprite(PIXI.Texture.EMPTY);
+      s.width = w;
+      s.height = h;
+      s.anchor.set(0.5);
+      world.addChild(s);
+      objects.set(id, s);
+      PIXI.Assets.load(url).then(function (texture) {
+        if (objects.get(id) === s) s.texture = texture;
+      }).catch(function (err) {
+        console.error("crust game: failed to load sprite", url, err);
+      });
+    },
+    textCreate: function (id, str, size, color) {
+      var t = new PIXI.Text({
+        text: str,
+        style: { fontFamily: "monospace", fontSize: size, fill: hexToNumber(color) }
+      });
+      t.anchor.set(0.5);
+      world.addChild(t);
+      objects.set(id, t);
+    },
+    setText: function (id, str) {
+      var o = objects.get(id);
+      if (o) o.text = str;
     },
     setPos: function (id, x, y) {
       var o = objects.get(id);
@@ -264,13 +313,42 @@
     },
     stageSize: function () {
       return [app.renderer.width, app.renderer.height];
+    },
+    setCamera: function (x, y) {
+      cameraX = x; cameraY = y;
+      applyCamera();
+    },
+    setCameraZoom: function (zoom) {
+      cameraZoom = zoom;
+      applyCamera();
+    },
+    soundCreate: function (id, url) {
+      var a = new Audio(url);
+      a.preload = "auto";
+      sounds.set(id, a);
+    },
+    playSound: function (id) {
+      var a = sounds.get(id);
+      if (!a) return;
+      // A fresh clone per play, so overlapping plays (a pickup sound
+      // firing again before the last one finished) don't cut each
+      // other off -- the standard trick for short one-shot SFX.
+      var clone = a.cloneNode();
+      clone.play().catch(function () {}); // browsers refuse autoplay before any user gesture; a silent no-op here is fine, not worth surfacing as a cRust error
+    },
+    stopSound: function (id) {
+      var a = sounds.get(id);
+      if (a) { a.pause(); a.currentTime = 0; }
     }
   };
 
   function clearStage() {
     objects.forEach(function (o) { o.destroy(); });
     objects.clear();
-    if (app) { app.stage.removeChildren(); }
+    sounds.clear();
+    if (world) { world.removeChildren(); }
+    cameraX = 0; cameraY = 0; cameraZoom = 1;
+    if (app) applyCamera();
   }
 
   // --- keyboard --------------------------------------------------------

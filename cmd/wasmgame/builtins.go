@@ -5,23 +5,41 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"syscall/js"
 
 	"github.com/Sintfoap/cRust/internal/object"
 )
 
-// nextHandleID, pressedKeys, and onFrameFn are the whole in-page game's
-// mutable state -- package-level vars rather than a struct, since
-// there's only ever one game running in a given WASM instance (one
-// browser tab, one page), the same "only one of these exists" reasoning
-// cmd/wasm/main.go's own single crustRun export relies on. crustGameInit
-// (main.go) calls resetGameState before every (re)run, so pressing
-// "Run" again after an edit starts clean rather than leaking the
-// previous run's sprites/handlers into the new one.
+// gameEntity is what Go itself remembers about a handle, alongside
+// whatever PixiJS object the host keeps under the same ID (see host()
+// below). Earlier versions of this file kept no state at all here --
+// Go only ever allocated an ID and relayed calls -- but overlaps()
+// needs real position/size to compute a collision without a round
+// trip to JS for every check, every frame, so position and an
+// (optional) hitbox are tracked here now. kind is "" for a handle with
+// no meaningful collision shape (text, sound) -- overlaps() refuses to
+// run against one of those rather than silently comparing against a
+// zero-size point.
+type gameEntity struct {
+	kind    string // "rect", "circle", "sprite", or "" (no hitbox)
+	x, y    float64
+	w, h, r float64
+}
+
+// nextHandleID, pressedKeys, onFrameFn, and entities are the whole
+// in-page game's mutable state -- package-level vars rather than a
+// struct, since there's only ever one game running in a given WASM
+// instance (one browser tab, one page), the same "only one of these
+// exists" reasoning cmd/wasm/main.go's own single crustRun export
+// relies on. crustGameInit (main.go) calls resetGameState before every
+// (re)run, so pressing "Run" again after an edit starts clean rather
+// than leaking the previous run's sprites/handlers into the new one.
 var (
 	nextHandleID int64
 	pressedKeys  = map[string]bool{}
 	onFrameFn    object.Object // nil until onFrame(fn) is called
+	entities     = map[int64]*gameEntity{}
 )
 
 // resetGameState clears everything the previous run (if any) left
@@ -32,6 +50,7 @@ func resetGameState() {
 	nextHandleID = 0
 	pressedKeys = map[string]bool{}
 	onFrameFn = nil
+	entities = map[int64]*gameEntity{}
 }
 
 // host is the JS-side object crust-game.html installs before loading
@@ -87,17 +106,58 @@ func handleArg(name string, index int, obj object.Object) (int64, *object.Error)
 // __crustGameHost to call out to.
 func gameBuiltins() map[string]*object.Builtin {
 	return map[string]*object.Builtin{
-		"rect":        {Fn: rectFn},
-		"circle":      {Fn: circleFn},
-		"setPos":      {Fn: setPosFn},
-		"setRotation": {Fn: setRotationFn},
-		"setScale":    {Fn: setScaleFn},
-		"destroy":     {Fn: destroyFn},
-		"keyDown":     {Fn: keyDownFn},
-		"stageSize":   {Fn: stageSizeFn},
-		"onFrame":     {Fn: onFrameFn_},
-		"random":      {Fn: randomFn},
+		"rect":          {Fn: rectFn},
+		"circle":        {Fn: circleFn},
+		"sprite":        {Fn: spriteFn},
+		"text":          {Fn: textFn},
+		"setText":       {Fn: setTextFn},
+		"setPos":        {Fn: setPosFn},
+		"setRotation":   {Fn: setRotationFn},
+		"setScale":      {Fn: setScaleFn},
+		"destroy":       {Fn: destroyFn},
+		"keyDown":       {Fn: keyDownFn},
+		"stageSize":     {Fn: stageSizeFn},
+		"onFrame":       {Fn: onFrameFn_},
+		"random":        {Fn: randomFn},
+		"overlaps":      {Fn: overlapsFn},
+		"setCamera":     {Fn: setCameraFn},
+		"setCameraZoom": {Fn: setCameraZoomFn},
+		"loadTilemap":   {Fn: loadTilemapFn},
+		"sound":         {Fn: soundFn},
+		"playSound":     {Fn: playSoundFn},
+		"stopSound":     {Fn: stopSoundFn},
 	}
+}
+
+// spawnRect/spawnCircle/spawnSprite do the actual work behind
+// rect()/circle()/sprite() and loadTilemap() (which needs to spawn
+// many rects without going through cRust-Object argument boxing for
+// each one) -- allocate an ID, remember its kind/size for overlaps()
+// to use later, and hand it to the host to actually draw.
+func spawnRect(w, h float64, color string) int64 {
+	id := nextHandleID
+	nextHandleID++
+	entities[id] = &gameEntity{kind: "rect", w: w, h: h}
+	host().Call("rectCreate", id, w, h, color)
+	return id
+}
+
+func spawnCircle(r float64, color string) int64 {
+	id := nextHandleID
+	nextHandleID++
+	entities[id] = &gameEntity{kind: "circle", r: r}
+	host().Call("circleCreate", id, r, color)
+	return id
+}
+
+// moveEntity is setPos()'s own logic, factored out so loadTilemap can
+// position each spawned tile the same way without re-boxing plain
+// float64s into object.Objects just to immediately unwrap them again.
+func moveEntity(id int64, x, y float64) {
+	if e, ok := entities[id]; ok {
+		e.x, e.y = x, y
+	}
+	host().Call("setPos", id, x, y)
 }
 
 // rect(w, h, color) -> handle. color is a CSS-style hex string
@@ -121,10 +181,7 @@ func rectFn(args ...object.Object) object.Object {
 	if !ok {
 		return wrongArgType("rect", 2, `a String hex color (e.g. "#ff6a3d")`, args[2])
 	}
-	id := nextHandleID
-	nextHandleID++
-	host().Call("rectCreate", id, w, h, color.Value)
-	return object.NewInteger(id)
+	return object.NewInteger(spawnRect(w, h, color.Value))
 }
 
 // circle(radius, color) -> handle.
@@ -140,10 +197,87 @@ func circleFn(args ...object.Object) object.Object {
 	if !ok {
 		return wrongArgType("circle", 1, `a String hex color (e.g. "#ff6a3d")`, args[1])
 	}
+	return object.NewInteger(spawnCircle(r, color.Value))
+}
+
+// sprite(url, w, h) -> handle. url is fetched relative to the served
+// page -- either one of the game's own assets (nothing ships built
+// in), or a file sitting next to the .crust file `crust game` was
+// pointed at (game.go serves that directory as a fallback specifically
+// so this resolves). Loading is unavoidably asynchronous in a browser,
+// but every other builtin here is synchronous, so the handle exists
+// (and setPos/setRotation/etc all work on it) immediately, drawing as
+// a blank placeholder that swaps to the real image in place once it
+// finishes loading -- there's no separate "wait for it" step or
+// callback to write.
+func spriteFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("sprite", "3", len(args))
+	}
+	url, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("sprite", 0, "a String (image URL)", args[0])
+	}
+	w, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("sprite", 1, "a number", args[1])
+	}
+	h, ok := numericValue(args[2])
+	if !ok {
+		return wrongArgType("sprite", 2, "a number", args[2])
+	}
 	id := nextHandleID
 	nextHandleID++
-	host().Call("circleCreate", id, r, color.Value)
+	entities[id] = &gameEntity{kind: "sprite", w: w, h: h}
+	host().Call("spriteCreate", id, url.Value, w, h)
 	return object.NewInteger(id)
+}
+
+// text(str, size, color) -> handle. size is a font size in pixels.
+// Has no collision hitbox (overlaps() refuses a text handle) -- text
+// bounds depend on rendered glyph metrics the Go side never sees, so
+// there's nothing honest to check it against.
+func textFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("text", "3", len(args))
+	}
+	str, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("text", 0, "a String", args[0])
+	}
+	size, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("text", 1, "a number", args[1])
+	}
+	color, ok := args[2].(*object.String)
+	if !ok {
+		return wrongArgType("text", 2, `a String hex color (e.g. "#3b2a1a")`, args[2])
+	}
+	id := nextHandleID
+	nextHandleID++
+	entities[id] = &gameEntity{kind: ""}
+	host().Call("textCreate", id, str.Value, size, color.Value)
+	return object.NewInteger(id)
+}
+
+// setText(handle, str) -- change a text handle's displayed string in
+// place (a score counter, a HUD line), the same "mutate, don't
+// destroy+recreate" shape setChar/setColor already give crust studio's
+// own cells.
+func setTextFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("setText", "2", len(args))
+	}
+	id, errObj := handleArg("setText", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	str, ok := args[1].(*object.String)
+	if !ok {
+		return wrongArgType("setText", 1, "a String", args[1])
+	}
+	host().Call("setText", id, str.Value)
+	return object.NULL
 }
 
 // setPos(handle, x, y) -- (0, 0) is the stage's top-left corner, same
@@ -151,7 +285,10 @@ func circleFn(args ...object.Object) object.Object {
 // center-origin convention (SPEC.md's grid()/at()/setAt()): a game
 // stage is screen space, not a puzzle grid, and matching the DOM/canvas
 // convention here is one less thing to translate when reading PixiJS's
-// own docs alongside this.
+// own docs alongside this. Unaffected by the camera (setCamera below)
+// -- this always sets a handle's position in world space, exactly as
+// it always has; the camera only changes what part of that world space
+// is currently visible.
 func setPosFn(args ...object.Object) object.Object {
 	if len(args) != 3 {
 		return wrongArgCount("setPos", "3", len(args))
@@ -168,7 +305,7 @@ func setPosFn(args ...object.Object) object.Object {
 	if !ok {
 		return wrongArgType("setPos", 2, "a number", args[2])
 	}
-	host().Call("setPos", id, x, y)
+	moveEntity(id, x, y)
 	return object.NULL
 }
 
@@ -215,7 +352,10 @@ func setScaleFn(args ...object.Object) object.Object {
 // side just won't find it in its id table), not a cRust runtime error;
 // keeping that check out of the interpreter loop is worth the small
 // risk of a silently-ignored stale handle, the same trade every other
-// "the host owns the real object" design here makes.
+// "the host owns the real object" design here makes. Go's own
+// entities map entry is removed too, so a destroyed handle correctly
+// stops being collidable rather than overlaps() still comparing
+// against wherever it was last positioned.
 func destroyFn(args ...object.Object) object.Object {
 	if len(args) != 1 {
 		return wrongArgCount("destroy", "1", len(args))
@@ -224,6 +364,7 @@ func destroyFn(args ...object.Object) object.Object {
 	if errObj != nil {
 		return errObj
 	}
+	delete(entities, id)
 	host().Call("destroy", id)
 	return object.NULL
 }
@@ -288,4 +429,227 @@ func randomFn(args ...object.Object) object.Object {
 		return wrongArgCount("random", "0", len(args))
 	}
 	return &object.Float{Value: rand.Float64()}
+}
+
+// closestPointOnRect clamps (px, py) to the axis-aligned rectangle
+// centered at (cx, cy) with half-extents (hw, hh) -- the standard
+// building block for circle-vs-rectangle collision: the circle
+// overlaps the rectangle exactly when its center is within its own
+// radius of the clamped (closest) point.
+func closestPointOnRect(px, py, cx, cy, hw, hh float64) (float64, float64) {
+	x := px
+	if x < cx-hw {
+		x = cx - hw
+	} else if x > cx+hw {
+		x = cx + hw
+	}
+	y := py
+	if y < cy-hh {
+		y = cy - hh
+	} else if y > cy+hh {
+		y = cy + hh
+	}
+	return x, y
+}
+
+// overlaps(handle1, handle2) -> bool. Exact for circle-vs-circle
+// (distance between centers vs the sum of radii) and rect-vs-rect
+// (axis-aligned bounding box overlap -- rotation from setRotation is
+// ignored for this check, the standard simplification every "AABB
+// collision" helper in a lightweight 2D engine makes), and a real
+// circle-vs-rectangle test (via closestPointOnRect) for a mix of the
+// two, including a sprite's own w/h rectangle. Refuses rather than
+// silently comparing against a zero-size point when either handle has
+// no hitbox at all (a text or sound handle, or one destroy()'d/never
+// created) -- see gameEntity's own doc comment.
+func overlapsFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("overlaps", "2", len(args))
+	}
+	id1, errObj := handleArg("overlaps", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	id2, errObj := handleArg("overlaps", 1, args[1])
+	if errObj != nil {
+		return errObj
+	}
+	e1, ok := entities[id1]
+	if !ok || e1.kind == "" {
+		return newError("overlaps: argument 1 (handle %d) has no collision shape (from text() or an unknown/destroyed handle)", id1)
+	}
+	e2, ok := entities[id2]
+	if !ok || e2.kind == "" {
+		return newError("overlaps: argument 2 (handle %d) has no collision shape (from text() or an unknown/destroyed handle)", id2)
+	}
+
+	if e1.kind == "circle" && e2.kind == "circle" {
+		dx, dy := e1.x-e2.x, e1.y-e2.y
+		dist2 := dx*dx + dy*dy
+		rSum := e1.r + e2.r
+		return object.NativeBoolToBooleanObject(dist2 <= rSum*rSum)
+	}
+	if e1.kind != "circle" && e2.kind != "circle" {
+		// both rect-shaped (rect() or sprite()): AABB overlap.
+		return object.NativeBoolToBooleanObject(
+			e1.x-e1.w/2 < e2.x+e2.w/2 && e1.x+e1.w/2 > e2.x-e2.w/2 &&
+				e1.y-e1.h/2 < e2.y+e2.h/2 && e1.y+e1.h/2 > e2.y-e2.h/2,
+		)
+	}
+	// one circle, one rectangle -- put the circle in a known slot.
+	circle, rect := e1, e2
+	if e2.kind == "circle" {
+		circle, rect = e2, e1
+	}
+	cx, cy := closestPointOnRect(circle.x, circle.y, rect.x, rect.y, rect.w/2, rect.h/2)
+	dx, dy := circle.x-cx, circle.y-cy
+	return object.NativeBoolToBooleanObject(dx*dx+dy*dy <= circle.r*circle.r)
+}
+
+// setCamera(x, y) pans the world so (x, y) in world space is centered
+// in the viewport -- everything spawned by rect/circle/sprite/text
+// lives in one PixiJS Container the host moves as a whole (see
+// crust-game.html's own `world`), so this is the one call a
+// side-scroller/top-down level needs for "the camera follows the
+// player." setPos itself is never affected -- it always sets world-
+// space position, camera or no camera (see setPosFn's own doc
+// comment).
+func setCameraFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("setCamera", "2", len(args))
+	}
+	x, ok := numericValue(args[0])
+	if !ok {
+		return wrongArgType("setCamera", 0, "a number", args[0])
+	}
+	y, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("setCamera", 1, "a number", args[1])
+	}
+	host().Call("setCamera", x, y)
+	return object.NULL
+}
+
+// setCameraZoom(zoom) scales the whole world -- 2 is twice as close,
+// 0.5 is zoomed out to half size. A separate builtin from setCamera
+// rather than a third argument to it: panning and zooming are
+// independently useful (many games only ever call one of the two), and
+// keeping the panning call's own arity stable avoids a silent behavior
+// change for existing setCamera(x, y) call sites if zoom is ever
+// extended further (a transition duration, an easing curve).
+func setCameraZoomFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("setCameraZoom", "1", len(args))
+	}
+	zoom, ok := numericValue(args[0])
+	if !ok {
+		return wrongArgType("setCameraZoom", 0, "a number", args[0])
+	}
+	host().Call("setCameraZoom", zoom)
+	return object.NULL
+}
+
+// loadTilemap(layout, tileSize, palette) -> List of handles. layout is
+// a multi-line String, one character per tile (the same shape SPEC.md's
+// own grid(s) builtin already parses for puzzle grids -- deliberately
+// reused here rather than inventing a second "ascii map" convention);
+// palette is a Map from single-character String to a hex color String,
+// e.g. {"#": "#7a6a55", ".": "#fdf6e3"}. A character with no entry in
+// palette is treated as empty space -- no tile spawned there at all --
+// the standard "unmarked means walkable floor" convention every ascii
+// roguelike map already uses. Each tile is an ordinary rect() handle
+// (nothing new on the host side at all: loadTilemap is pure Go sugar
+// over spawnRect, called directly rather than through rectFn's own
+// object.Object argument boxing since there's nothing to unbox here),
+// so setColor/destroy/overlaps all work on an individual tile exactly
+// like any other rect -- there's no separate "tile" concept to learn.
+func loadTilemapFn(args ...object.Object) object.Object {
+	if len(args) != 3 {
+		return wrongArgCount("loadTilemap", "3", len(args))
+	}
+	layout, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("loadTilemap", 0, "a String (rows separated by newlines)", args[0])
+	}
+	tileSize, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("loadTilemap", 1, "a number", args[1])
+	}
+	palette, ok := args[2].(*object.Map)
+	if !ok {
+		return wrongArgType("loadTilemap", 2, "a Map of single-character String -> hex color String", args[2])
+	}
+
+	var handles []object.Object
+	for row, line := range strings.Split(layout.Value, "\n") {
+		col := 0
+		for _, ch := range line {
+			colorObj, ok := palette.Get(&object.String{Value: string(ch)})
+			if ok {
+				if color, ok := colorObj.(*object.String); ok {
+					id := spawnRect(tileSize, tileSize, color.Value)
+					moveEntity(id, float64(col)*tileSize+tileSize/2, float64(row)*tileSize+tileSize/2)
+					handles = append(handles, object.NewInteger(id))
+				}
+			}
+			col++
+		}
+	}
+	return object.NewList(handles)
+}
+
+// sound(url) -> handle -- loads an audio file, the same "fetched
+// relative to the served page" resolution sprite()'s own url has.
+// Doesn't share the entities map with visual handles (kind "") since
+// setPos/setRotation/overlaps make no sense against a sound and
+// there's no reason to make them silently no-op instead of just never
+// accepting a sound handle in the first place -- playSound/stopSound
+// are the only builtins that take one.
+func soundFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("sound", "1", len(args))
+	}
+	url, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("sound", 0, "a String (audio URL)", args[0])
+	}
+	id := nextHandleID
+	nextHandleID++
+	host().Call("soundCreate", id, url.Value)
+	return object.NewInteger(id)
+}
+
+// playSound(handle) -- starts playback from the beginning. Overlapping
+// calls (a pickup sound firing again before the last one finished) all
+// play independently rather than cutting each other off -- the host
+// plays a fresh clone each time (crust-game.html's own soundCreate/
+// playSound), the standard trick for short SFX.
+func playSoundFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("playSound", "1", len(args))
+	}
+	id, errObj := handleArg("playSound", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	host().Call("playSound", id)
+	return object.NULL
+}
+
+// stopSound(handle) -- stops (and rewinds) this sound's own base
+// track. Only affects a currently-looping playSound(handle, ...)-style
+// long-running track, not independent one-shot clones already fired by
+// earlier playSound calls -- those finish on their own, the same
+// "fire and forget" reasoning playSound's own doc comment gives for
+// why they're cloned in the first place.
+func stopSoundFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("stopSound", "1", len(args))
+	}
+	id, errObj := handleArg("stopSound", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	host().Call("stopSound", id)
+	return object.NULL
 }

@@ -4713,6 +4713,128 @@ code was written.
     the console log over ~25s, not just "no errors were logged") rather
     than only confirming the game-over path a real player would
     normally trigger by moving badly.
+  - **Fleshed out into a real 2D engine** (`cmd/wasmgame/builtins.go`,
+    `cmd/crust/game_assets/index.html`, `cmd/crust/game.go`), on direct
+    follow-up request — "can you flesh out the game engine to have
+    popular features used for creating 2d games," scoped via
+    `AskUserQuestion` to `crust game` alone (not `crust studio`, whose
+    character-cell medium doesn't have a meaningful equivalent for
+    textures/audio/camera anyway) and to four feature groups: collision
+    detection, text/label rendering, images/audio, and camera/tilemaps
+    — all four were picked, so all four shipped together rather than
+    the usual single-feature increment.
+    - **Go starts tracking real per-handle state for the first time.**
+      Every builtin before this was a pure relay: Go allocated an ID
+      and forwarded the call, the host owned every fact about the
+      object (position, size, kind) with nothing mirrored back. That
+      breaks down for `overlaps()`, which needs to run every frame,
+      for potentially many pairs, without paying a `syscall/js` round
+      trip per check -- so a new package-level `entities
+      map[int64]*gameEntity` (kind, `w`/`h`/`r`, `x`/`y`) now lives on
+      the Go side too, updated by `rectFn`/`circleFn`/`spriteFn`
+      (which record kind+size at creation) and `setPosFn` (via the new
+      shared `moveEntity` helper, also reused by `loadTilemap` so
+      placing a tile doesn't need to round-trip through
+      `object.Object` argument boxing just to immediately unbox it
+      again). A `kind` of `""` (text, or a stale/unknown handle) is a
+      real, distinct state `overlaps()` checks for and refuses on,
+      rather than a hitbox silently collapsing to a zero-size point.
+    - **`overlaps()` does real geometry, not just AABB-everywhere.**
+      Circle-vs-circle is exact (distance between centers vs. the sum
+      of radii); rectangle-vs-rectangle is an axis-aligned box overlap
+      (rotation from `setRotation` is deliberately ignored -- the
+      standard simplification any lightweight 2D engine's basic
+      collision helper makes, real rotated-hitbox precision being a
+      much bigger, separate feature); circle-vs-rectangle (including a
+      `sprite`, which gets a rectangle hitbox from its own given `w`/
+      `h`) is a real closest-point-on-rectangle-to-circle-center test,
+      not an approximation -- the standard building block for correct
+      circle/AABB collision, factored into its own
+      `closestPointOnRect` helper.
+    - **`sprite`/`sound` resolve the async-loading problem flagged as a
+      known gap when `crust game` first shipped**, via the same split
+      `spriteCreate` (`index.html`) already established:
+      `PIXI.Sprite(PIXI.Texture.EMPTY)` is created and added to the
+      scene *synchronously*, so the handle cRust gets back is usable
+      (`setPos`/`setRotation`/`overlaps`/...) the instant `sprite()`
+      returns, exactly like every other builtin here -- `PIXI.Assets.load`
+      then swaps the real texture into that same, already-positioned
+      object once the network actually resolves, with an `objects.get(id)
+      === s` guard against a `destroy()` (or an `r`-triggered restart's
+      whole-scene teardown) racing ahead of a still-in-flight load and
+      resurrecting a texture onto an object nothing points at anymore.
+      `sound()` doesn't share `objects` with visual handles at all (a
+      separate `sounds` Map) -- `setPos`/`overlaps`/etc. on an audio
+      handle would be nonsensical, so there's no reason to make them
+      silently no-op instead of the handle namespace itself keeping the
+      two apart. `playSound` clones the `Audio` element per call
+      (`cloneNode()`) so overlapping plays (a pickup sound firing again
+      before the last one finished) never cut each other off, the
+      standard trick for short SFX; a rejected autoplay promise (real
+      browsers refuse audio before any user gesture on the page) is a
+      silent no-op, not a surfaced cRust error -- a game reasonably
+      calling `playSound` before the player has clicked anything
+      shouldn't crash over a browser policy it has no way to detect or
+      route around.
+    - **`sprite`/`sound` need actual files to load, which meant
+      teaching `crust game` to serve more than its own embedded
+      assets.** `gameHandler` (`game.go`) now takes an `assetDir` (the
+      directory containing whatever `.crust` file `crust game` was
+      pointed at) and falls back to `http.FileServer(http.Dir(assetDir))`
+      for any path its own embedded FS doesn't recognize (checked via a
+      real `fs.Stat`, not a try-and-inspect-the-status-code guess) --
+      `sprite("cat.png", ...)`/`sound("hit.wav")` then resolve as
+      ordinary relative URLs against the running page. Embedded assets
+      always win a name collision on purpose (verified with a test
+      planting a local `wasm_exec.js` and confirming the real one still
+      serves) -- realistically only reachable by accident, and the
+      unsurprising choice either way is serving the page that actually
+      makes the rest of the tool work.
+    - **The camera is one `PIXI.Container`, not per-object math.**
+      Every spawned object now joins a `world` Container sitting
+      between the stage and everything a program spawns (previously
+      objects were added directly to `app.stage`); `setCamera(x, y)`/
+      `setCameraZoom(zoom)` (`applyCamera` in `index.html`) just
+      reposition and rescale that one Container so `(x, y)` in world
+      space lands at the viewport's own center, at the given zoom.
+      `setPos` itself is deliberately never affected by the camera --
+      it always sets world-space position, camera or no camera, the
+      same "screen space and world space are different axes" split
+      `stageSize()`'s own doc comment already draws (`stageSize`
+      reports the viewport's raw pixel size, not the world, and that
+      stays true here too).
+    - **`loadTilemap` is pure Go sugar, no new host method at all.**
+      It reuses `grid(s)`'s own established convention (a multi-line
+      String, one character per cell) rather than inventing a second
+      "ascii map" format, and a `palette` Map from character to hex
+      color -- a character missing from `palette` spawns nothing (the
+      standard "unmarked means walkable floor" convention every ascii
+      roguelike map already uses). Every tile is spawned via the same
+      `spawnRect` helper `rect()` itself now calls, so
+      `setColor`/`destroy`/`overlaps` all work on an individual tile
+      exactly like any other rect handle -- there's no separate "tile"
+      concept for a user to learn, and nothing new for `index.html` to
+      implement on the host side at all.
+    - Verified with real Playwright-driven headless verification
+      against a purpose-built program exercising all six additions at
+      once (two overlapping circles, two non-overlapping rects, a
+      `sprite()` loaded from a real temp-file image, a `sound()` loaded
+      from a real temp-file WAV, a 3x3 `loadTilemap`, a panned+zoomed
+      camera, and a `text()` label showing the live `overlaps()`
+      results) served through a real `assetDir` fallback: screenshots
+      confirm the two circles visually overlapping matches
+      `circleOverlap=stuffed` in the rendered label text, the two rects
+      correctly reported as not overlapping, the tilemap block and the
+      camera-panned/zoomed rect positions rendering where expected, and
+      -- after simulating held spacebar input -- the on-stage label
+      updating live from "score: 0" to "score=13" across real animation
+      frames, confirming `setText` mutates in place rather than
+      requiring a destroy+recreate. No sprite/sound-related console
+      errors surfaced in any of it, only the expected favicon 404 and
+      software-WebGL warnings headless Chromium always logs. Also
+      covered by new Go tests for the asset-directory fallback
+      (`TestGameHandlerServesAssetDirFallback`,
+      `TestGameHandlerEmbeddedAssetsTakePriorityOverAssetDir`).
 - **`crust studio`** (`cmd/crust/studio.go`, `studio_tui.go`,
   `studio_builtins.go`), on direct follow-up request — "what about
   something like the develop tool: a bubbletea application that I can

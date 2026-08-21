@@ -95,7 +95,7 @@ func TestServeGameServesRealContent(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	done := make(chan int, 1)
-	go func() { done <- serveGame(ln, "", &stdout, &stderr) }()
+	go func() { done <- serveGame(ln, "", "", &stdout, &stderr) }()
 
 	base := fmt.Sprintf("http://localhost:%d/", port)
 
@@ -163,7 +163,7 @@ func TestServeGameSourceJSONReflectsGivenSource(t *testing.T) {
 			}
 			defer ln.Close()
 			port := ln.Addr().(*net.TCPAddr).Port
-			go func() { serveGame(ln, tt.source, io.Discard, io.Discard) }()
+			go func() { serveGame(ln, tt.source, "", io.Discard, io.Discard) }()
 
 			base := fmt.Sprintf("http://localhost:%d/source.json", port)
 			var resp *http.Response
@@ -186,6 +186,83 @@ func TestServeGameSourceJSONReflectsGivenSource(t *testing.T) {
 				t.Errorf("/source.json source = %q, want %q", got.Source, tt.source)
 			}
 		})
+	}
+}
+
+// TestGameHandlerServesAssetDirFallback confirms a file sitting next
+// to the .crust file (an image for sprite(), an audio file for
+// sound()) is actually reachable over HTTP -- the whole point of
+// assetDir existing at all.
+func TestGameHandlerServesAssetDirFallback(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cat.png"), []byte("not a real png, just bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() { serveGame(ln, "", dir, io.Discard, io.Discard) }()
+
+	base := fmt.Sprintf("http://localhost:%d/cat.png", port)
+	var resp *http.Response
+	for i := 0; i < 100; i++ {
+		resp, err = http.Get(base)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GET %s: %v", base, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", base, resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "not a real png, just bytes" {
+		t.Errorf("body = %q, want the local file's own content", body)
+	}
+}
+
+// TestGameHandlerEmbeddedAssetsTakePriorityOverAssetDir confirms a
+// same-named local file can never shadow one of the tool's own
+// embedded assets -- accidentally naming a local file "wasm_exec.js"
+// shouldn't be able to break the page.
+func TestGameHandlerEmbeddedAssetsTakePriorityOverAssetDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), []byte("definitely not the real one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() { serveGame(ln, "", dir, io.Discard, io.Discard) }()
+
+	base := fmt.Sprintf("http://localhost:%d/wasm_exec.js", port)
+	var resp *http.Response
+	for i := 0; i < 100; i++ {
+		resp, err = http.Get(base)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GET %s: %v", base, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) == "definitely not the real one" {
+		t.Error("a local file named wasm_exec.js shadowed the tool's own embedded one")
 	}
 }
 

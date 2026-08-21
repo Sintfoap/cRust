@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -75,12 +76,25 @@ func parseGameArgs(args []string) (path string, port int, err error) {
 
 // gameHandler serves game_assets at the site root (index.html,
 // wasm_exec.js, crust-game.wasm), the same fs.Sub-over-embed.FS shape
-// playgroundHandler already uses, plus one addition: /source.json,
+// playgroundHandler already uses, plus two additions: /source.json,
 // which isn't a static asset at all -- it's generated per request from
 // whatever file crust game was pointed at (or "" if none), so
 // index.html's own JS can preload the editor without any HTML
-// templating/escaping.
-func gameHandler(source string) http.Handler {
+// templating/escaping -- and, when assetDir is non-empty, a fallback
+// to serving that directory's own files for any path the embedded FS
+// doesn't recognize. assetDir is the directory containing whatever
+// .crust file crust game was pointed at: sprite("cat.png", ...) or
+// sound("hit.wav") resolve as plain relative URLs against the running
+// page, which only works at all if something actually serves a
+// "cat.png" sitting next to the user's own source file -- the embedded
+// FS obviously has no idea it exists. Embedded assets always win on a
+// name collision (checked first, via a real fs.Stat rather than just
+// trying it and inspecting the status code, so a byte range request or
+// a HEAD doesn't need special-casing here) -- realistically only a
+// concern if someone names their own asset "index.html" or
+// "pixi.min.js", and even then the safe, unsurprising choice is
+// serving the page that actually makes the rest of the tool work.
+func gameHandler(source, assetDir string) http.Handler {
 	sub, err := fs.Sub(gameAssetsFS, "game_assets")
 	if err != nil {
 		// game_assets is a compile-time go:embed of a directory this
@@ -89,11 +103,31 @@ func gameHandler(source string) http.Handler {
 		// class of bug as a missing embed tag.
 		panic(err)
 	}
+	embedded := http.FileServer(http.FS(sub))
+	var assets http.Handler
+	if assetDir != "" {
+		assets = http.FileServer(http.Dir(assetDir))
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/source.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"source": source})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = "index.html"
+		}
+		if _, statErr := fs.Stat(sub, name); statErr == nil {
+			embedded.ServeHTTP(w, r)
+			return
+		}
+		if assets != nil {
+			assets.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
 	})
 	return mux
 }
@@ -101,9 +135,12 @@ func gameHandler(source string) http.Handler {
 // runGame reads path (if given), binds port, and hands off to
 // serveGame -- split the same way runBakePlayground/servePlayground
 // already are, so a test can exercise the actual serving against a
-// listener it created and controls directly.
+// listener it created and controls directly. assetDir (the directory
+// containing path, when a path was given) lets sprite()/sound() URLs
+// resolve against files sitting next to the .crust file itself -- see
+// gameHandler's own doc comment.
 func runGame(path string, port int, stdout, stderr io.Writer) int {
-	var source string
+	var source, assetDir string
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -111,6 +148,7 @@ func runGame(path string, port int, stdout, stderr io.Writer) int {
 			return 1
 		}
 		source = string(data)
+		assetDir = filepath.Dir(path)
 	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -118,25 +156,25 @@ func runGame(path string, port int, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "crust game: cannot serve on port %d: %v\n", port, err)
 		return 1
 	}
-	return serveGame(ln, source, stdout, stderr)
+	return serveGame(ln, source, assetDir, stdout, stderr)
 }
 
 // serveGame prints where to reach the sandbox, opens a browser
 // best-effort, and serves until ln is closed or the process is
 // interrupted.
-func serveGame(ln net.Listener, source string, stdout, stderr io.Writer) int {
+func serveGame(ln net.Listener, source, assetDir string, stdout, stderr io.Writer) int {
 	addr, _ := ln.Addr().(*net.TCPAddr)
 	url := fmt.Sprintf("http://localhost:%d/", addr.Port)
 	fmt.Fprintln(stdout, "🍕 crust game")
 	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "  Fresh out of the oven at %s\n", url)
-	fmt.Fprintln(stdout, "  rect/circle/setPos/keyDown/onFrame, rendered live with PixiJS.")
+	fmt.Fprintln(stdout, "  rect/circle/sprite/text/setPos/keyDown/onFrame, rendered live with PixiJS.")
 	fmt.Fprintln(stdout, "  Press Ctrl+C when you've had enough.")
 	fmt.Fprintln(stdout)
 
 	openBrowser(url, stdout)
 
-	if err := http.Serve(ln, gameHandler(source)); err != nil {
+	if err := http.Serve(ln, gameHandler(source, assetDir)); err != nil {
 		fmt.Fprintf(stderr, "crust game: server error: %v\n", err)
 		return 1
 	}

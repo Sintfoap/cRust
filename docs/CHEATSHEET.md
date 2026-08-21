@@ -222,16 +222,31 @@ crust studio <file.crust>          # terminal-native game sandbox, rendered live
 `crust game`'s own builtins (real only inside that WASM build, never
 in the plain CLI interpreter): `rect(w, h, color)` / `circle(r,
 color)` spawn a shape (`color` a `"#rrggbb"` string) and return a
-handle; `setPos(handle, x, y)` / `setRotation(handle, radians)` /
-`setScale(handle, sx, sy)` / `destroy(handle)` act on one; `keyDown(name)`
-polls the browser's own `KeyboardEvent.key` strings; `stageSize()`
-returns `(width, height)`; `onFrame(fn)` registers `fn(dt)` to run once
-per animation frame — top-level code doubles as setup here, since
-there's no `store`/`store_<name>` entry point to call; `random()`
-returns a Float in `[0, 1)`. See
+handle; `sprite(url, w, h)` spawns an image (fetched relative to the
+served page — a file next to the `.crust` file `crust game` was
+pointed at is served for exactly this); `text(str, size, color)` /
+`setText(handle, str)` spawn/update a text label; `setPos(handle, x,
+y)` / `setRotation(handle, radians)` / `setScale(handle, sx, sy)` /
+`destroy(handle)` act on one; `overlaps(h1, h2)` checks two
+`rect`/`circle`/`sprite` handles' hitboxes (exact for circle-circle
+and circle-rectangle, axis-aligned-box for rectangle-rectangle;
+errors on a `text` handle, which has none); `setCamera(x, y)` /
+`setCameraZoom(zoom)` pan/zoom the whole world (`setPos` itself always
+stays in world space); `loadTilemap(layout, tileSize, palette)` spawns
+a grid of `rect` tiles from a multi-line String and a character ->
+color Map, returning a List of handles; `sound(url)` /
+`playSound(handle)` / `stopSound(handle)` load and play/stop audio
+(overlapping plays never cut each other off); `keyDown(name)` polls
+the browser's own `KeyboardEvent.key` strings; `stageSize()` returns
+`(width, height)` (the viewport, unaffected by the camera); `onFrame(fn)`
+registers `fn(dt)` to run once per animation frame — top-level code
+doubles as setup here, since there's no `store`/`store_<name>` entry
+point to call; `random()` returns a Float in `[0, 1)`. See
 [`examples/game/game_survivors.crust`](../examples/game/game_survivors.crust)
-(`crust game examples/game/game_survivors.crust`) for all of these used
-together — a tiny Vampire Survivors-alike in circles.
+(`crust game examples/game/game_survivors.crust`) for the original
+core of these used together — a tiny Vampire Survivors-alike in
+circles (written before `text()` existed, so it still prints score to
+the console instead of showing it on-stage).
 
 `crust studio`'s own builtins (real only inside that terminal
 runtime): `cell(char, color)` spawns a one-character glyph (`color` a

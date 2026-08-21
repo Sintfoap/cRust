@@ -560,10 +560,16 @@ WASM build (never in the plain CLI interpreter):
 | builtin | does |
 |---|---|
 | `rect(w, h, color)` / `circle(r, color)` | spawn a shape, `color` a CSS hex string like `"#c0392b"` — returns a handle |
-| `setPos(handle, x, y)` / `setRotation(handle, radians)` / `setScale(handle, sx, sy)` | move/rotate/scale a shape — `(0, 0)` is the stage's top-left corner |
-| `destroy(handle)` | remove a shape from the stage |
+| `sprite(url, w, h)` | spawn an image, fetched relative to the served page — see [Loading your own images/audio](#loading-your-own-imagesaudio) below |
+| `text(str, size, color)` / `setText(handle, str)` | spawn a text label (`size` a pixel font size); update its string in place |
+| `setPos(handle, x, y)` / `setRotation(handle, radians)` / `setScale(handle, sx, sy)` | move/rotate/scale a handle — `(0, 0)` is the stage's top-left corner in world space (see `setCamera` below) |
+| `destroy(handle)` | remove a handle from the stage |
+| `overlaps(h1, h2)` | `true` if two `rect`/`circle`/`sprite` handles' hitboxes touch — circle-circle and circle-rectangle are geometrically exact, rectangle-rectangle is an axis-aligned box check (rotation is ignored); errors on a `text` handle, which has no hitbox |
+| `setCamera(x, y)` / `setCameraZoom(zoom)` | pan/zoom the whole world — `setPos` itself always stays in world space regardless |
+| `loadTilemap(layout, tileSize, palette)` | spawn a grid of `rect` tiles from a multi-line String (one character per tile) and a `palette` Map from character to hex color — returns a List of the spawned handles |
+| `sound(url)` / `playSound(handle)` / `stopSound(handle)` | load an audio file, play it (overlapping plays never cut each other off), stop it |
 | `keyDown(name)` | `true` while a key is held — the browser's own `KeyboardEvent.key` strings (`"ArrowLeft"`, `"a"`, `" "`, ...) |
-| `stageSize()` | `(width, height)` in pixels |
+| `stageSize()` | `(width, height)` in pixels — the viewport, unaffected by the camera |
 | `onFrame(fn)` | register `fn`, called with `dt` (elapsed seconds) once per animation frame |
 | `random()` | a Float in `[0, 1)` |
 
@@ -571,6 +577,8 @@ WASM build (never in the plain CLI interpreter):
 w, h = stageSize()
 player = rect(40, 40, "#c0392b")
 setPos(player, w / 2, h / 2)
+label = text("score: 0", 20, "#3b2a1a")
+setPos(label, 60, 16)
 
 recipe onTick(dt) {
     order (keyDown("ArrowRight")) { setPos(player, w / 2 + 50, h / 2) }
@@ -590,19 +598,33 @@ still works exactly as everywhere else — output goes to the browser's
 devtools console and mirrors onto the page's own console panel, handy
 for debugging a running game without alt-tabbing.
 
-This is a first cut: shapes only (no image/sprite-sheet textures — the
-browser's own async texture loading doesn't fit a synchronous
-interpreter call cleanly yet), `keyDown` polling only (no click/touch
-input), and no collision/audio/scene-graph helpers beyond what's
-listed above. Ctrl+C stops the server.
+#### Loading your own images/audio
+
+`crust game <file.crust>` also serves that file's own directory as a
+fallback — a `sprite("cat.png", 48, 48)` or `sound("hit.wav")` next to
+your `.crust` file just works, fetched as a plain relative URL by the
+page itself (the tool's own embedded assets — `index.html`,
+`pixi.min.js`, ... — always win on a name collision). Image/audio
+loading is unavoidably asynchronous in a browser, but every other
+builtin here is synchronous: a `sprite()`/`sound()` handle exists (and
+is positionable, in a sprite's case) immediately, drawing as a blank
+placeholder until the real file finishes loading, then swapping in
+place — there's no separate "wait for it" step or callback to write.
+
+Still a few real gaps, worth knowing about rather than discovering the
+hard way: `keyDown` polling only (no click/touch input), collision is
+axis-aligned only (no rotated-hitbox precision), and no sprite-sheet/
+frame animation or particle helpers yet.
 
 [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
-(`crust game examples/game/game_survivors.crust`) puts all of it together —
-a tiny Vampire Survivors-alike: WASD/arrow-key movement, an
-auto-firing basic attack that targets whichever enemy is nearest,
-enemies that spawn faster the longer you last, and a 5-minute survival
-timer shown as a shrinking bar (no on-stage text yet — see above — so
-score and status print to the console panel instead).
+(`crust game examples/game/game_survivors.crust`) puts the original
+core of this together — a tiny Vampire Survivors-alike: WASD/arrow-key
+movement, an auto-firing basic attack that targets whichever enemy is
+nearest, enemies that spawn faster the longer you last, and a 5-minute
+survival timer shown as a shrinking bar. Written before `text()`
+existed, so it still uses a console-only HUD rather than the on-stage
+labels above — a good candidate to try rewriting with real score text
+if you want to see the difference.
 
 ### Terminal game studio
 

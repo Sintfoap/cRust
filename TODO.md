@@ -2080,3 +2080,40 @@ confirmed, not before.
       — catching a real bug along the way (a missing newline
       concatenating the help bar onto the stage's last line) that a
       flat-text check had already been fooled by.
+- [x] (Stretch) Fleshed `crust game` out into a real 2D engine, from
+      "can you flesh out the game engine to have popular features used
+      for creating 2d games" — scoped via `AskUserQuestion` to `crust
+      game` alone (not `crust studio`) and all four offered feature
+      groups: collision detection, text/label rendering, images/audio,
+      camera/tilemaps. Six new builtins: `sprite(url, w, h)` (async
+      texture loading resolved the same "synchronous placeholder,
+      texture swaps in place once ready" way as the rest of this
+      codebase's own "the interpreter is synchronous end to end"
+      constraint has been handled elsewhere), `text(str, size, color)`/
+      `setText(handle, str)`, `overlaps(h1, h2)` (real circle-circle,
+      circle-rectangle, and rectangle-rectangle geometry, not just
+      AABB-everywhere), `setCamera(x, y)`/`setCameraZoom(zoom)` (one
+      `PIXI.Container` moved/scaled as a whole, `setPos` itself always
+      staying in world space), `loadTilemap(layout, tileSize, palette)`
+      (pure Go sugar over the same `rect()` spawn path, reusing `grid(s)`'s
+      own ascii-map convention rather than inventing a second one), and
+      `sound(url)`/`playSound(handle)`/`stopSound(handle)` (cloned per
+      play so overlapping SFX never cut each other off). `crust game
+      <file.crust>` now also serves that file's own directory as a
+      fallback, so `sprite("cat.png", ...)`/`sound("hit.wav")` resolve
+      against real files sitting next to it — the tool's own embedded
+      assets always win a name collision. Go itself now tracks real
+      per-handle state (kind, position, size) for the first time, a
+      genuine architectural shift from every earlier builtin's "pure
+      relay, host owns all the facts" shape, needed so `overlaps()` can
+      run every frame without a `syscall/js` round trip per check. See
+      docs/ARCHITECTURE.md's own section for the full design reasoning.
+      Verified with real Playwright-driven headless verification
+      against a purpose-built program exercising all six additions at
+      once through a real `assetDir` fallback (a real temp-file image
+      and WAV, not fakes) — screenshots confirming overlapping/
+      non-overlapping shapes match what `overlaps()` reported, the
+      camera-panned/zoomed world rendering where expected, and an
+      on-stage `text()` label updating live from held-spacebar input —
+      plus new Go tests for the asset-directory fallback and its
+      embedded-assets-win-on-collision guarantee.
