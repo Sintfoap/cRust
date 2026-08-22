@@ -112,14 +112,21 @@ func crustGameInit(_ js.Value, args []js.Value) any {
 // crustGameFrame(dtSeconds) -> {error}. A no-op success (not an error)
 // when no game is running yet or the running one never called
 // onFrame(fn) -- both are ordinary states (page just loaded; a program
-// that only ever draws a static scene), not failures.
+// that only ever draws a static scene), not failures. Ticks any
+// playAnimation()'d sprites first, before onFrameFn == nil's own early
+// return, so an animation keeps cycling even in a program that never
+// registers a per-frame callback at all.
 func crustGameFrame(_ js.Value, args []js.Value) any {
-	if interp == nil || onFrameFn == nil {
+	if interp == nil {
 		return okResult()
 	}
 	dt := 0.0
 	if len(args) > 0 {
 		dt = args[0].Float()
+	}
+	tickAnimations(dt)
+	if onFrameFn == nil {
+		return okResult()
 	}
 	result := interp.Call(onFrameFn, []object.Object{&object.Float{Value: dt}})
 	if errObj, ok := result.(*object.Error); ok {

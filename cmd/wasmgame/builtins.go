@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 	"syscall/js"
@@ -27,19 +29,34 @@ type gameEntity struct {
 	w, h, r float64
 }
 
-// nextHandleID, pressedKeys, onFrameFn, and entities are the whole
-// in-page game's mutable state -- package-level vars rather than a
-// struct, since there's only ever one game running in a given WASM
-// instance (one browser tab, one page), the same "only one of these
-// exists" reasoning cmd/wasm/main.go's own single crustRun export
-// relies on. crustGameInit (main.go) calls resetGameState before every
-// (re)run, so pressing "Run" again after an edit starts clean rather
-// than leaking the previous run's sprites/handlers into the new one.
+// animState is playAnimation()'s own per-handle timer -- how far
+// through the current frame's dwell time a looping sprite-sheet
+// animation is, and which frame (column) it's currently showing.
+// Ticked once per crustGameFrame by tickAnimations, entirely
+// independent of whatever the game script's own onFrame(fn) does.
+type animState struct {
+	row, frameCount int
+	frameW, frameH  float64
+	fps             float64
+	elapsed         float64
+	frame           int
+}
+
+// nextHandleID, pressedKeys, onFrameFn, entities, and animations are
+// the whole in-page game's mutable state -- package-level vars rather
+// than a struct, since there's only ever one game running in a given
+// WASM instance (one browser tab, one page), the same "only one of
+// these exists" reasoning cmd/wasm/main.go's own single crustRun
+// export relies on. crustGameInit (main.go) calls resetGameState
+// before every (re)run, so pressing "Run" again after an edit starts
+// clean rather than leaking the previous run's sprites/handlers into
+// the new one.
 var (
 	nextHandleID int64
 	pressedKeys  = map[string]bool{}
 	onFrameFn    object.Object // nil until onFrame(fn) is called
 	entities     = map[int64]*gameEntity{}
+	animations   = map[int64]*animState{}
 )
 
 // resetGameState clears everything the previous run (if any) left
@@ -51,6 +68,7 @@ func resetGameState() {
 	pressedKeys = map[string]bool{}
 	onFrameFn = nil
 	entities = map[int64]*gameEntity{}
+	animations = map[int64]*animState{}
 }
 
 // host is the JS-side object crust-game.html installs before loading
@@ -135,6 +153,10 @@ func gameBuiltins() map[string]*object.Builtin {
 		"clearScene":    {Fn: clearSceneFn},
 		"tileAt":        {Fn: tileAtFn},
 		"emitParticles": {Fn: emitParticlesFn},
+		"playAnimation": {Fn: playAnimationFn},
+		"stopAnimation": {Fn: stopAnimationFn},
+		"save":          {Fn: saveFn},
+		"load":          {Fn: loadFn},
 	}
 }
 
@@ -374,6 +396,7 @@ func destroyFn(args ...object.Object) object.Object {
 		return errObj
 	}
 	delete(entities, id)
+	delete(animations, id)
 	host().Call("destroy", id)
 	return object.NULL
 }
@@ -790,6 +813,7 @@ func clearSceneFn(args ...object.Object) object.Object {
 		return wrongArgCount("clearScene", "0", len(args))
 	}
 	entities = map[int64]*gameEntity{}
+	animations = map[int64]*animState{}
 	host().Call("clearScene")
 	return object.NULL
 }
@@ -881,4 +905,231 @@ func emitParticlesFn(args ...object.Object) object.Object {
 	}
 	host().Call("emitParticles", x, y, count, color.Value, speed, lifetime)
 	return object.NULL
+}
+
+// tickAnimations advances every playAnimation()'d handle by dt seconds
+// -- called once per crustGameFrame (main.go), before the game
+// script's own onFrame(fn), so an animated sprite keeps cycling even
+// in a program that never calls onFrame at all (a static scene with
+// one idle decoration). Catches up more than one frame step per call
+// with a bounded while rather than a single if, so a stutter (a slow
+// frame, a backgrounded tab) skips intermediate frames instead of
+// visibly slowing the animation down.
+func tickAnimations(dt float64) {
+	for id, a := range animations {
+		a.elapsed += dt
+		frameDur := 1.0 / a.fps
+		advanced := false
+		for a.elapsed >= frameDur {
+			a.elapsed -= frameDur
+			a.frame = (a.frame + 1) % a.frameCount
+			advanced = true
+		}
+		if advanced {
+			host().Call("setFrame", id, a.frame, a.row, a.frameW, a.frameH)
+		}
+	}
+}
+
+// playAnimation(handle, row, frameCount, fps, frameW, frameH) starts a
+// continuously looping sprite-sheet animation on a sprite() handle --
+// row/frameW/frameH pick out the same sprite-sheet cells setFrame's
+// own col/row/frameW/frameH argument would, cycling through columns
+// 0..frameCount-1 at fps frames per second instead of a script having
+// to compute which frame is due itself every tick. There's no
+// play-once mode -- the common "loop this walk cycle" case doesn't
+// need one, and a script that wants a one-shot animation can call
+// stopAnimation(handle) once its own exit condition (a fixed frame
+// count elapsed, a state change) is met. Calling this again on a
+// handle that's already animating just replaces its animation with the
+// new one, restarting from frame 0 -- the same "last call wins, no
+// hidden queueing" contract every other mutating builtin here has.
+func playAnimationFn(args ...object.Object) object.Object {
+	if len(args) != 6 {
+		return wrongArgCount("playAnimation", "6", len(args))
+	}
+	id, errObj := handleArg("playAnimation", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	row, ok := numericValue(args[1])
+	if !ok {
+		return wrongArgType("playAnimation", 1, "a number", args[1])
+	}
+	frameCount, ok := numericValue(args[2])
+	if !ok || frameCount < 1 {
+		return wrongArgType("playAnimation", 2, "a positive number", args[2])
+	}
+	fps, ok := numericValue(args[3])
+	if !ok || fps <= 0 {
+		return wrongArgType("playAnimation", 3, "a positive number", args[3])
+	}
+	frameW, ok := numericValue(args[4])
+	if !ok {
+		return wrongArgType("playAnimation", 4, "a number", args[4])
+	}
+	frameH, ok := numericValue(args[5])
+	if !ok {
+		return wrongArgType("playAnimation", 5, "a number", args[5])
+	}
+	animations[id] = &animState{row: int(row), frameCount: int(frameCount), frameW: frameW, frameH: frameH, fps: fps}
+	host().Call("setFrame", id, 0, row, frameW, frameH)
+	return object.NULL
+}
+
+// stopAnimation(handle) freezes handle on whatever frame it was
+// currently showing -- doesn't reset it back to frame 0 or touch
+// setFrame's own crop at all, so a script that wants a specific
+// "landed" pose afterward can still call setFrame(handle, ...) itself
+// right after this.
+func stopAnimationFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("stopAnimation", "1", len(args))
+	}
+	id, errObj := handleArg("stopAnimation", 0, args[0])
+	if errObj != nil {
+		return errObj
+	}
+	delete(animations, id)
+	return object.NULL
+}
+
+// objectToJSON converts a cRust value into a JSON-compatible Go value
+// for save() to hand to the host's localStorage-backed store --
+// deliberately supports only what JSON itself can represent
+// losslessly: Integer, Float, String, Boolean, Nil, List, and a Map
+// with String keys. cRust's other Hashable Map key types (Integer,
+// Float, Boolean) have no JSON object-key equivalent, so a Map keyed
+// by anything else is a save() error rather than a silent
+// stringify-the-key that would quietly change the key's type on the
+// next load(). Tuple, Set, and Function have no JSON shape at all and
+// are errors too.
+func objectToJSON(name string, obj object.Object) (any, *object.Error) {
+	switch v := obj.(type) {
+	case *object.Integer:
+		return v.Value, nil
+	case *object.Float:
+		return v.Value, nil
+	case *object.String:
+		return v.Value, nil
+	case *object.Boolean:
+		return v.Value, nil
+	case *object.Null:
+		return nil, nil
+	case *object.List:
+		out := make([]any, len(v.Elements))
+		for i, e := range v.Elements {
+			j, errObj := objectToJSON(name, e)
+			if errObj != nil {
+				return nil, errObj
+			}
+			out[i] = j
+		}
+		return out, nil
+	case *object.Map:
+		out := make(map[string]any, len(v.Pairs))
+		for _, pair := range v.Pairs {
+			key, ok := pair.Key.(*object.String)
+			if !ok {
+				return nil, newError("%s: Map keys must be String to be saved, got %s", name, pair.Key.Type())
+			}
+			j, errObj := objectToJSON(name, pair.Value)
+			if errObj != nil {
+				return nil, errObj
+			}
+			out[key.Value] = j
+		}
+		return out, nil
+	default:
+		return nil, newError("%s: cannot save a %s value (only Integer/Float/String/Boolean/nobox/List/Map are supported)", name, obj.Type())
+	}
+}
+
+// jsonToObject is objectToJSON's inverse, used by load() on whatever
+// encoding/json.Unmarshal hands back. JSON has no separate integer
+// type -- Go's decoder always produces float64 -- so a decoded whole
+// number round-trips back to an Integer (matching what a script saved
+// with save(key, someInteger) would expect to read back), and only a
+// genuinely fractional value becomes a Float.
+func jsonToObject(v any) object.Object {
+	switch t := v.(type) {
+	case nil:
+		return object.NULL
+	case bool:
+		return object.NativeBoolToBooleanObject(t)
+	case float64:
+		if t == math.Trunc(t) && !math.IsInf(t, 0) {
+			return object.NewInteger(int64(t))
+		}
+		return &object.Float{Value: t}
+	case string:
+		return &object.String{Value: t}
+	case []any:
+		elems := make([]object.Object, len(t))
+		for i, e := range t {
+			elems[i] = jsonToObject(e)
+		}
+		return object.NewList(elems)
+	case map[string]any:
+		m := object.NewMap()
+		for k, val := range t {
+			m.Set(&object.String{Value: k}, jsonToObject(val))
+		}
+		return m
+	default:
+		return object.NULL
+	}
+}
+
+// save(key, value) persists value under key, surviving a page reload
+// or the tab closing -- backed by the browser's own localStorage
+// (index.html's own save/load host methods), scoped per-origin the
+// same way every other localStorage use is, so a high score or a
+// settings Map set by one `crust game` session is still there next
+// time the same page is opened. value is serialized to JSON first
+// (see objectToJSON) rather than stored as some opaque cRust-specific
+// format, so what's actually sitting in localStorage is ordinary,
+// inspectable JSON if anyone goes looking in devtools.
+func saveFn(args ...object.Object) object.Object {
+	if len(args) != 2 {
+		return wrongArgCount("save", "2", len(args))
+	}
+	key, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("save", 0, "a String", args[0])
+	}
+	data, errObj := objectToJSON("save", args[1])
+	if errObj != nil {
+		return errObj
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return newError("save: %s", err)
+	}
+	host().Call("save", key.Value, string(encoded))
+	return object.NULL
+}
+
+// load(key) -> the value previously save()'d under key, or nobox if
+// nothing was ever saved there (a brand new player, a cleared
+// browser profile) -- a missing key is an ordinary, expected state to
+// handle, not an error, the same "absence reads as nobox" convention
+// Map's own pop/Get already give a missing key.
+func loadFn(args ...object.Object) object.Object {
+	if len(args) != 1 {
+		return wrongArgCount("load", "1", len(args))
+	}
+	key, ok := args[0].(*object.String)
+	if !ok {
+		return wrongArgType("load", 0, "a String", args[0])
+	}
+	v := host().Call("load", key.Value)
+	if v.IsNull() || v.IsUndefined() {
+		return object.NULL
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(v.String()), &decoded); err != nil {
+		return newError("load: corrupt saved data for %q: %s", key.Value, err)
+	}
+	return jsonToObject(decoded)
 }

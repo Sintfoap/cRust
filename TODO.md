@@ -2156,3 +2156,38 @@ confirmed, not before.
       separate `hasTouch: true` browser context) behaving identically
       to a click, and `clearScene()` dropping the live object count to
       zero without disturbing the still-running `onFrame` callback.
+- [x] (Stretch) Added `crust game` animation playback + persisted save
+      data, plus a getting-started walkthrough, from "anything else I
+      should add for game development" — answered with two named gaps
+      (nothing survives a reload; `setFrame` needs hand-rolled per-frame
+      timing to animate), approved with "go ahead on those and the
+      getting started walkthrough." `playAnimation(handle, row,
+      frameCount, fps, frameW, frameH)`/`stopAnimation(handle)` loop a
+      sprite through a sprite-sheet row on a timer Go itself owns
+      (`animations map[int64]*animState`, ticked once per
+      `crustGameFrame` — even in a program with no `onFrame` callback
+      of its own — via repeated calls to the same `setFrame` host relay
+      already in place, no new host method needed). `save(key, value)`/
+      `load(key)` persist Integer/Float/String/Boolean/`nobox`/List/
+      Map-with-String-keys values as real JSON in the browser's own
+      storage (namespaced `"crustgame:"`) — a Map keyed by anything
+      else is a clear save() error rather than a silent, lossy
+      stringify-the-key; `load` on a never-saved key reads as `nobox`,
+      same as a missing Map key. The getting-started walkthrough itself
+      went into the README (not the `crust bake documentation` site,
+      which turned out to have no idea `crust game`/`crust studio`
+      exist at all — a separate question in the same conversation
+      surfaced that gap) — seven small, cumulative steps from one
+      shape on stage through movement, collision, sound, particles,
+      mouse input, sprite animation, and finally persisted save data,
+      each pasteable on its own. See docs/ARCHITECTURE.md's own section
+      for the full design reasoning. Verified with real Playwright-
+      driven headless verification: `save`/`load` round-tripping
+      through both the program's own `deliver()` output and a direct
+      `localStorage.getItem` read; a non-String Map key confirmed
+      producing a real halting runtime error rather than an inspectable
+      return value; saved data confirmed surviving an actual
+      `page.reload()` (a genuinely fresh WASM instance), not just a
+      re-run within the same session; `playAnimation` confirmed
+      advancing a sprite's cropped frame over time and `stopAnimation`
+      confirmed freezing it exactly in place.

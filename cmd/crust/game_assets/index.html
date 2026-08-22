@@ -502,6 +502,25 @@
     },
     emitParticles: function (x, y, count, color, speed, lifetime) {
       spawnParticles(x, y, count, color, speed, lifetime);
+    },
+    // save/load are a thin localStorage wrapper -- namespaced under
+    // "crustgame:" so a game's own keys never collide with anything
+    // else the browser profile happens to have stored for this origin.
+    // Both are wrapped in try/catch: a private-browsing tab or a full
+    // storage quota can make localStorage throw on every call, and
+    // that's not a reason for a game's save/load to crash rather than
+    // just behave as if nothing was ever saved.
+    save: function (key, json) {
+      try { localStorage.setItem("crustgame:" + key, json); }
+      catch (e) { console.error("crust game: save failed", e); }
+    },
+    load: function (key) {
+      try {
+        var v = localStorage.getItem("crustgame:" + key);
+        return v === null ? null : v;
+      } catch (e) {
+        return null;
+      }
     }
   };
 

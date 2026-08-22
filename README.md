@@ -576,6 +576,8 @@ WASM build (never in the plain CLI interpreter):
 | `clearScene()` | destroy every spawned handle at once (a level transition, a "restart this wave") — leaves `onFrame`'s callback, key state, and the camera untouched |
 | `tileAt(layout, tileSize, x, y)` | the character at world position `(x, y)` in a `loadTilemap`-shaped layout String — a pure lookup, no engine-side tile-solidity tracking; `""` past the map's edge |
 | `emitParticles(x, y, count, color, speed, lifetime)` | a fire-and-forget burst of `count` dots flying outward at up to `speed` px/s, fading out over `lifetime` seconds — no handle, nothing to `setPos`/`destroy` afterward |
+| `playAnimation(handle, row, frameCount, fps, frameW, frameH)` / `stopAnimation(handle)` | loop a `sprite()` handle through `frameCount` sprite-sheet columns on `row` at `fps` frames/second, without hand-rolling the per-frame `setFrame` math yourself; freeze it on whatever frame it's showing |
+| `save(key, value)` / `load(key)` | persist a value (Integer/Float/String/Boolean/`nobox`/List/Map with String keys) across page reloads — backed by the browser's own storage; `load` on a never-saved key reads as `nobox`, same as a missing Map key |
 | `stageSize()` | `(width, height)` in pixels — the viewport, unaffected by the camera |
 | `onFrame(fn)` | register `fn`, called with `dt` (elapsed seconds) once per animation frame |
 | `random()` | a Float in `[0, 1)` |
@@ -623,6 +625,119 @@ hard way: collision is axis-aligned only (no rotated-hitbox precision),
 `clearScene()` is a flat "destroy everything" primitive rather than a
 scene stack/graph, and `tileAt` hands back a raw character rather than
 tracking tile solidity itself — the game decides what counts as solid.
+
+#### Getting started: a walkthrough
+
+Run `crust game` with no file argument, hit Run once to see the
+preloaded arrow-key demo move, then clear the editor and build up a
+tiny game from nothing, one concept at a time.
+
+**1. A shape that exists.** Every program's top-level code runs once,
+immediately — there's no `store` entry point to define here, top-level
+code doubles as setup:
+
+```
+w, h = stageSize()
+player = rect(40, 40, "#c0392b")
+setPos(player, w / 2, h / 2)
+```
+
+Hit Run (or Ctrl/Cmd+Enter). A red square, centered on the stage.
+
+**2. Make it move.** `onFrame(fn)` registers `fn` to run once per
+animation frame, called with `dt` (elapsed seconds) — the one thing
+that actually has to happen every frame rather than once at startup:
+
+```
+speed = 220
+recipe onTick(dt) {
+    order (keyDown("ArrowLeft")) { x = x - speed * dt }
+    order (keyDown("ArrowRight")) { x = x + speed * dt }
+    setPos(player, x, y)
+}
+onFrame(onTick)
+```
+
+(with `x, y = w / 2, h / 2` declared before `onTick` so it closes over
+them). Multiplying by `dt` rather than moving a fixed amount per frame
+is what keeps speed consistent regardless of the browser's actual frame
+rate.
+
+**3. Something to react to, and a score.** `circle`/`overlaps` for a
+target, `text`/`setText` for a HUD label that updates in place rather
+than being destroyed and respawned every time the number changes:
+
+```
+target = circle(15, "#2f7a4f")
+setPos(target, random() * w, random() * h)
+score = 0
+label = text("score: 0", 18, "#3b2a1a")
+setPos(label, 50, 16)
+
+recipe onTick(dt) {
+    // ...movement from step 2...
+    order (overlaps(player, target)) {
+        score = score + 1
+        setText(label, "score: " + str(score))
+        setPos(target, random() * w, random() * h)
+    }
+}
+```
+
+**4. Feedback: sound and particles.** `sound(url)`/`playSound(handle)`
+load and play audio (relative to your `.crust` file — see [Loading your
+own images/audio](#loading-your-own-imagesaudio) above);
+`emitParticles` is a fire-and-forget burst with no handle to manage
+afterward:
+
+```
+ding = sound("ding.wav")
+// inside the order (overlaps(...)) block from step 3:
+playSound(ding)
+emitParticles(x, y, 12, "#2f7a4f", 150, 0.6)
+```
+
+**5. Mouse/touch.** `mouseClicked(button)` is edge-triggered (true only
+on the frame a press started — held state is `mouseDown`), and
+`mouseX()`/`mouseY()` already report world-space coordinates, camera
+and all — a touch tap reports as `"left"`, so there's nothing device-
+specific to branch on:
+
+```
+order (mouseClicked("left")) {
+    setPos(player, mouseX(), mouseY())
+}
+```
+
+**6. Animate a sprite.** Drop a sprite-sheet PNG next to your `.crust`
+file (each frame the same size, laid out in a row) and
+`playAnimation(handle, row, frameCount, fps, frameW, frameH)` cycles
+through it on its own — no per-frame frame-math to write:
+
+```
+player = sprite("hero-walk.png", 40, 40)
+playAnimation(player, 0, 4, 8, 32, 32)   // row 0, 4 frames, 8fps, each 32x32
+```
+
+**7. Remember a high score across reloads.** `save(key, value)` /
+`load(key)` persist through the browser's own storage — survives a
+page reload, closing the tab, coming back tomorrow. `load` on a key
+nothing was ever saved to reads as `nobox`, same as a missing Map key,
+so a first-ever run doesn't need a special case:
+
+```
+best = load("bestScore")
+order (best == nobox) { best = 0 }
+
+// wherever the run actually ends:
+order (score > best) {
+    best = score
+    save("bestScore", best)
+}
+```
+
+From here, [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
+is the same ideas at full size — see below.
 
 [`examples/game/game_survivors.crust`](./examples/game/game_survivors.crust)
 (`crust game examples/game/game_survivors.crust`) puts the original

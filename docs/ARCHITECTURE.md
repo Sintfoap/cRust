@@ -4938,6 +4938,79 @@ code was written.
       the third click confirmed dropping the live object count to 0
       while the `onFrame` callback kept running afterward rather than
       crashing.
+  - **Animation playback and persisted save data** (`cmd/wasmgame/
+    builtins.go`, `cmd/wasmgame/main.go`, `cmd/crust/game_assets/
+    index.html`), on direct follow-up request — asked "anything else I
+    should add for game development," two concrete gaps were named
+    (persisted state, since nothing survived a reload; an animation
+    helper, since `setFrame` needed hand-rolled per-frame timing math)
+    and approved with "go ahead on those and the getting started
+    walkthrough."
+    - **`playAnimation` is Go-side state for the first time in this
+      file's history that isn't collision geometry.** A new
+      `animations map[int64]*animState` (row/frameCount/frameW/frameH/
+      fps/elapsed/frame) is ticked once per `crustGameFrame` call
+      (`tickAnimations`, `main.go`) — deliberately *before* the
+      `onFrameFn == nil` early return, so a sprite animates even in a
+      program that never registers its own per-frame callback at all
+      (a static scene with one idle decoration). The tick is a bounded
+      `while`, not a single `if` — catching up more than one frame step
+      per call so a stutter (a slow frame, a backgrounded tab) skips
+      intermediate frames rather than visibly slowing the animation
+      down. No new host method: it just calls the same `setFrame` host
+      relay `setFrame()` itself already established, repeatedly, on a
+      timer Go owns — `index.html` has no idea an animation even
+      exists as a concept.
+    - **`save`/`load` serialize through JSON, not some cRust-specific
+      format**, so what's actually sitting in `localStorage` (namespaced
+      under `"crustgame:"`, `index.html`'s own `save`/`load` host
+      methods) is ordinary, inspectable JSON if anyone goes looking in
+      devtools. `objectToJSON`/`jsonToObject` (`builtins.go`) support
+      exactly what JSON can represent losslessly — Integer, Float,
+      String, Boolean, `nobox`, List, and a Map *with String keys only*
+      — and deliberately error rather than silently stringify a Map
+      keyed by Integer/Float/Boolean (cRust's other Hashable key types),
+      which would quietly change the key's type on the next `load()`.
+      JSON's own lack of a separate integer type (Go's decoder always
+      hands back `float64`) is bridged by round-tripping a whole number
+      back to an Integer and only a genuinely fractional value to a
+      Float — matching what a script that called `save(key,
+      someInteger)` would expect to read back. `load` on a key nothing
+      was ever saved to reads as `nobox`, the same "absence is `nobox`,
+      not an error" convention `Map`'s own `Get`/`pop` already give a
+      missing key, rather than a special "was this ever saved" query a
+      script would have to remember to call first. Both host methods
+      wrap `localStorage` access in try/catch — a private-browsing tab
+      or a full storage quota can make every call throw, and that's not
+      a reason for a game's save/load to crash rather than just behave
+      as if nothing was ever saved.
+    - **A getting-started walkthrough went into the README**, not a
+      separate doc or the `crust bake documentation` site — the latter
+      is generated from `internal/builtins`' own table and deliberately
+      has no idea `crust game`/`crust studio` exist at all (a different
+      question in the same conversation surfaced this gap directly).
+      Seven cumulative steps (a shape, movement, collision + a score
+      label, sound + particles, mouse input, sprite animation, and
+      finally persisted save data), each one small enough to paste in
+      and immediately see the difference on stage, ending with a
+      pointer to `game_survivors.crust` as "the same ideas at full
+      size."
+    - Verified with real Playwright-driven headless verification
+      (temporary `window.__debugGame` hooks again, removed before the
+      final build) against a purpose-built program: `save`/`load`
+      round-tripping an Integer and a Map, confirmed both via the
+      program's own `deliver()` output and by reading
+      `localStorage.getItem` directly; a Map with a non-String key
+      confirmed producing a real runtime error (`save: Map keys must
+      be String to be saved, got INTEGER`) that halts the program, not
+      a value a script could inspect and route around; save data
+      confirmed surviving an actual full page reload (`page.reload()`
+      creates a genuinely fresh WASM instance — only `localStorage`
+      persists), not just re-running within the same session;
+      `playAnimation` confirmed advancing a sprite's cropped texture
+      frame over time and `stopAnimation` confirmed freezing it exactly
+      where it was (`texture.frame.x` sampled twice, 500ms apart, after
+      stopping — identical both times).
 - **`crust studio`** (`cmd/crust/studio.go`, `studio_tui.go`,
   `studio_builtins.go`), on direct follow-up request — "what about
   something like the develop tool: a bubbletea application that I can

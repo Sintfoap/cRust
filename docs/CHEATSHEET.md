@@ -249,7 +249,13 @@ handle to one cell of a sprite sheet; `setLayer(handle, z)` sets draw
 order (higher `z` on top); `clearScene()` destroys every spawned
 handle at once, leaving `onFrame`'s callback/keys/camera alone;
 `emitParticles(x, y, count, color, speed, lifetime)` fires a handle-less
-burst of fading dots; `stageSize()` returns `(width, height)` (the
+burst of fading dots; `playAnimation(handle, row, frameCount, fps,
+frameW, frameH)` / `stopAnimation(handle)` loop a sprite through a
+sprite-sheet row automatically (no per-frame `setFrame` math needed) /
+freeze it; `save(key, value)` / `load(key)` persist a value (Integer/
+Float/String/Boolean/`nobox`/List/Map-with-String-keys) across page
+reloads via the browser's own storage, `load` on a never-saved key
+reading as `nobox`; `stageSize()` returns `(width, height)` (the
 viewport, unaffected by the camera); `onFrame(fn)` registers `fn(dt)`
 to run once per animation frame — top-level code doubles as setup
 here, since there's no `store`/`store_<name>` entry point to call;
